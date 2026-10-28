@@ -21,13 +21,23 @@ export function App({ adapter = chromeStorage }: AppProps) {
 
   useEffect(() => {
     let cancelled = false
-    void createBookmarkStore(adapter).then((created) => {
-      if (cancelled) return
+    // 序号防止乱序:仅最后一次重建生效(自身写入与 service worker 写入都会触发)
+    let bootSeq = 0
+    async function boot() {
+      const current = ++bootSeq
+      const created = await createBookmarkStore(adapter)
+      if (cancelled || current !== bootSeq) return
       setStore(created)
       setState(created.getState())
+    }
+    void boot()
+    // 跨上下文同步:任何上下文写入状态(含本页自己)→ 重建收藏库重渲染
+    const unsubscribe = adapter.subscribe?.(() => {
+      void boot()
     })
     return () => {
       cancelled = true
+      unsubscribe?.()
     }
   }, [adapter])
 

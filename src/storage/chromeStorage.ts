@@ -16,5 +16,16 @@ export function createChromeStorage(): StorageAdapter {
     async save(state: BookmarkState): Promise<void> {
       await chrome.storage.local.set({ [STATE_KEY]: state })
     },
+    subscribe(listener: () => void): () => void {
+      const onChange = (
+        changes: Record<string, chrome.storage.StorageChange>,
+        areaName: string,
+      ): void => {
+        // chrome 会在所有注册监听的上下文触发(含写入方自身)
+        if (areaName === 'local' && STATE_KEY in changes) listener()
+      }
+      chrome.storage.onChanged.addListener(onChange)
+      return () => chrome.storage.onChanged.removeListener(onChange)
+    },
   }
 }
