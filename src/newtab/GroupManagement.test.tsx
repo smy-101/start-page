@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { App } from './App'
 import { createMemoryStorage } from '../storage/memoryStorage'
@@ -138,3 +138,77 @@ describe('分组管理:删除分组回收', () => {
     expect(within(work).getAllByRole('listitem')).toHaveLength(2)
   })
 })
+
+describe('分组管理:拖拽三件套', () => {
+  it('组间排序:把工作分组拖到收集箱分区上,工作排到收集箱之前', async () => {
+    await renderSeeded()
+    expect(sectionNames()).toEqual(['收集箱', '工作'])
+
+    const work = screen.getByRole('region', { name: '工作' })
+    fireEvent.dragStart(within(work).getByRole('heading', { name: '工作' }))
+    fireEvent.drop(screen.getByRole('region', { name: '收集箱' }))
+
+    await waitFor(() => expect(sectionNames()).toEqual(['工作', '收集箱']))
+  })
+
+  it('组内排序:把第二张收藏拖到第一张之前', async () => {
+    const { work } = await renderSeeded()
+    expect(cardTitles(work)).toEqual(['工作一', '工作二'])
+
+    fireEvent.dragStart(within(work).getAllByRole('listitem')[1])
+    fireEvent.dragOver(within(work).getAllByRole('listitem')[0])
+    fireEvent.drop(within(work).getAllByRole('listitem')[0])
+
+    await waitFor(() => expect(cardTitles(work)).toEqual(['工作二', '工作一']))
+  })
+
+  it('跨组移动:把工作收藏拖到收集箱分区,追加到收集箱末尾', async () => {
+    const { work } = await renderSeeded()
+
+    fireEvent.dragStart(within(work).getAllByRole('listitem')[0])
+    fireEvent.drop(screen.getByRole('region', { name: '收集箱' }))
+
+    await waitFor(() => {
+      expect(cardTitles(screen.getByRole('region', { name: '收集箱' }))).toEqual([
+        '收件',
+        '工作一',
+      ])
+    })
+    expect(cardTitles(screen.getByRole('region', { name: '工作' }))).toEqual(['工作二'])
+  })
+
+  it('跨组移动到指定位置:把收集箱收藏拖到工作的第二张之前', async () => {
+    await renderSeeded()
+    const inbox = screen.getByRole('region', { name: '收集箱' })
+    const work = screen.getByRole('region', { name: '工作' })
+
+    fireEvent.dragStart(within(inbox).getAllByRole('listitem')[0])
+    fireEvent.drop(within(work).getAllByRole('listitem')[1])
+
+    await waitFor(() => expect(cardTitles(work)).toEqual(['工作一', '收件', '工作二']))
+    expect(cardTitles(inbox)).toEqual([])
+  })
+
+  it('未拖拽时放置不产生任何变化', async () => {
+    const { work, inbox } = await renderSeeded()
+
+    fireEvent.drop(inbox)
+    fireEvent.drop(within(work).getAllByRole('listitem')[0])
+
+    expect(sectionNames()).toEqual(['收集箱', '工作'])
+    expect(cardTitles(work)).toEqual(['工作一', '工作二'])
+    expect(cardTitles(inbox)).toEqual(['收件'])
+  })
+})
+
+/** 页面上分区(分组)的顺序,即组间排序结果。 */
+function sectionNames(): string[] {
+  return screen.getAllByRole('region').map((el) => el.getAttribute('aria-label') ?? '')
+}
+
+/** 某分组内卡片标题的渲染顺序(空组返回空列表)。 */
+function cardTitles(section: HTMLElement): string[] {
+  return within(section)
+    .queryAllByRole('listitem')
+    .map((card) => card.querySelector('.card-title')?.textContent ?? '')
+}
