@@ -1,4 +1,6 @@
-import type { BookmarkState, Result } from './types'
+import type { Bookmark, BookmarkState, Group, Result, StorageAdapter } from './types'
+import { INBOX_GROUP_COLOR, INBOX_GROUP_ID, INBOX_GROUP_NAME, SCHEMA_VERSION } from './types'
+import { normalizeUrl } from './url'
 
 /**
  * 导入导出:双格式(JSON 完整备份 / Netscape HTML 通用迁移)双向。
@@ -121,4 +123,110 @@ export function parseBookmarksHtml(html: string): Result<ParsedBookmarks> {
     return { ok: false, error: 'invalid-import' }
   }
   return { ok: true, value: parsed }
+}
+
+export type ImportMode = 'merge' | 'replace'
+
+/** 导入结果统计:UI 据此提示「新增 N 条、跳过 M 条」。 */
+export interface ImportReport {
+  added: number
+  skipped: number
+}
+
+/** HTML 不携带颜色,导入分组统一用此默认色。 */
+export const IMPORTED_GROUP_COLOR = '#8b5cf6'
+
+/** 待并入的分组(名→目标组),颜色仅在建新组时生效。 */
+interface IncomingGroup {
+  name: string
+  color: string
+  bookmarks: ParsedBookmark[]
+}
+
+function emptyState(): BookmarkState {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    groups: [{ id: INBOX_GROUP_ID, name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, order: 0 }],
+    bookmarks: [],
+  }
+}
+
+function nextOrder(orders: number[]): number {
+  return orders.length === 0 ? 0 : Math.max(...orders) + 1
+}
+
+/**
+ * 合并并入:分组按名归入(同名并组、新名建组追加在后);
+ * 每条收藏经唯一 normalizeUrl 路径规范化判重(与手动添加同源),
+ * 重复或无效则跳过,空标题回退主机名(与手动添加同规则)。
+ */
+function ingestInto(
+  base: BookmarkState,
+  incoming: IncomingGroup[],
+): { state: BookmarkState; report: ImportReport } {
+  const groups = base.groups.map((g) => ({ ...g }))
+  const bookmarks = base.bookmarks.map((b) => ({ ...b }))
+  const byName = new Map(groups.map((g) => [g.name, g]))
+  const seen = new Set(bookmarks.map((b) => b.url))
+  let added = 0
+  let skipped = 0
+
+  for (const inc of incoming) {
+    let target: Group | undefined = byName.get(inc.name)
+    if (!target) {
+      target = {
+        id: crypto.randomUUID(),
+        name: inc.name,
+        color: inc.color,
+        order: nextOrder(groups.map((g) => g.order)),
+      }
+      groups.push(target)
+      byName.set(target.name, target)
+    }
+    for (const parsedBookmark of inc.bookmarks) {
+      const url = normalizeUrl(parsedBookmark.url)
+      if (url === null || seen.has(url)) {
+        skipped += 1
+        continue
+      }
+      seen.add(url)
+      bookmarks.push({
+        id: crypto.randomUUID(),
+        url,
+        title: parsedBookmark.title.trim() || new URL(url).hostname,
+        note: parsedBookmark.note.trim(),
+        groupId: target.id,
+        order: nextOrder(
+          bookmarks.filter((b) => b.groupId === target!.id).map((b) => b.order),
+        ),
+      })
+      added += 1
+    }
+  }
+
+  return {
+    state: { schemaVersion: SCHEMA_VERSION, groups, bookmarks },
+    report: { added, skipped },
+  }
+}
+
+/** 导入 Netscape 书签 HTML:始终为合并模式(文件夹建组、判重跳过)。 */
+export async function importBookmarksFromHtml(
+  adapter: StorageAdapter,
+  html: string,
+): Promise<Result<ImportReport>> {
+  const parsed = parseBookmarksHtml(html)
+  if (!parsed.ok) return parsed
+  const base = (await adapter.load()) ?? emptyState()
+  const incoming: IncomingGroup[] = parsed.value.groups.map((g) => ({
+    name: g.name,
+    color: IMPORTED_GROUP_COLOR,
+    bookmarks: g.bookmarks,
+  }))
+  if (parsed.value.inbox.length > 0) {
+    incoming.unshift({ name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, bookmarks: parsed.value.inbox })
+  }
+  const { state, report } = ingestInto(base, incoming)
+  await adapter.save(state)
+  return { ok: true, value: report }
 }

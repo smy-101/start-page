@@ -3,7 +3,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { BookmarkState } from './types'
 import { INBOX_GROUP_ID } from './types'
-import { exportStateAsHtml, exportStateAsJson, parseBookmarksHtml } from './importExport'
+import { exportStateAsHtml, exportStateAsJson, importBookmarksFromHtml, parseBookmarksHtml } from './importExport'
+import { createMemoryStorage } from '../storage/memoryStorage'
+import { createBookmarkStore } from './store'
 
 /** 仿真实 Chrome 导出的书签 HTML(书签栏+嵌套文件夹+DD 备注+小书签+根级书签)。 */
 const chromeExportHtml = readFileSync(
@@ -177,5 +179,73 @@ describe('解析 HTML:DOMParser 纯函数(真实 Chrome 导出样本)', () => {
       error: 'invalid-import',
     })
     expect(parseBookmarksHtml('{"schemaVersion":1}')).toEqual({ ok: false, error: 'invalid-import' })
+  })
+})
+
+describe('导入 HTML:合并进现有状态(URL 判重跳过)', () => {
+  it('空库导入 Chrome 样本:根级书签进收集箱、文件夹建分组,报告新增 6 跳过 1,结果已保存', async () => {
+    const adapter = createMemoryStorage()
+
+    const result = await importBookmarksFromHtml(adapter, chromeExportHtml)
+
+    expect(result).toEqual({ ok: true, value: { added: 6, skipped: 1 } })
+    const state = await adapter.load()
+    expect(state!.groups.map((g) => g.name)).toEqual(['收集箱', '书签栏', '开发工具', '阅读清单'])
+    expect(state!.bookmarks).toHaveLength(6)
+    // 无效 URL(小书签 javascript:)被跳过
+    expect(state!.bookmarks.some((b) => b.url.startsWith('javascript:'))).toBe(false)
+    // URL 经规范化去根路径尾斜杠
+    const google = state!.bookmarks.find((b) => b.title === 'Google')!
+    expect(google.url).toBe('https://www.google.com')
+    const bar = state!.groups.find((g) => g.name === '书签栏')!
+    expect(google.groupId).toBe(bar.id)
+    // 备注/DD 保留;根级书签进收集箱;新建分组都有颜色
+    const github = state!.bookmarks.find((b) => b.title === 'GitHub')!
+    expect(github.note).toBe('代码托管')
+    const rootLevel = state!.bookmarks.find((b) => b.url === 'https://news.example.org/daily')!
+    expect(rootLevel.groupId).toBe(INBOX_GROUP_ID)
+    for (const group of state!.groups) {
+      if (group.id !== INBOX_GROUP_ID) expect(group.color).toMatch(/^#[0-9a-f]{6}$/)
+    }
+  })
+
+  it('与手动添加共用同一判重路径:库中已有同 URL 时导入跳过该条', async () => {
+    const adapter = createMemoryStorage()
+    const store = await createBookmarkStore(adapter)
+    await store.addBookmark({ url: 'https://www.google.com/', title: '手动加的 Google' })
+
+    const result = await importBookmarksFromHtml(adapter, chromeExportHtml)
+
+    expect(result).toEqual({ ok: true, value: { added: 5, skipped: 2 } })
+    const state = await adapter.load()
+    // 手动加的那条保留,导入的同 URL 条被跳过
+    expect(state!.bookmarks.filter((b) => b.url === 'https://www.google.com')).toHaveLength(1)
+    expect(state!.bookmarks.find((b) => b.url === 'https://www.google.com')!.title).toBe(
+      '手动加的 Google',
+    )
+  })
+
+  it('重复导入同一文件:全部判重,新增 0 跳过 7', async () => {
+    const adapter = createMemoryStorage()
+    await importBookmarksFromHtml(adapter, chromeExportHtml)
+
+    const result = await importBookmarksFromHtml(adapter, chromeExportHtml)
+
+    expect(result).toEqual({ ok: true, value: { added: 0, skipped: 7 } })
+    expect((await adapter.load())!.bookmarks).toHaveLength(6)
+  })
+
+  it('空标题书签回退主机名(与手动添加同规则)', async () => {
+    const adapter = createMemoryStorage()
+    const html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<DL><p>
+    <DT><A HREF="https://no-title.example.com/"></A>
+</DL><p>
+`
+
+    await importBookmarksFromHtml(adapter, html)
+
+    const state = await adapter.load()
+    expect(state!.bookmarks[0]!.title).toBe('no-title.example.com')
   })
 })
