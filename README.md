@@ -21,7 +21,7 @@ npm run build      # 构建可加载的扩展产物到 dist/
 1. `npm run build`
 2. 打开 `chrome://extensions`,右上角开启「开发者模式」
 3. 点击「加载已解压的扩展程序」,选择本仓库的 **`dist/`** 目录
-4. 打开新标签页 → 应显示「初始页」(当前为收集箱空状态的骨架)
+4. 打开新标签页 → 应显示「初始页」:可向收集箱添加/编辑/删除收藏,点击卡片打开网页
 5. 代码更新后重新 `npm run build`,再到 `chrome://extensions` 点扩展卡片上的刷新按钮
 
 注意:Chrome 品牌版 137+ 已禁用 `--load-extension` 启动参数,加载一律走 chrome://extensions 页面。
@@ -33,6 +33,8 @@ npm run build      # 构建可加载的扩展产物到 dist/
 
 ```
 manifest.config.ts            # MV3 manifest(defineManifest)
+src/domain/                   # 领域层:纯 TypeScript,零 chrome.* 依赖,存储适配器注入
+src/storage/                  # 存储适配器:chrome.storage.local 真实实现 + 内存实现(测试)
 src/newtab/                   # 新标签页「初始页」React 应用
 icons/                        # 扩展图标(PNG,manifest 仅支持位图)
 scripts/generate-icons.mjs    # 图标生成脚本:node scripts/generate-icons.mjs
