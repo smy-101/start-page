@@ -37,6 +37,7 @@ src/domain/                   # 领域层:纯 TypeScript,零 chrome.* 依赖,存
 src/storage/                  # 存储适配器:chrome.storage.local 真实实现 + 内存实现(测试)
 src/newtab/                   # 新标签页「初始页」React 应用
 src/background/               # MV3 service worker:工具栏一键收藏接线(index.ts 汇聚入口)
+tests/fixtures/               # 测试样本(真实形态的浏览器书签导出 HTML 等)
 icons/                        # 扩展图标(PNG,manifest 仅支持位图)
 public/icons/                 # 仅运行时 setIcon 引用的工具栏状态图标,Vite 原样复制进 dist
 scripts/generate-icons.mjs    # 图标生成脚本:node scripts/generate-icons.mjs

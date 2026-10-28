@@ -6,6 +6,7 @@ import { filterState } from '../domain/search'
 import { createChromeStorage } from '../storage/chromeStorage'
 import { AddBookmarkForm } from './AddBookmarkForm'
 import { BookmarkGroups } from './BookmarkGroups'
+import { ImportExport } from './ImportExport'
 import { SearchBox } from './SearchBox'
 import { searchUrl } from './searchEngine'
 import { domainErrorText } from './messages'
@@ -21,6 +22,9 @@ export function App({ adapter = chromeStorage }: AppProps) {
   const [store, setStore] = useState<BookmarkStore | null>(null)
   const [state, setState] = useState<BookmarkState | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // 导入会绕过 store 直接写适配器;递增此计数强制重建 store 重读状态
+  // (适配器 subscribe 亦会触发;此处与跨上下文同步机制并存,epoch 保底刷新)
+  const [storeEpoch, setStoreEpoch] = useState(0)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -43,7 +47,7 @@ export function App({ adapter = chromeStorage }: AppProps) {
       cancelled = true
       unsubscribe?.()
     }
-  }, [adapter])
+  }, [adapter, storeEpoch])
 
   if (!store || !state) {
     return (
@@ -81,7 +85,14 @@ export function App({ adapter = chromeStorage }: AppProps) {
 
   return (
     <main className="page">
-      <h1 className="page-title">初始页</h1>
+      <header className="page-header">
+        <h1 className="page-title">初始页</h1>
+        <ImportExport
+          state={state}
+          adapter={adapter}
+          onImported={() => setStoreEpoch((epoch) => epoch + 1)}
+        />
+      </header>
       <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
       <AddBookmarkForm onAdd={handleAdd} />
       {error && (

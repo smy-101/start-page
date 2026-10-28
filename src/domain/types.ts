@@ -51,6 +51,7 @@ export type DomainErrorCode =
   | 'group-not-found'
   | 'empty-group-name'
   | 'empty-group-color'
+  | 'invalid-import'
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: DomainErrorCode }
 
@@ -59,6 +60,9 @@ export const SCHEMA_VERSION = 1
 
 /** 收集箱:保留分组,固定 id,永远存在、不可删除。 */
 export const INBOX_GROUP_ID = 'inbox'
+
+/** 收集箱的显示名(状态中的分组名)。 */
+export const INBOX_GROUP_NAME = '收集箱'
 
 /** 收集箱的默认颜色(浅色蓝,深浅色下均可辨识)。 */
 export const INBOX_GROUP_COLOR = '#3b82f6'

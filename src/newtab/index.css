@@ -66,6 +66,55 @@ body {
   font-weight: 700;
 }
 
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.page-header .page-title {
+  margin: 0;
+}
+
+.import-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.import-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.import-mode-label {
+  margin-left: 4px;
+}
+
+.import-mode small {
+  color: var(--muted);
+}
+
+.import-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.import-report {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .loading {
   color: var(--muted);
   font-size: 14px;
