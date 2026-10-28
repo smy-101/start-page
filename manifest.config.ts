@@ -26,6 +26,7 @@ export default defineManifest({
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  // tabs:读取 tab.url 供工具栏图标状态判定与一键收藏
-  permissions: ['storage', 'tabs', 'favicon'],
+  // tabs:读取 tab.url 供工具栏图标状态判定、一键收藏与「取消收藏」可见性(菜单点击写入用 info.pageUrl,不需它)
+  // contextMenus:右键「收藏到→某组」
+  permissions: ['storage', 'tabs', 'favicon', 'contextMenus'],
 })
