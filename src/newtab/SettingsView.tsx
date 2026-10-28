@@ -6,6 +6,7 @@ import type { EngineId } from './searchEngine'
 import { ENGINES, ENGINE_IDS } from './searchEngine'
 import type { Settings } from './settings'
 import { getNativeBookmarkTree } from './nativeBookmarks'
+import { importReportText } from './messages'
 import { ImportExport } from './ImportExport'
 
 type SettingsViewProps = {
@@ -19,11 +20,6 @@ type SettingsViewProps = {
   onImported: () => void
   /** chrome.bookmarks 树读取缝隙(测试注入假树) */
   getBookmarkTree?: () => Promise<NativeBookmarkNode[]>
-}
-
-/** 原生书签导入按钮的状态提示。 */
-function reportText(added: number, skipped: number): string {
-  return `新增 ${added} 条、跳过 ${skipped} 条`
 }
 
 /**
@@ -47,7 +43,7 @@ export function SettingsView({
       const result = await importNativeBookmarks(adapter, await getBookmarkTree())
       if (result.ok) {
         setNativeError(null)
-        setNativeReport(reportText(result.value.added, result.value.skipped))
+        setNativeReport(importReportText(result.value))
         onImported()
       } else {
         // 解析层唯一失败模式:树中无任何可导入书签

@@ -68,3 +68,19 @@ export const INBOX_GROUP_NAME = '收集箱'
 
 /** 收集箱的默认颜色(浅色蓝,深浅色下均可辨识)。 */
 export const INBOX_GROUP_COLOR = '#3b82f6'
+
+/**
+ * 收集箱分组唯一构造:初始状态、损坏修复(补缺,order -1 排最前)、
+ * 导入空态等全部引导处共用同一形状,不再各自手写字面量。
+ */
+export function createInboxGroup(order: number): Group {
+  return { id: INBOX_GROUP_ID, name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, order }
+}
+
+/** 追加到末尾的下一个 order:空列表为 0,否则最大值 +1。 */
+export function nextOrder(orders: number[]): number {
+  return orders.length === 0 ? 0 : Math.max(...orders) + 1
+}
+
+/** 删除分组的返回:被删组 id 与回收入收集箱的收藏 id 列表。 */
+export type DeleteGroupResult = Result<{ groupId: GroupId; recycledIds: BookmarkId[] }>

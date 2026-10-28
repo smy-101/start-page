@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Bookmark, Group, Result } from '../domain/types'
+import type { Bookmark, BookmarkId, Group, Result } from '../domain/types'
 import type { BookmarkPatch } from '../domain/store'
 import { Favicon } from './Favicon'
 import { domainErrorText } from './messages'
@@ -9,8 +9,8 @@ type BookmarkCardProps = {
   group: Group
   /** 分组候选(按 order 排序,含收集箱):spec 故事 24 编辑需可换组 */
   groups: Group[]
-  onEdit: (id: string, patch: BookmarkPatch) => Promise<Result<Bookmark>>
-  onDelete: (id: string) => Promise<Result<string>>
+  onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>
+  onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>
   /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(拖到某卡片之前)。 */
   onDragStart(): void
   onDragEnd(): void

@@ -1,5 +1,12 @@
 import type { Bookmark, BookmarkState, Group, Result, StorageAdapter } from './types'
-import { INBOX_GROUP_COLOR, INBOX_GROUP_ID, INBOX_GROUP_NAME, SCHEMA_VERSION } from './types'
+import {
+  createInboxGroup,
+  INBOX_GROUP_COLOR,
+  INBOX_GROUP_ID,
+  INBOX_GROUP_NAME,
+  nextOrder,
+  SCHEMA_VERSION,
+} from './types'
 import { normalizeUrl } from './url'
 
 /**
@@ -38,8 +45,8 @@ export function exportStateAsHtml(state: BookmarkState): string {
     '     It will be read and overwritten.',
     '     DO NOT EDIT! -->',
     '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
-    '<TITLE>起始页收藏</TITLE>',
-    '<H1>起始页收藏</H1>',
+    '<TITLE>初始页收藏</TITLE>',
+    '<H1>初始页收藏</H1>',
     '<DL><p>',
   ]
   for (const group of groups) {
@@ -146,13 +153,9 @@ interface IncomingGroup {
 function emptyState(): BookmarkState {
   return {
     schemaVersion: SCHEMA_VERSION,
-    groups: [{ id: INBOX_GROUP_ID, name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, order: 0 }],
+    groups: [createInboxGroup(0)],
     bookmarks: [],
   }
-}
-
-function nextOrder(orders: number[]): number {
-  return orders.length === 0 ? 0 : Math.max(...orders) + 1
 }
 
 /**
@@ -298,7 +301,7 @@ function parseStateJson(raw: string): Result<BookmarkState> {
 function restoreFrom(backup: BookmarkState): { state: BookmarkState; report: ImportReport } {
   const groups = backup.groups.map((g) => ({ ...g }))
   if (!groups.some((g) => g.id === INBOX_GROUP_ID)) {
-    groups.unshift({ id: INBOX_GROUP_ID, name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, order: -1 })
+    groups.unshift(createInboxGroup(-1))
   }
   const groupIds = new Set(groups.map((g) => g.id))
   const seen = new Set<string>()

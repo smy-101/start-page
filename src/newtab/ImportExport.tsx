@@ -7,7 +7,7 @@ import {
   importBookmarksFromHtml,
   importStateFromJson,
 } from '../domain/importExport'
-import { domainErrorText } from './messages'
+import { domainErrorText, importReportText } from './messages'
 
 type ImportExportProps = {
   /** 当前状态快照(导出用;导入后由 onImported 促使父层重建) */
@@ -56,7 +56,7 @@ export function ImportExport({ state, adapter, onImported }: ImportExportProps) 
       : await importBookmarksFromHtml(adapter, text)
     if (result.ok) {
       setError(null)
-      setReport(`新增 ${result.value.added} 条、跳过 ${result.value.skipped} 条`)
+      setReport(importReportText(result.value))
       onImported()
     } else {
       setReport(null)

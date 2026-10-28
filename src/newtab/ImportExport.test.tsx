@@ -163,7 +163,7 @@ describe('导入导出组件(初始页设置区)', () => {
     const file = new File(['垃圾内容'], 'bad.json', { type: 'application/json' })
     fireEvent.change(screen.getByLabelText('导入文件'), { target: { files: [file] } })
 
-    expect(await screen.findByText('文件不是有效的起始页备份或书签文件')).toBeInTheDocument()
+    expect(await screen.findByText('文件不是有效的初始页备份或书签文件')).toBeInTheDocument()
     expect(await adapter.load()).toEqual(before)
   })
 })
