@@ -113,3 +113,85 @@ describe('添加收藏', () => {
     ])
   })
 })
+
+describe('编辑与删除收藏', () => {
+  async function storeWithOne() {
+    const store = await createBookmarkStore(createMemoryStorage())
+    const added = await store.addBookmark({ url: 'https://example.com', title: '示例', note: '' })
+    if (!added.ok) throw new Error('fixture setup failed')
+    return { store, id: added.value.id }
+  }
+
+  it('编辑标题/备注:修剪空白,其余字段不变', async () => {
+    const { store, id } = await storeWithOne()
+
+    const result = await store.updateBookmark(id, { title: ' 新标题 ', note: ' 有备注 ' })
+
+    expect(result.ok).toBe(true)
+    expect(store.getState().bookmarks[0]).toMatchObject({
+      id,
+      title: '新标题',
+      note: '有备注',
+      url: 'https://example.com',
+    })
+  })
+
+  it('编辑 URL:规范化后更新;改成别的收藏已有的 URL 被拒;改回自身 URL 不算重复', async () => {
+    const { store, id } = await storeWithOne()
+    await store.addBookmark({ url: 'https://other.com' })
+
+    const moved = await store.updateBookmark(id, { url: 'http://Example.com:80/a' })
+    expect(moved.ok).toBe(true)
+    if (moved.ok) expect(moved.value.url).toBe('http://example.com/a')
+
+    const dup = await store.updateBookmark(id, { url: 'https://other.com/#x' })
+    expect(dup).toEqual({ ok: false, error: 'duplicate-url' })
+
+    const self = await store.updateBookmark(id, { url: 'http://example.com/a' })
+    expect(self.ok).toBe(true)
+  })
+
+  it('编辑分组:移到现存分组;指定不存在的分组被拒', async () => {
+    const { store, id } = await storeWithOne()
+    const group = await store.createGroup({ name: '工作', color: '#e99695' })
+    if (!group.ok) throw new Error('fixture setup failed')
+
+    const moved = await store.updateBookmark(id, { groupId: group.value.id })
+    expect(moved.ok).toBe(true)
+    expect(store.getState().bookmarks[0].groupId).toBe(group.value.id)
+
+    const bad = await store.updateBookmark(id, { groupId: 'nope' })
+    expect(bad).toEqual({ ok: false, error: 'group-not-found' })
+  })
+
+  it('编辑不存在的收藏、非法 URL 均被拒', async () => {
+    const { store } = await storeWithOne()
+
+    expect(await store.updateBookmark('ghost', { title: 'x' })).toEqual({
+      ok: false,
+      error: 'bookmark-not-found',
+    })
+    expect(await store.updateBookmark((await store.getState()).bookmarks[0].id, { url: '垃圾' })).toEqual({
+      ok: false,
+      error: 'invalid-url',
+    })
+  })
+
+  it('删除收藏:从状态与持久层移除;再删报不存在', async () => {
+    const storage = createMemoryStorage()
+    const store = await createBookmarkStore(storage)
+    const { id } = await (async () => {
+      const added = await store.addBookmark({ url: 'https://example.com' })
+      if (!added.ok) throw new Error('fixture setup failed')
+      return { id: added.value.id }
+    })()
+
+    const removed = await store.removeBookmark(id)
+    expect(removed).toEqual({ ok: true, value: id })
+    expect(store.getState().bookmarks).toEqual([])
+    expect(await store.removeBookmark(id)).toEqual({ ok: false, error: 'bookmark-not-found' })
+
+    const reopened = await createBookmarkStore(storage)
+    expect(reopened.getState().bookmarks).toEqual([])
+  })
+})

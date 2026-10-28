@@ -1,5 +1,6 @@
 import type {
   Bookmark,
+  BookmarkId,
   BookmarkState,
   Group,
   GroupId,
@@ -21,6 +22,13 @@ export interface NewBookmarkInput {
   groupId?: GroupId
 }
 
+export interface BookmarkPatch {
+  url?: string
+  title?: string
+  note?: string
+  groupId?: GroupId
+}
+
 export interface NewGroupInput {
   name: string
   color: string
@@ -30,6 +38,8 @@ export interface BookmarkStore {
   /** 当前状态快照(创建时已从适配器加载) */
   getState(): BookmarkState
   addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>>
+  updateBookmark(id: BookmarkId, patch: BookmarkPatch): Promise<Result<Bookmark>>
+  removeBookmark(id: BookmarkId): Promise<Result<BookmarkId>>
   createGroup(input: NewGroupInput): Promise<Result<Group>>
 }
 
@@ -98,6 +108,42 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       state = { ...state, bookmarks: [...state.bookmarks, bookmark] }
       await adapter.save(state)
       return { ok: true, value: bookmark }
+    },
+
+    async updateBookmark(id: BookmarkId, patch: BookmarkPatch): Promise<Result<Bookmark>> {
+      const existing = state.bookmarks.find((b) => b.id === id)
+      if (!existing) return { ok: false, error: 'bookmark-not-found' }
+      let url = existing.url
+      if (patch.url !== undefined) {
+        const next = normalizeUrl(patch.url)
+        if (next === null) return { ok: false, error: 'invalid-url' }
+        if (state.bookmarks.some((b) => b.url === next && b.id !== id)) {
+          return { ok: false, error: 'duplicate-url' }
+        }
+        url = next
+      }
+      let groupId = existing.groupId
+      if (patch.groupId !== undefined) {
+        if (!groupExists(patch.groupId)) return { ok: false, error: 'group-not-found' }
+        groupId = patch.groupId
+      }
+      const updated: Bookmark = {
+        ...existing,
+        url,
+        title: patch.title !== undefined ? patch.title.trim() : existing.title,
+        note: patch.note !== undefined ? patch.note.trim() : existing.note,
+        groupId,
+      }
+      state = { ...state, bookmarks: state.bookmarks.map((b) => (b.id === id ? updated : b)) }
+      await adapter.save(state)
+      return { ok: true, value: updated }
+    },
+
+    async removeBookmark(id: BookmarkId): Promise<Result<BookmarkId>> {
+      if (!state.bookmarks.some((b) => b.id === id)) return { ok: false, error: 'bookmark-not-found' }
+      state = { ...state, bookmarks: state.bookmarks.filter((b) => b.id !== id) }
+      await adapter.save(state)
+      return { ok: true, value: id }
     },
 
     async createGroup({ name, color }: NewGroupInput): Promise<Result<Group>> {
