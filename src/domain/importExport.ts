@@ -230,3 +230,120 @@ export async function importBookmarksFromHtml(
   await adapter.save(state)
   return { ok: true, value: report }
 }
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v.length > 0
+}
+
+function isGroupShape(v: unknown): v is Group {
+  if (typeof v !== 'object' || v === null) return false
+  const g = v as Record<string, unknown>
+  return (
+    isNonEmptyString(g.id) &&
+    isNonEmptyString(g.name) &&
+    isNonEmptyString(g.color) &&
+    typeof g.order === 'number'
+  )
+}
+
+function isBookmarkShape(v: unknown): v is Bookmark {
+  if (typeof v !== 'object' || v === null) return false
+  const b = v as Record<string, unknown>
+  return (
+    isNonEmptyString(b.id) &&
+    isNonEmptyString(b.url) &&
+    isNonEmptyString(b.title) &&
+    typeof b.note === 'string' &&
+    isNonEmptyString(b.groupId) &&
+    typeof b.order === 'number'
+  )
+}
+
+/** 逐字段校验备份 JSON 的结构;只有完全合法的完整状态才可导入。 */
+function parseStateJson(raw: string): Result<BookmarkState> {
+  let data: unknown
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    return { ok: false, error: 'invalid-import' }
+  }
+  if (typeof data !== 'object' || data === null) return { ok: false, error: 'invalid-import' }
+  const s = data as Record<string, unknown>
+  if (s.schemaVersion !== SCHEMA_VERSION) return { ok: false, error: 'invalid-import' }
+  if (!Array.isArray(s.groups) || !Array.isArray(s.bookmarks)) {
+    return { ok: false, error: 'invalid-import' }
+  }
+  if (!s.groups.every(isGroupShape) || !s.bookmarks.every(isBookmarkShape)) {
+    return { ok: false, error: 'invalid-import' }
+  }
+  return { ok: true, value: s as unknown as BookmarkState }
+}
+
+/**
+ * 替换全部:清空后恢复备份(id/顺序/颜色/备注逐字保留),
+ * 同时修复损坏备份:补回缺失收集箱、孤儿收藏收回收集箱、备份内重复 URL 只留首条。
+ */
+function restoreFrom(backup: BookmarkState): { state: BookmarkState; report: ImportReport } {
+  const groups = backup.groups.map((g) => ({ ...g }))
+  if (!groups.some((g) => g.id === INBOX_GROUP_ID)) {
+    groups.unshift({ id: INBOX_GROUP_ID, name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, order: -1 })
+  }
+  const groupIds = new Set(groups.map((g) => g.id))
+  const seen = new Set<string>()
+  const bookmarks: Bookmark[] = []
+  let skipped = 0
+  for (const backupBookmark of backup.bookmarks) {
+    const url = normalizeUrl(backupBookmark.url)
+    if (url === null || seen.has(url)) {
+      skipped += 1
+      continue
+    }
+    seen.add(url)
+    bookmarks.push({
+      ...backupBookmark,
+      url,
+      groupId: groupIds.has(backupBookmark.groupId) ? backupBookmark.groupId : INBOX_GROUP_ID,
+    })
+  }
+  return {
+    state: { schemaVersion: SCHEMA_VERSION, groups, bookmarks },
+    report: { added: bookmarks.length, skipped },
+  }
+}
+
+/** 导入 JSON 备份:merge 同名并组+判重跳过;replace 清空后逐字恢复。 */
+export async function importStateFromJson(
+  adapter: StorageAdapter,
+  raw: string,
+  mode: ImportMode,
+): Promise<Result<ImportReport>> {
+  const parsed = parseStateJson(raw)
+  if (!parsed.ok) return parsed
+
+  if (mode === 'replace') {
+    const { state, report } = restoreFrom(parsed.value)
+    await adapter.save(state)
+    return { ok: true, value: report }
+  }
+
+  const current = (await adapter.load()) ?? emptyState()
+  const byGroup = new Map<string, Bookmark[]>()
+  for (const bookmark of parsed.value.bookmarks) {
+    const list = byGroup.get(bookmark.groupId) ?? []
+    list.push(bookmark)
+    byGroup.set(bookmark.groupId, list)
+  }
+  const incoming: IncomingGroup[] = [...parsed.value.groups]
+    .sort((a, b) => a.order - b.order)
+    .map((g) => ({
+      name: g.name,
+      color: g.color,
+      bookmarks: (byGroup.get(g.id) ?? [])
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((b) => ({ url: b.url, title: b.title, note: b.note })),
+    }))
+  const { state, report } = ingestInto(current, incoming)
+  await adapter.save(state)
+  return { ok: true, value: report }
+}

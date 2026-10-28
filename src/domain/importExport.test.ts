@@ -3,7 +3,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { BookmarkState } from './types'
 import { INBOX_GROUP_ID } from './types'
-import { exportStateAsHtml, exportStateAsJson, importBookmarksFromHtml, parseBookmarksHtml } from './importExport'
+import {
+  exportStateAsHtml,
+  exportStateAsJson,
+  importBookmarksFromHtml,
+  importStateFromJson,
+  parseBookmarksHtml,
+} from './importExport'
 import { createMemoryStorage } from '../storage/memoryStorage'
 import { createBookmarkStore } from './store'
 
@@ -247,5 +253,158 @@ describe('导入 HTML:合并进现有状态(URL 判重跳过)', () => {
 
     const state = await adapter.load()
     expect(state!.bookmarks[0]!.title).toBe('no-title.example.com')
+  })
+})
+
+describe('导入 JSON:解析校验', () => {
+  it('非 JSON、缺字段、schemaVersion 不符均拒为 invalid-import,现有状态不受影响', async () => {
+    const adapter = createMemoryStorage()
+    const store = await createBookmarkStore(adapter)
+    await store.addBookmark({ url: 'https://keep.example.com', title: '保留' })
+    const before = await adapter.load()
+
+    for (const bad of [
+      '不是 JSON',
+      '{}',
+      JSON.stringify({ schemaVersion: 2, groups: [], bookmarks: [] }),
+      JSON.stringify({ schemaVersion: 1, groups: [{ id: 'g', name: 'x' }], bookmarks: [] }),
+      JSON.stringify({ schemaVersion: 1, groups: [], bookmarks: [{ id: 'b', url: 'x' }] }),
+    ]) {
+      expect(await importStateFromJson(adapter, bad, 'merge')).toEqual({
+        ok: false,
+        error: 'invalid-import',
+      })
+    }
+    expect(await adapter.load()).toEqual(before)
+  })
+})
+
+describe('导入 JSON:合并模式', () => {
+  it('同名分组并入现有组(不新建),新 URL 追加到组末,重复 URL 跳过', async () => {
+    const adapter = createMemoryStorage()
+    const store = await createBookmarkStore(adapter)
+    const work = await store.createGroup({ name: '工作', color: '#f97316' })
+    await store.addBookmark({ url: 'https://a.example.com', title: '已有 A', groupId: work.value.id })
+
+    const incoming: BookmarkState = {
+      schemaVersion: 1,
+      groups: [
+        { id: INBOX_GROUP_ID, name: '收集箱', color: '#3b82f6', order: 0 },
+        { id: 'other-install-work', name: '工作', color: '#111111', order: 1 },
+      ],
+      bookmarks: [
+        {
+          id: 'x-1',
+          url: 'https://a.example.com',
+          title: '重复的 A',
+          note: '',
+          groupId: 'other-install-work',
+          order: 0,
+        },
+        {
+          id: 'x-2',
+          url: 'https://b.example.com',
+          title: '新的 B',
+          note: '带备注',
+          groupId: 'other-install-work',
+          order: 1,
+        },
+      ],
+    }
+
+    const result = await importStateFromJson(adapter, JSON.stringify(incoming), 'merge')
+
+    expect(result).toEqual({ ok: true, value: { added: 1, skipped: 1 } })
+    const state = await adapter.load()
+    // 未新建分组;新收藏落在现有「工作」组,顺序追加在后;现有分组颜色不被覆盖
+    expect(state!.groups).toHaveLength(2)
+    const b = state!.bookmarks.find((bm) => bm.url === 'https://b.example.com')!
+    expect(b.groupId).toBe(work.value.id)
+    expect(b.order).toBe(1)
+    expect(b.note).toBe('带备注')
+    expect(state!.groups.find((g) => g.name === '工作')!.color).toBe('#f97316')
+    expect(state!.bookmarks.find((bm) => bm.url === 'https://a.example.com')!.title).toBe('已有 A')
+  })
+
+  it('备份中的新分组按备份颜色新建,其收集箱收藏并入现有收集箱', async () => {
+    const adapter = createMemoryStorage()
+    await createBookmarkStore(adapter)
+
+    const incoming: BookmarkState = {
+      schemaVersion: 1,
+      groups: [
+        { id: INBOX_GROUP_ID, name: '收集箱', color: '#3b82f6', order: 0 },
+        { id: 'src-1', name: '设计', color: '#ec4899', order: 1 },
+      ],
+      bookmarks: [
+        { id: 'y-1', url: 'https://figma.example.com', title: '设计工具', note: '', groupId: 'src-1', order: 0 },
+        { id: 'y-2', url: 'https://quick.example.com', title: '速记', note: '', groupId: INBOX_GROUP_ID, order: 0 },
+      ],
+    }
+
+    const result = await importStateFromJson(adapter, JSON.stringify(incoming), 'merge')
+
+    expect(result).toEqual({ ok: true, value: { added: 2, skipped: 0 } })
+    const state = await adapter.load()
+    const design = state!.groups.find((g) => g.name === '设计')!
+    expect(design.color).toBe('#ec4899')
+    expect(state!.bookmarks.find((b) => b.url === 'https://quick.example.com')!.groupId).toBe(
+      INBOX_GROUP_ID,
+    )
+  })
+})
+
+describe('导入 JSON:替换全部模式', () => {
+  it('清空后恢复备份:旧分组/收藏消失,恢复状态与备份深度相等', async () => {
+    const adapter = createMemoryStorage()
+    const store = await createBookmarkStore(adapter)
+    const old = await store.createGroup({ name: '将被清掉', color: '#000000' })
+    await store.addBookmark({ url: 'https://old.example.com', groupId: old.value.id })
+
+    const backup = literalState()
+    const result = await importStateFromJson(adapter, JSON.stringify(backup), 'replace')
+
+    expect(result).toEqual({ ok: true, value: { added: 3, skipped: 0 } })
+    expect(await adapter.load()).toEqual(backup)
+    expect((await adapter.load())!.groups.some((g) => g.name === '将被清掉')).toBe(false)
+  })
+
+  it('导出→清空→导入回环后数据无损(领域层锁定)', async () => {
+    const original = literalState()
+    const adapterA = createMemoryStorage(original)
+
+    const raw = exportStateAsJson(await adapterA.load()!)
+
+    // 清空:换新空库模拟全新安装/抹除
+    const adapterB = createMemoryStorage(null)
+    await createBookmarkStore(adapterB) // 空库初始化出仅含收集箱的状态
+
+    const result = await importStateFromJson(adapterB, raw, 'replace')
+
+    expect(result).toEqual({ ok: true, value: { added: 3, skipped: 0 } })
+    expect(await adapterB.load()).toEqual(original)
+  })
+
+  it('恢复时修复损坏备份:孤儿收藏收回收集箱,缺失收集箱补回,备份内重复 URL 只留一条', async () => {
+    const adapter = createMemoryStorage()
+    const corrupt: BookmarkState = {
+      schemaVersion: 1,
+      groups: [{ id: 'g-only', name: '仅有的组', color: '#123456', order: 0 }],
+      bookmarks: [
+        { id: 'c-1', url: 'https://ok.example.com', title: '正常', note: '', groupId: 'g-only', order: 0 },
+        { id: 'c-2', url: 'https://orphan.example.com', title: '孤儿', note: '', groupId: 'gone', order: 0 },
+        { id: 'c-3', url: 'https://dup.example.com', title: '第一条', note: '', groupId: 'g-only', order: 1 },
+        { id: 'c-4', url: 'https://dup.example.com/', title: '重复条', note: '', groupId: 'g-only', order: 2 },
+      ],
+    }
+
+    const result = await importStateFromJson(adapter, JSON.stringify(corrupt), 'replace')
+
+    expect(result).toEqual({ ok: true, value: { added: 3, skipped: 1 } })
+    const state = await adapter.load()
+    expect(state!.groups.map((g) => g.id)).toEqual([INBOX_GROUP_ID, 'g-only'])
+    expect(state!.bookmarks.find((b) => b.title === '孤儿')!.groupId).toBe(INBOX_GROUP_ID)
+    expect(state!.bookmarks.filter((b) => b.url === 'https://dup.example.com')).toHaveLength(1)
+    expect(state!.bookmarks.find((b) => b.url === 'https://dup.example.com')!.title).toBe('第一条')
   })
 })
