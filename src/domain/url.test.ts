@@ -15,6 +15,7 @@ describe('URL 规范化(判重的唯一实现)', () => {
     // 无协议的裸主机名按 https 补全(手动添加的常见输入)
     ['example.com', 'https://example.com'],
     ['example.com/docs', 'https://example.com/docs'],
+    ['localhost:3000/docs', 'https://localhost:3000/docs'],
   ])('%s → %s', (input, expected) => {
     expect(normalizeUrl(input)).toBe(expected)
   })
@@ -26,6 +27,7 @@ describe('URL 规范化(判重的唯一实现)', () => {
     ['chrome://extensions'],
     ['ftp://example.com'],
     ['https://'],
+    ['不是网址'],
   ])('无法收藏的输入返回 null:%s', (input) => {
     expect(normalizeUrl(input)).toBeNull()
   })

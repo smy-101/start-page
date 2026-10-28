@@ -6,7 +6,8 @@
 export function normalizeUrl(input: string): string | null {
   const trimmed = input.trim()
   if (!trimmed) return null
-  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`
+  // 仅 http(s) 视为已有协议,否则补 https——避免 “localhost:3000” 被误判为 localhost: 协议
+  const withScheme = /^https?:/i.test(trimmed) ? trimmed : `https://${trimmed}`
 
   let url: URL
   try {
@@ -15,7 +16,10 @@ export function normalizeUrl(input: string): string | null {
     return null
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
-  if (!url.hostname) return null
+  // 主机须含点(或为 localhost / IP 字面量)——“不是网址” 这类 IDNA 单标签主机不当作网址
+  if (!/\./.test(url.hostname) && url.hostname !== 'localhost' && !url.hostname.startsWith('[')) {
+    return null
+  }
 
   url.hash = ''
   // URL 构造器已自动小写协议/主机并去掉默认端口(80/443)

@@ -1,11 +1,36 @@
-import type { BookmarkState, StorageAdapter } from './types'
+import type {
+  Bookmark,
+  BookmarkState,
+  Group,
+  GroupId,
+  Result,
+  StorageAdapter,
+} from './types'
 import { INBOX_GROUP_COLOR, INBOX_GROUP_ID, SCHEMA_VERSION } from './types'
+import { normalizeUrl } from './url'
 
 export { INBOX_GROUP_COLOR, INBOX_GROUP_ID, SCHEMA_VERSION } from './types'
+
+export { normalizeUrl } from './url'
+
+export interface NewBookmarkInput {
+  url: string
+  title?: string
+  note?: string
+  /** 缺省进收集箱 */
+  groupId?: GroupId
+}
+
+export interface NewGroupInput {
+  name: string
+  color: string
+}
 
 export interface BookmarkStore {
   /** 当前状态快照(创建时已从适配器加载) */
   getState(): BookmarkState
+  addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>>
+  createGroup(input: NewGroupInput): Promise<Result<Group>>
 }
 
 function initialState(): BookmarkState {
@@ -42,9 +67,54 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
   }
   let state = loaded
 
+  function groupExists(id: GroupId): boolean {
+    return state.groups.some((g) => g.id === id)
+  }
+
+  function nextBookmarkOrder(groupId: GroupId): number {
+    const orders = state.bookmarks.filter((b) => b.groupId === groupId).map((b) => b.order)
+    return orders.length === 0 ? 0 : Math.max(...orders) + 1
+  }
+
   return {
     getState() {
       return state
+    },
+
+    async addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>> {
+      const url = normalizeUrl(input.url)
+      if (url === null) return { ok: false, error: 'invalid-url' }
+      const groupId = input.groupId ?? INBOX_GROUP_ID
+      if (!groupExists(groupId)) return { ok: false, error: 'group-not-found' }
+      if (state.bookmarks.some((b) => b.url === url)) return { ok: false, error: 'duplicate-url' }
+      const bookmark: Bookmark = {
+        id: crypto.randomUUID(),
+        url,
+        title: (input.title ?? '').trim() || new URL(url).hostname,
+        note: (input.note ?? '').trim(),
+        groupId,
+        order: nextBookmarkOrder(groupId),
+      }
+      state = { ...state, bookmarks: [...state.bookmarks, bookmark] }
+      await adapter.save(state)
+      return { ok: true, value: bookmark }
+    },
+
+    async createGroup({ name, color }: NewGroupInput): Promise<Result<Group>> {
+      const trimmedName = name.trim()
+      if (!trimmedName) return { ok: false, error: 'empty-group-name' }
+      const trimmedColor = color.trim()
+      if (!trimmedColor) return { ok: false, error: 'empty-group-color' }
+      const orders = state.groups.map((g) => g.order)
+      const group: Group = {
+        id: crypto.randomUUID(),
+        name: trimmedName,
+        color: trimmedColor,
+        order: orders.length === 0 ? 0 : Math.max(...orders) + 1,
+      }
+      state = { ...state, groups: [...state.groups, group] }
+      await adapter.save(state)
+      return { ok: true, value: group }
     },
   }
 }
