@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { App } from './App'
 import { createMemoryStorage } from '../storage/memoryStorage'
+import { INBOX_GROUP_ID, SCHEMA_VERSION } from '../domain/store'
+import type { BookmarkState } from '../domain/types'
 
 // 折叠状态走 localStorage 侧通道,测试间清空避免串扰
 beforeEach(() => {
@@ -27,5 +29,112 @@ describe('分组管理:新建分组', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建分组' }))
     expect(await screen.findByText('分组名不能为空')).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(2)
+  })
+})
+
+/** 预置状态:收集箱 1 条 + 工作 2 条,直接注入适配器。 */
+function seededState(): BookmarkState {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    groups: [
+      { id: INBOX_GROUP_ID, name: '收集箱', color: '#3b82f6', order: 0 },
+      { id: 'g-work', name: '工作', color: '#e99695', order: 1 },
+    ],
+    bookmarks: [
+      { id: 'b-inbox', url: 'https://inbox.example.com', title: '收件', note: '', groupId: INBOX_GROUP_ID, order: 0 },
+      { id: 'b-w1', url: 'https://w1.example.com', title: '工作一', note: '', groupId: 'g-work', order: 0 },
+      { id: 'b-w2', url: 'https://w2.example.com', title: '工作二', note: '', groupId: 'g-work', order: 1 },
+    ],
+  }
+}
+
+async function renderSeeded() {
+  render(<App adapter={createMemoryStorage(seededState())} />)
+  await screen.findByRole('region', { name: '工作' })
+  return {
+    inbox: screen.getByRole('region', { name: '收集箱' }),
+    work: screen.getByRole('region', { name: '工作' }),
+  }
+}
+
+describe('分组管理:重命名与换色', () => {
+  it('内联编辑:改名与换色保存后即时生效', async () => {
+    const { work } = await renderSeeded()
+
+    fireEvent.click(within(work).getByRole('button', { name: '编辑分组' }))
+    fireEvent.change(within(work).getByLabelText('分组名'), { target: { value: '办公' } })
+    fireEvent.click(within(work).getByRole('radio', { name: '颜色 #9fe295' }))
+    fireEvent.click(within(work).getByRole('button', { name: '保存' }))
+
+    const renamed = await screen.findByRole('region', { name: '办公' })
+    expect(screen.queryByRole('region', { name: '工作' })).toBeNull()
+    const dot = renamed.querySelector('.group-color-dot')
+    expect(dot).toHaveStyle({ backgroundColor: '#9fe295' })
+  })
+
+  it('收集箱表头不提供改名/换色/删除入口,但可折叠', async () => {
+    const { inbox } = await renderSeeded()
+
+    expect(within(inbox).queryByRole('button', { name: '编辑分组' })).toBeNull()
+    expect(within(inbox).queryByRole('button', { name: '删除分组' })).toBeNull()
+    expect(within(inbox).getByRole('button', { name: '折叠分组 收集箱' })).toBeInTheDocument()
+  })
+})
+
+describe('分组管理:折叠/展开', () => {
+  it('折叠后组内收藏隐藏,展开恢复', async () => {
+    const { work } = await renderSeeded()
+    expect(within(work).getAllByRole('listitem')).toHaveLength(2)
+
+    fireEvent.click(within(work).getByRole('button', { name: '折叠分组 工作' }))
+
+    expect(within(work).queryByRole('listitem')).toBeNull()
+    expect(screen.getByRole('heading', { name: '工作' })).toBeInTheDocument()
+
+    fireEvent.click(within(work).getByRole('button', { name: '展开分组 工作' }))
+    expect(within(work).getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  it('折叠状态刷新后保持(localStorage 侧通道)', async () => {
+    const storage = createMemoryStorage(seededState())
+    const { unmount } = render(<App adapter={storage} />)
+    const first = await screen.findByRole('region', { name: '工作' })
+    fireEvent.click(within(first).getByRole('button', { name: '折叠分组 工作' }))
+    unmount()
+
+    render(<App adapter={storage} />)
+    const second = await screen.findByRole('region', { name: '工作' })
+    expect(within(second).queryByRole('listitem')).toBeNull()
+    expect(within(second).getByRole('button', { name: '展开分组 工作' })).toBeInTheDocument()
+  })
+})
+
+describe('分组管理:删除分组回收', () => {
+  it('删除前给出回收警告,确认后组内收藏全部回到收集箱', async () => {
+    const { work } = await renderSeeded()
+
+    fireEvent.click(within(work).getByRole('button', { name: '删除分组' }))
+
+    expect(
+      screen.getByText('删除分组「工作」?组内 2 条收藏将全部移入收集箱,不会被删除。'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    expect(await screen.findByText(/已移入收集箱/)).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '工作' })).toBeNull()
+    const inbox = screen.getByRole('region', { name: '收集箱' })
+    expect(within(inbox).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(inbox).getByText('工作一')).toBeInTheDocument()
+    expect(within(inbox).getByText('工作二')).toBeInTheDocument()
+  })
+
+  it('取消删除则分组与收藏原封不动', async () => {
+    const { work } = await renderSeeded()
+
+    fireEvent.click(within(work).getByRole('button', { name: '删除分组' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+
+    expect(screen.getByRole('region', { name: '工作' })).toBeInTheDocument()
+    expect(within(work).getAllByRole('listitem')).toHaveLength(2)
   })
 })
