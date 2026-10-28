@@ -19,8 +19,13 @@ export default defineManifest({
       '32': 'icons/outline-32.png',
     },
   },
+  background: {
+    service_worker: 'src/background/index.ts',
+    type: 'module',
+  },
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  permissions: ['storage', 'favicon'],
+  // tabs:读取 tab.url 供工具栏图标状态判定与一键收藏
+  permissions: ['storage', 'tabs', 'favicon'],
 })
