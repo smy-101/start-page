@@ -8,6 +8,8 @@ type DeleteGroupResult = Result<{ groupId: string; recycledIds: string[] }>
 type GroupSectionProps = {
   group: Group
   bookmarks: Bookmark[]
+  /** 全部分组(按 order 排序):卡片编辑换组的选择候选 */
+  groups: Group[]
   collapsed: boolean
   onToggleCollapse(): void
   onRename(name: string): Promise<Result<Group>>
@@ -31,6 +33,7 @@ type GroupSectionProps = {
 export function GroupSection({
   group,
   bookmarks,
+  groups,
   collapsed,
   onToggleCollapse,
   onRename,
@@ -74,6 +77,7 @@ export function GroupSection({
                 key={bookmark.id}
                 bookmark={bookmark}
                 group={group}
+                groups={groups}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onDragStart={() => onCardDragStart(bookmark.id, group.id)}

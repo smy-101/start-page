@@ -6,6 +6,8 @@ type DeleteGroupResult = Result<{ groupId: string; recycledIds: string[] }>
 
 type BookmarkGroupsProps = {
   state: BookmarkState
+  /** 全部分组(按 order 排序,含收集箱;搜索过滤时也不缩水):选分组候选 */
+  groups: Group[]
   /** true = 正在搜索过滤(查询非空):全部无命中时显示空状态,而非全部分组 */
   searching: boolean
   /** 折叠分组 id 集合(UI 状态,localStorage 侧通道) */
@@ -31,6 +33,7 @@ type BookmarkGroupsProps = {
 /** 分组视图:按分组 order 渲染各分区;搜索中无命中时给出中文空状态提示。 */
 export function BookmarkGroups({
   state,
+  groups,
   searching,
   collapsedGroups,
   onToggleCollapse,
@@ -60,7 +63,9 @@ export function BookmarkGroups({
           bookmarks={state.bookmarks
             .filter((bookmark) => bookmark.groupId === group.id)
             .sort((a, b) => a.order - b.order)}
-          collapsed={collapsedGroups.has(group.id)}
+          groups={groups}
+          // 搜索过滤时强制展开:折叠不应藏起命中(折叠状态本身不动,清空查询即恢复)
+          collapsed={searching ? false : collapsedGroups.has(group.id)}
           onToggleCollapse={() => onToggleCollapse(group.id)}
           onRename={(name) => onRenameGroup(group.id, name)}
           onRecolor={(color) => onRecolorGroup(group.id, color)}

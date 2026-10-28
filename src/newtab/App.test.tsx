@@ -59,6 +59,51 @@ describe('初始页:添加收藏到收集箱', () => {
   })
 })
 
+describe('初始页:添加与编辑选分组(spec 故事 17/24)', () => {
+  async function createGroup(name: string) {
+    fireEvent.change(screen.getByLabelText('分组名'), { target: { value: name } })
+    fireEvent.click(screen.getByRole('button', { name: '新建分组' }))
+    return screen.findByRole('region', { name })
+  }
+
+  function pickGroup(scope: HTMLElement, groupName: string) {
+    const select = within(scope).getByLabelText('所属分组')
+    const option = within(select).getByRole('option', { name: groupName }) as HTMLOptionElement
+    fireEvent.change(select, { target: { value: option.value } })
+  }
+
+  it('手动添加选分组:收藏落到所选分组而非收集箱', async () => {
+    await renderApp()
+    const work = await createGroup('工作')
+
+    pickGroup(document.body, '工作')
+    await addBookmark('https://work.example.com', '工作站')
+
+    expect(await within(work).findByText('工作站')).toBeInTheDocument()
+    expect(within(work).getAllByRole('listitem')).toHaveLength(1)
+    const inbox = screen.getByRole('region', { name: '收集箱' })
+    expect(within(inbox).queryByRole('listitem')).toBeNull()
+    expect(within(inbox).getByText('还没有收藏')).toBeInTheDocument()
+  })
+
+  it('编辑改所属分组:保存后收藏移到目标分组,原组不再有该卡片', async () => {
+    await renderApp()
+    const work = await createGroup('工作')
+    await addBookmark('https://move.example.com', '待移动')
+
+    const card = await screen.findByRole('listitem')
+    fireEvent.click(within(card).getByRole('button', { name: '编辑' }))
+    pickGroup(card, '工作')
+    fireEvent.click(within(card).getByRole('button', { name: '保存' }))
+
+    expect(await within(work).findByText('待移动')).toBeInTheDocument()
+    expect(within(work).getAllByRole('listitem')).toHaveLength(1)
+    const inbox = screen.getByRole('region', { name: '收集箱' })
+    expect(within(inbox).queryByRole('listitem')).toBeNull()
+    expect(within(inbox).getByText('还没有收藏')).toBeInTheDocument()
+  })
+})
+
 describe('初始页:跨上下文同步', () => {
   it('其他上下文(如工具栏 service worker)写入后,已打开的初始页即时刷新', async () => {
     const storage = createMemoryStorage()

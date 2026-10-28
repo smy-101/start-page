@@ -219,6 +219,8 @@ export function App({
 
   // 查询为空时原样返回(完整分组视图);有查询时隐藏无命中的收藏与分组
   const visible = filterState(state, query)
+  // 选分组候选用全量分组(搜索过滤视图下也不缩水),按 order 排序、含收集箱
+  const groupsInOrder = [...state.groups].sort((a, b) => a.order - b.order)
 
   function bumpStoreEpoch() {
     setStoreEpoch((epoch) => epoch + 1)
@@ -248,7 +250,7 @@ export function App({
         </button>
       </header>
       <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
-      <AddBookmarkForm onAdd={handleAdd} />
+      <AddBookmarkForm groups={groupsInOrder} onAdd={handleAdd} />
       <NewGroupForm onCreate={handleCreateGroup} />
       {error && (
         <p className="form-error" role="alert">
@@ -262,6 +264,7 @@ export function App({
       )}
       <BookmarkGroups
         state={visible}
+        groups={groupsInOrder}
         searching={query.trim() !== ''}
         collapsedGroups={collapsed}
         onToggleCollapse={handleToggleCollapse}

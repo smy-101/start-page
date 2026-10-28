@@ -7,6 +7,8 @@ import { domainErrorText } from './messages'
 type BookmarkCardProps = {
   bookmark: Bookmark
   group: Group
+  /** 分组候选(按 order 排序,含收集箱):spec 故事 24 编辑需可换组 */
+  groups: Group[]
   onEdit: (id: string, patch: BookmarkPatch) => Promise<Result<Bookmark>>
   onDelete: (id: string) => Promise<Result<string>>
   /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(拖到某卡片之前)。 */
@@ -16,10 +18,11 @@ type BookmarkCardProps = {
   onDrop(event: React.DragEvent): void
 }
 
-/** 收藏卡片:点击主体区域在新标签页打开网页;支持编辑(标题/URL/备注)与删除、拖拽移动。 */
+/** 收藏卡片:点击主体区域在新标签页打开网页;支持编辑(标题/URL/备注/所属分组)与删除、拖拽移动。 */
 export function BookmarkCard({
   bookmark,
   group,
+  groups,
   onEdit,
   onDelete,
   onDragStart,
@@ -31,19 +34,21 @@ export function BookmarkCard({
   const [url, setUrl] = useState(bookmark.url)
   const [title, setTitle] = useState(bookmark.title)
   const [note, setNote] = useState(bookmark.note)
+  const [groupId, setGroupId] = useState(bookmark.groupId)
   const [error, setError] = useState<string | null>(null)
 
   function startEdit() {
     setUrl(bookmark.url)
     setTitle(bookmark.title)
     setNote(bookmark.note)
+    setGroupId(bookmark.groupId)
     setError(null)
     setEditing(true)
   }
 
   async function handleSave(event: React.FormEvent) {
     event.preventDefault()
-    const result = await onEdit(bookmark.id, { url, title, note })
+    const result = await onEdit(bookmark.id, { url, title, note, groupId })
     if (result.ok) {
       setEditing(false)
     } else {
@@ -82,6 +87,18 @@ export function BookmarkCard({
             onChange={(e) => setNote(e.target.value)}
             autoComplete="off"
           />
+          <label htmlFor={`edit-group-${bookmark.id}`}>所属分组</label>
+          <select
+            id={`edit-group-${bookmark.id}`}
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+          >
+            {groups.map((groupOption) => (
+              <option key={groupOption.id} value={groupOption.id}>
+                {groupOption.name}
+              </option>
+            ))}
+          </select>
           <div className="card-actions">
             <button type="submit">保存</button>
             <button type="button" onClick={() => setEditing(false)}>
