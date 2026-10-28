@@ -43,21 +43,18 @@ export function SettingsView({
   const [nativeError, setNativeError] = useState<string | null>(null)
 
   async function handleImportNative() {
-    let result
     try {
-      result = await importNativeBookmarks(adapter, await getBookmarkTree())
+      const result = await importNativeBookmarks(adapter, await getBookmarkTree())
+      if (result.ok) {
+        setNativeError(null)
+        setNativeReport(reportText(result.value.added, result.value.skipped))
+        onImported()
+      } else {
+        // 解析层唯一失败模式:树中无任何可导入书签
+        setNativeReport(null)
+        setNativeError('浏览器书签为空,没有可导入的书签')
+      }
     } catch {
-      result = null
-    }
-    if (result && result.ok) {
-      setNativeError(null)
-      setNativeReport(reportText(result.value.added, result.value.skipped))
-      onImported()
-    } else if (result) {
-      // 解析层唯一失败模式:树中无任何可导入书签
-      setNativeReport(null)
-      setNativeError('浏览器书签为空,没有可导入的书签')
-    } else {
       setNativeReport(null)
       setNativeError('读取浏览器书签失败,请稍后重试')
     }
