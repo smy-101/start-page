@@ -52,6 +52,8 @@ export type DomainErrorCode =
   | 'empty-group-name'
   | 'empty-group-color'
   | 'invalid-import'
+  | 'invalid-group-order'
+  | 'inbox-immutable'
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: DomainErrorCode }
 

@@ -9,10 +9,24 @@ type BookmarkCardProps = {
   group: Group
   onEdit: (id: string, patch: BookmarkPatch) => Promise<Result<Bookmark>>
   onDelete: (id: string) => Promise<Result<string>>
+  /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(拖到某卡片之前)。 */
+  onDragStart(): void
+  onDragEnd(): void
+  onDragOver(event: React.DragEvent): void
+  onDrop(event: React.DragEvent): void
 }
 
-/** 收藏卡片:点击主体区域在新标签页打开网页;支持编辑(标题/URL/备注)与删除。 */
-export function BookmarkCard({ bookmark, group, onEdit, onDelete }: BookmarkCardProps) {
+/** 收藏卡片:点击主体区域在新标签页打开网页;支持编辑(标题/URL/备注)与删除、拖拽移动。 */
+export function BookmarkCard({
+  bookmark,
+  group,
+  onEdit,
+  onDelete,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+}: BookmarkCardProps) {
   const [editing, setEditing] = useState(false)
   const [url, setUrl] = useState(bookmark.url)
   const [title, setTitle] = useState(bookmark.title)
@@ -85,7 +99,14 @@ export function BookmarkCard({ bookmark, group, onEdit, onDelete }: BookmarkCard
   }
 
   return (
-    <li className="card">
+    <li
+      className="card"
+      draggable={!editing}
+      onDragStart={() => onDragStart()}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => onDragOver(event)}
+      onDrop={(event) => onDrop(event)}
+    >
       <a className="card-link" href={bookmark.url} target="_blank" rel="noreferrer">
         <Favicon pageUrl={bookmark.url} title={bookmark.title} fallbackColor={group.color} />
         <span className="card-title">{bookmark.title}</span>
