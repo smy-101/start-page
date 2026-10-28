@@ -113,4 +113,23 @@ describe('初始页:搜索框实时过滤', () => {
     expect(await screen.findByText('MDN 参考')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '开发' })).toBeInTheDocument()
   })
+
+  it('搜索时折叠分组强制展开:命中可见可点击,清空查询后恢复折叠', async () => {
+    await renderSeededApp()
+    const inbox = screen.getByRole('region', { name: '收集箱' })
+    fireEvent.click(within(inbox).getByRole('button', { name: '折叠分组 收集箱' }))
+    expect(within(inbox).queryByRole('listitem')).toBeNull()
+
+    fireEvent.change(searchInput(), { target: { value: '淘宝' } })
+
+    const link = screen.getByRole('link', { name: /淘宝/ })
+    expect(link).toHaveAttribute('href', 'https://shop.example.com')
+    expect(link).toHaveAttribute('target', '_blank')
+
+    fireEvent.change(searchInput(), { target: { value: '' } })
+
+    const collapsedInbox = screen.getByRole('region', { name: '收集箱' })
+    expect(within(collapsedInbox).queryByRole('listitem')).toBeNull()
+    expect(within(collapsedInbox).getByRole('button', { name: '展开分组 收集箱' })).toBeInTheDocument()
+  })
 })

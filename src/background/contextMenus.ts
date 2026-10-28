@@ -3,7 +3,7 @@ import type { BookmarkStore } from '../domain/store'
 import { createBookmarkStore } from '../domain/store'
 import type { Group } from '../domain/types'
 import { createChromeStorage } from '../storage/chromeStorage'
-import { favoriteToGroup, findBookmarkByUrl, unfavoriteByUrl } from './favoriteAction'
+import { favoriteToGroup, unfavoriteByUrl } from './favoriteAction'
 import { UNFAVORITE_ID, buildContextMenuItems, parseGroupMenuItemId } from './menuSpecs'
 
 /**
@@ -68,7 +68,7 @@ function refreshUnfavoriteVisibility(): Promise<void> {
     let visible = false
     if (tab?.url) {
       const store = await openStore()
-      visible = findBookmarkByUrl(store, tab.url) !== null
+      visible = store.findBookmarkByUrl(tab.url) !== null
     }
     // 菜单项尚不存在(如安装后首次事件早于 onInstalled)时 update 会 reject,由队列吞掉
     await chrome.contextMenus.update(UNFAVORITE_ID, { visible })

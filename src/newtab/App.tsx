@@ -17,6 +17,7 @@ import type { SettingsAdapter } from './settings'
 import { getNativeBookmarkTree } from './nativeBookmarks'
 import { loadCollapsedGroups, saveCollapsedGroups } from './collapsedGroups'
 import { domainErrorText } from './messages'
+import type { DragHandlers } from './BookmarkGroups'
 
 const chromeStorage = createChromeStorage()
 const chromeSettingsStorage = createChromeSettingsStorage()
@@ -52,7 +53,7 @@ export function App({
   const [view, setView] = useState<'start' | 'settings'>('start')
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   // 折叠是 UI 状态:localStorage 侧通道持久化,刷新后保持
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsedGroups())
+  const [collapsed, setCollapsed] = useState<Set<GroupId>>(() => loadCollapsedGroups())
   const [drag, setDrag] = useState<Drag>(null)
 
   useEffect(() => {
@@ -153,7 +154,7 @@ export function App({
     return result
   }
 
-  function handleToggleCollapse(groupId: string) {
+  function handleToggleCollapse(groupId: GroupId) {
     const next = new Set(collapsed)
     if (next.has(groupId)) next.delete(groupId)
     else next.add(groupId)
@@ -219,9 +220,22 @@ export function App({
 
   // 查询为空时原样返回(完整分组视图);有查询时隐藏无命中的收藏与分组
   const visible = filterState(state, query)
+  // 选分组候选用全量分组(搜索过滤视图下也不缩水),按 order 排序、含收集箱
+  const groupsInOrder = [...state.groups].sort((a, b) => a.order - b.order)
 
   function bumpStoreEpoch() {
     setStoreEpoch((epoch) => epoch + 1)
+  }
+
+  // 拖拽回调束(DragHandlers):表头换位 + 卡片组内排序/跨组移动
+  const dragHandlers: DragHandlers = {
+    onGroupDragStart: (groupId) => setDrag({ kind: 'group', id: groupId }),
+    onCardDragStart: (bookmarkId, groupId) => setDrag({ kind: 'bookmark', id: bookmarkId, groupId }),
+    onDragEnd: () => setDrag(null),
+    onSectionDragOver: allowDrop,
+    onSectionDrop: handleSectionDrop,
+    onCardDragOver: allowDrop,
+    onCardDrop: handleCardDrop,
   }
 
   if (view === 'settings') {
@@ -248,7 +262,7 @@ export function App({
         </button>
       </header>
       <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
-      <AddBookmarkForm onAdd={handleAdd} />
+      <AddBookmarkForm groups={groupsInOrder} onAdd={handleAdd} />
       <NewGroupForm onCreate={handleCreateGroup} />
       {error && (
         <p className="form-error" role="alert">
@@ -262,19 +276,14 @@ export function App({
       )}
       <BookmarkGroups
         state={visible}
+        groups={groupsInOrder}
         searching={query.trim() !== ''}
         collapsedGroups={collapsed}
         onToggleCollapse={handleToggleCollapse}
         onRenameGroup={handleRenameGroup}
         onRecolorGroup={handleRecolorGroup}
         onDeleteGroup={handleDeleteGroup}
-        onGroupDragStart={(groupId) => setDrag({ kind: 'group', id: groupId })}
-        onCardDragStart={(bookmarkId, groupId) => setDrag({ kind: 'bookmark', id: bookmarkId, groupId })}
-        onDragEnd={() => setDrag(null)}
-        onSectionDragOver={allowDrop}
-        onSectionDrop={handleSectionDrop}
-        onCardDragOver={allowDrop}
-        onCardDrop={handleCardDrop}
+        {...dragHandlers}
         onEdit={async (id, patch) => {
           const result = await active.updateBookmark(id, patch)
           if (result.ok) refresh()

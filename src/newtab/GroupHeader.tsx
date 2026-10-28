@@ -1,10 +1,8 @@
 import { useState } from 'react'
 import { INBOX_GROUP_ID } from '../domain/store'
-import type { Group, Result } from '../domain/types'
+import type { DeleteGroupResult, Group, Result } from '../domain/types'
 import { ColorSwatches } from './ColorSwatches'
 import { domainErrorText } from './messages'
-
-type DeleteGroupResult = Result<{ groupId: string; recycledIds: string[] }>
 
 type GroupHeaderProps = {
   group: Group

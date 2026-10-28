@@ -342,7 +342,9 @@ body {
 }
 
 .add-form input,
-.edit-form input {
+.add-form select,
+.edit-form input,
+.edit-form select {
   min-width: 0;
   padding: 6px 10px;
   border: 1px solid var(--border);
