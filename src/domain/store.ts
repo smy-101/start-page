@@ -41,6 +41,7 @@ export interface BookmarkStore {
   updateBookmark(id: BookmarkId, patch: BookmarkPatch): Promise<Result<Bookmark>>
   removeBookmark(id: BookmarkId): Promise<Result<BookmarkId>>
   createGroup(input: NewGroupInput): Promise<Result<Group>>
+  renameGroup(id: GroupId, name: string): Promise<Result<Group>>
 }
 
 function initialState(): BookmarkState {
@@ -83,6 +84,11 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
 
   function nextBookmarkOrder(groupId: GroupId): number {
     const orders = state.bookmarks.filter((b) => b.groupId === groupId).map((b) => b.order)
+    return orders.length === 0 ? 0 : Math.max(...orders) + 1
+  }
+
+  function nextGroupOrder(): number {
+    const orders = state.groups.map((g) => g.order)
     return orders.length === 0 ? 0 : Math.max(...orders) + 1
   }
 
@@ -152,16 +158,30 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       if (!trimmedName) return { ok: false, error: 'empty-group-name' }
       const trimmedColor = color.trim()
       if (!trimmedColor) return { ok: false, error: 'empty-group-color' }
-      const orders = state.groups.map((g) => g.order)
       const group: Group = {
         id: crypto.randomUUID(),
         name: trimmedName,
         color: trimmedColor,
-        order: orders.length === 0 ? 0 : Math.max(...orders) + 1,
+        order: nextGroupOrder(),
       }
       state = { ...state, groups: [...state.groups, group] }
       await adapter.save(state)
       return { ok: true, value: group }
+    },
+
+    async renameGroup(id: GroupId, name: string): Promise<Result<Group>> {
+      if (id === INBOX_GROUP_ID) return { ok: false, error: 'inbox-immutable' }
+      const group = state.groups.find((g) => g.id === id)
+      if (!group) return { ok: false, error: 'group-not-found' }
+      const trimmedName = name.trim()
+      if (!trimmedName) return { ok: false, error: 'empty-group-name' }
+      const renamed: Group = { ...group, name: trimmedName }
+      state = {
+        ...state,
+        groups: state.groups.map((g) => (g.id === id ? renamed : g)),
+      }
+      await adapter.save(state)
+      return { ok: true, value: renamed }
     },
   }
 }
