@@ -217,14 +217,26 @@ export async function importBookmarksFromHtml(
 ): Promise<Result<ImportReport>> {
   const parsed = parseBookmarksHtml(html)
   if (!parsed.ok) return parsed
+  return ingestParsedBookmarks(adapter, parsed.value)
+}
+
+/**
+ * 并入解析结果(HTML 书签文件或原生书签树共用):
+ * 新分组用导入默认色、根级散项进收集箱、同名并组、normalizeUrl 唯一判重跳过。
+ * 前置条件:parsed 非空(各解析函数已拒空)。
+ */
+export async function ingestParsedBookmarks(
+  adapter: StorageAdapter,
+  parsed: ParsedBookmarks,
+): Promise<Result<ImportReport>> {
   const base = (await adapter.load()) ?? emptyState()
-  const incoming: IncomingGroup[] = parsed.value.groups.map((g) => ({
+  const incoming: IncomingGroup[] = parsed.groups.map((g) => ({
     name: g.name,
     color: IMPORTED_GROUP_COLOR,
     bookmarks: g.bookmarks,
   }))
-  if (parsed.value.inbox.length > 0) {
-    incoming.unshift({ name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, bookmarks: parsed.value.inbox })
+  if (parsed.inbox.length > 0) {
+    incoming.unshift({ name: INBOX_GROUP_NAME, color: INBOX_GROUP_COLOR, bookmarks: parsed.inbox })
   }
   const { state, report } = ingestInto(base, incoming)
   await adapter.save(state)

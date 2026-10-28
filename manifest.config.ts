@@ -28,5 +28,6 @@ export default defineManifest({
   },
   // tabs:读取 tab.url 供工具栏图标状态判定、一键收藏与「取消收藏」可见性(菜单点击写入用 info.pageUrl,不需它)
   // contextMenus:右键「收藏到→某组」
-  permissions: ['storage', 'tabs', 'favicon', 'contextMenus'],
+  // bookmarks:设置页「从浏览器书签导入」一次性读取原生书签树(工单 08;仅读取,不回写)
+  permissions: ['storage', 'tabs', 'favicon', 'contextMenus', 'bookmarks'],
 })
