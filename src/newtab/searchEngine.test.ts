@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_ENGINE_ID, ENGINES, resolveEngineId, searchUrl } from './searchEngine'
+import { DEFAULT_ENGINE_ID, ENGINES, ENGINE_IDS, resolveEngineId, searchUrl } from './searchEngine'
 
 // 引擎表与设置感知的 searchUrl:URL 只在本模块构造(工单 08 接管工单 04 的硬编码必应)
 describe('搜索引擎 URL', () => {
@@ -23,7 +23,8 @@ describe('搜索引擎 URL', () => {
   })
 
   it('引擎表含 Google/必应/百度三项,spec 默认必应', () => {
-    expect(Object.keys(ENGINES).sort()).toEqual(['baidu', 'bing', 'google'])
+    expect(ENGINE_IDS).toEqual(['google', 'bing', 'baidu'])
+    expect(new Set(ENGINE_IDS)).toEqual(new Set(Object.keys(ENGINES)))
     expect(DEFAULT_ENGINE_ID).toBe('bing')
     expect(ENGINES.bing.name).toBe('必应')
     expect(ENGINES.baidu.name).toBe('百度')

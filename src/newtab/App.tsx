@@ -4,21 +4,35 @@ import { createBookmarkStore } from '../domain/store'
 import type { BookmarkStore, NewBookmarkInput } from '../domain/store'
 import { filterState } from '../domain/search'
 import { createChromeStorage } from '../storage/chromeStorage'
+import type { NativeBookmarkNode } from '../domain/nativeImport'
 import { AddBookmarkForm } from './AddBookmarkForm'
 import { BookmarkGroups } from './BookmarkGroups'
-import { ImportExport } from './ImportExport'
 import { SearchBox } from './SearchBox'
+import { SettingsView } from './SettingsView'
 import { searchUrl } from './searchEngine'
+import type { EngineId } from './searchEngine'
+import { createChromeSettingsStorage, DEFAULT_SETTINGS, loadSettings } from './settings'
+import type { SettingsAdapter } from './settings'
+import { getNativeBookmarkTree } from './nativeBookmarks'
 import { domainErrorText } from './messages'
 
 const chromeStorage = createChromeStorage()
+const chromeSettingsStorage = createChromeSettingsStorage()
 
 type AppProps = {
   /** 注入存储适配器;缺省用 chrome.storage.local(测试注入内存适配器) */
   adapter?: StorageAdapter
+  /** 设置存储适配器(引擎选择等,与收藏状态分开存储);测试注入内存实现 */
+  settingsAdapter?: SettingsAdapter
+  /** 原生书签树读取缝隙;测试注入假树 */
+  getBookmarkTree?: () => Promise<NativeBookmarkNode[]>
 }
 
-export function App({ adapter = chromeStorage }: AppProps) {
+export function App({
+  adapter = chromeStorage,
+  settingsAdapter = chromeSettingsStorage,
+  getBookmarkTree = getNativeBookmarkTree,
+}: AppProps) {
   const [store, setStore] = useState<BookmarkStore | null>(null)
   const [state, setState] = useState<BookmarkState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -26,6 +40,8 @@ export function App({ adapter = chromeStorage }: AppProps) {
   // (适配器 subscribe 亦会触发;此处与跨上下文同步机制并存,epoch 保底刷新)
   const [storeEpoch, setStoreEpoch] = useState(0)
   const [query, setQuery] = useState('')
+  const [view, setView] = useState<'start' | 'settings'>('start')
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS)
 
   useEffect(() => {
     let cancelled = false
@@ -48,6 +64,19 @@ export function App({ adapter = chromeStorage }: AppProps) {
       unsubscribe?.()
     }
   }, [adapter, storeEpoch])
+
+  useEffect(() => {
+    let cancelled = false
+    // 读取失败时保持默认设置:引擎设置不阻塞初始页(存值损坏也由 loadSettings 回退默认)
+    loadSettings(settingsAdapter)
+      .then((loaded) => {
+        if (!cancelled) setSettings(loaded)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [settingsAdapter])
 
   if (!store || !state) {
     return (
@@ -73,25 +102,48 @@ export function App({ adapter = chromeStorage }: AppProps) {
     return result
   }
 
-  /** 回车:新开标签页跳默认引擎(当前必应)搜索输入词;空白不跳转 */
+  /** 换引擎即存,回车立即生效 */
+  async function handleEngineChange(engine: EngineId) {
+    setSettings({ engine })
+    await settingsAdapter.save({ engine })
+  }
+
+  /** 回车:新开标签页按所选引擎搜索输入词;空白不跳转 */
   function handleSearch(raw: string) {
     const trimmed = raw.trim()
     if (!trimmed) return
-    window.open(searchUrl(trimmed), '_blank', 'noopener')
+    window.open(searchUrl(trimmed, settings.engine), '_blank', 'noopener')
   }
 
   // 查询为空时原样返回(完整分组视图);有查询时隐藏无命中的收藏与分组
   const visible = filterState(state, query)
 
+  function bumpStoreEpoch() {
+    setStoreEpoch((epoch) => epoch + 1)
+  }
+
+  if (view === 'settings') {
+    return (
+      <SettingsView
+        settings={settings}
+        onEngineChange={(engine) => void handleEngineChange(engine)}
+        onBack={() => setView('start')}
+        state={state}
+        adapter={adapter}
+        onImported={bumpStoreEpoch}
+        getBookmarkTree={getBookmarkTree}
+      />
+    )
+  }
+
   return (
     <main className="page">
       <header className="page-header">
         <h1 className="page-title">初始页</h1>
-        <ImportExport
-          state={state}
-          adapter={adapter}
-          onImported={() => setStoreEpoch((epoch) => epoch + 1)}
-        />
+        {/* 工单 08:导入导出迁入设置页,头部只保留齿轮入口 */}
+        <button type="button" className="gear-button" aria-label="设置" onClick={() => setView('settings')}>
+          ⚙ 设置
+        </button>
       </header>
       <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
       <AddBookmarkForm onAdd={handleAdd} />

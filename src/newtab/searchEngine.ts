@@ -18,6 +18,9 @@ export const ENGINES: Record<EngineId, SearchEngine> = {
   baidu: { name: '百度', searchUrl: 'https://www.baidu.com/s?wd=' },
 }
 
+/** 设置页展示顺序(spec:Google / 必应 / 百度)。 */
+export const ENGINE_IDS: EngineId[] = ['google', 'bing', 'baidu']
+
 /** spec 默认引擎:必应。 */
 export const DEFAULT_ENGINE_ID: EngineId = 'bing'
 

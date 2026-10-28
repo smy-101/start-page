@@ -7,6 +7,7 @@ import { createMemoryStorage } from '../storage/memoryStorage'
 import { createBookmarkStore } from '../domain/store'
 import { ImportExport } from './ImportExport'
 import { App } from './App'
+import { createMemorySettingsStorage } from './settings'
 
 const backup: BookmarkState = {
   schemaVersion: 1,
@@ -167,17 +168,28 @@ describe('导入导出组件(初始页设置区)', () => {
   })
 })
 
-describe('初始页接入导入导出', () => {
-  it('设置区可见;导入备份后新分组与收藏出现在页面上', async () => {
+describe('初始页接入导入导出(工单 08 起收纳于设置页)', () => {
+  it('设置页可见;导入备份后返回初始页,新分组与收藏出现在页面上', async () => {
     const adapter = createMemoryStorage()
-    render(<App adapter={adapter} />)
+    render(
+      <App
+        adapter={adapter}
+        settingsAdapter={createMemorySettingsStorage()}
+        getBookmarkTree={async () => []}
+      />,
+    )
 
-    expect(await screen.findByRole('region', { name: '导入导出' })).toBeInTheDocument()
+    // 初始页头部只留齿轮,导入导出收纳于设置页
+    await screen.findByRole('button', { name: '设置' })
+    expect(screen.queryByRole('region', { name: '导入导出' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    await screen.findByRole('region', { name: '导入导出' })
 
     const file = new File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' })
     fireEvent.change(screen.getByLabelText('导入文件'), { target: { files: [file] } })
 
     expect(await screen.findByText('新增 1 条、跳过 0 条')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '返回初始页' }))
     expect(await screen.findByRole('heading', { name: '设计' })).toBeInTheDocument()
     expect(screen.getByText('设计工具')).toBeInTheDocument()
   })
