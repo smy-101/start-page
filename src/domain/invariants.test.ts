@@ -163,9 +163,9 @@ describe('不变量(锁定):删除分组回收与收集箱不可变', () => {
 
     await store.reorderGroups([news.value.id, INBOX_GROUP_ID, work.value.id])
     expectInvariants(store.getState())
-    await store.moveBookmark(i.value.id, { groupId: work.value.id, index: 0 })
+    await store.moveBookmark(i.value.id, work.value.id, 0)
     expectInvariants(store.getState())
-    await store.moveBookmark(n.value.id, { index: 0 })
+    await store.moveBookmark(n.value.id, undefined, 0)
     expectInvariants(store.getState())
     await store.deleteGroup(news.value.id)
     expectInvariants(store.getState())

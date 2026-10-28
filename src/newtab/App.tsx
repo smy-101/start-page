@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react'
 import type { BookmarkId, BookmarkState, GroupId, Result, StorageAdapter } from '../domain/types'
 import { createBookmarkStore } from '../domain/store'
 import type { BookmarkStore, NewBookmarkInput, NewGroupInput } from '../domain/store'
+import { filterState } from '../domain/search'
 import { createChromeStorage } from '../storage/chromeStorage'
 import { AddBookmarkForm } from './AddBookmarkForm'
-import { GroupSection } from './GroupSection'
+import { BookmarkGroups } from './BookmarkGroups'
 import { NewGroupForm } from './NewGroupForm'
+import { SearchBox } from './SearchBox'
+import { searchUrl } from './searchEngine'
 import { loadCollapsedGroups, saveCollapsedGroups } from './collapsedGroups'
 import { domainErrorText } from './messages'
 
@@ -27,19 +30,30 @@ export function App({ adapter = chromeStorage }: AppProps) {
   const [state, setState] = useState<BookmarkState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
   // 折叠是 UI 状态:localStorage 侧通道持久化,刷新后保持
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsedGroups())
   const [drag, setDrag] = useState<Drag>(null)
 
   useEffect(() => {
     let cancelled = false
-    void createBookmarkStore(adapter).then((created) => {
-      if (cancelled) return
+    // 序号防止乱序:仅最后一次重建生效(自身写入与 service worker 写入都会触发)
+    let bootSeq = 0
+    async function boot() {
+      const current = ++bootSeq
+      const created = await createBookmarkStore(adapter)
+      if (cancelled || current !== bootSeq) return
       setStore(created)
       setState(created.getState())
+    }
+    void boot()
+    // 跨上下文同步:任何上下文写入状态(含本页自己)→ 重建收藏库重渲染
+    const unsubscribe = adapter.subscribe?.(() => {
+      void boot()
     })
     return () => {
       cancelled = true
+      unsubscribe?.()
     }
   }, [adapter])
 
@@ -125,14 +139,18 @@ export function App({ adapter = chromeStorage }: AppProps) {
     if (!current) return
     if (current.kind === 'group') {
       if (current.id === targetGroupId) return
-      const without = groupsByOrder.map((g) => g.id).filter((id) => id !== current.id)
+      const without = [...state.groups]
+        .sort((a, b) => a.order - b.order)
+        .map((g) => g.id)
+        .filter((id) => id !== current.id)
       without.splice(without.indexOf(targetGroupId), 0, current.id)
       void run(() => active.reorderGroups(without))
     } else {
+      // 下标按完整状态计算,搜索过滤视图下拖拽同样落到真实末尾
       const index = state.bookmarks.filter(
         (b) => b.groupId === targetGroupId && b.id !== current.id,
       ).length
-      void run(() => active.moveBookmark(current.id, { groupId: targetGroupId, index }))
+      void run(() => active.moveBookmark(current.id, targetGroupId, index))
     }
   }
 
@@ -150,14 +168,23 @@ export function App({ adapter = chromeStorage }: AppProps) {
       .filter((b) => b.groupId === target.groupId && b.id !== current.id)
       .sort((a, b) => a.order - b.order)
       .findIndex((b) => b.id === targetBookmarkId)
-    void run(() => active.moveBookmark(current.id, { groupId: target.groupId, index }))
+    void run(() => active.moveBookmark(current.id, target.groupId, index))
   }
 
-  const groupsByOrder = [...state.groups].sort((a, b) => a.order - b.order)
+  /** 回车:新开标签页跳默认引擎(当前必应)搜索输入词;空白不跳转 */
+  function handleSearch(raw: string) {
+    const trimmed = raw.trim()
+    if (!trimmed) return
+    window.open(searchUrl(trimmed), '_blank', 'noopener')
+  }
+
+  // 查询为空时原样返回(完整分组视图);有查询时隐藏无命中的收藏与分组
+  const visible = filterState(state, query)
 
   return (
     <main className="page">
       <h1 className="page-title">初始页</h1>
+      <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
       <AddBookmarkForm onAdd={handleAdd} />
       <NewGroupForm onCreate={handleCreateGroup} />
       {error && (
@@ -170,37 +197,32 @@ export function App({ adapter = chromeStorage }: AppProps) {
           {notice}
         </p>
       )}
-      {groupsByOrder.map((group) => (
-        <GroupSection
-          key={group.id}
-          group={group}
-          bookmarks={state.bookmarks
-            .filter((bookmark) => bookmark.groupId === group.id)
-            .sort((a, b) => a.order - b.order)}
-          collapsed={collapsed.has(group.id)}
-          onToggleCollapse={() => handleToggleCollapse(group.id)}
-          onRename={(name) => handleRenameGroup(group.id, name)}
-          onRecolor={(color) => handleRecolorGroup(group.id, color)}
-          onDeleteGroup={() => handleDeleteGroup(group.id)}
-          onEdit={async (id, patch) => {
-            const result = await active.updateBookmark(id, patch)
-            if (result.ok) refresh()
-            return result
-          }}
-          onDelete={async (id) => {
-            const result = await active.removeBookmark(id)
-            if (result.ok) refresh()
-            return result
-          }}
-          onGroupDragStart={(groupId) => setDrag({ kind: 'group', id: groupId })}
-          onCardDragStart={(bookmarkId, groupId) => setDrag({ kind: 'bookmark', id: bookmarkId, groupId })}
-          onDragEnd={() => setDrag(null)}
-          onSectionDragOver={allowDrop}
-          onSectionDrop={handleSectionDrop}
-          onCardDragOver={allowDrop}
-          onCardDrop={handleCardDrop}
-        />
-      ))}
+      <BookmarkGroups
+        state={visible}
+        searching={query.trim() !== ''}
+        collapsedGroups={collapsed}
+        onToggleCollapse={handleToggleCollapse}
+        onRenameGroup={handleRenameGroup}
+        onRecolorGroup={handleRecolorGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onGroupDragStart={(groupId) => setDrag({ kind: 'group', id: groupId })}
+        onCardDragStart={(bookmarkId, groupId) => setDrag({ kind: 'bookmark', id: bookmarkId, groupId })}
+        onDragEnd={() => setDrag(null)}
+        onSectionDragOver={allowDrop}
+        onSectionDrop={handleSectionDrop}
+        onCardDragOver={allowDrop}
+        onCardDrop={handleCardDrop}
+        onEdit={async (id, patch) => {
+          const result = await active.updateBookmark(id, patch)
+          if (result.ok) refresh()
+          return result
+        }}
+        onDelete={async (id) => {
+          const result = await active.removeBookmark(id)
+          if (result.ok) refresh()
+          return result
+        }}
+      />
     </main>
   )
 }

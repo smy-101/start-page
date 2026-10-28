@@ -203,7 +203,7 @@ describe('移动收藏:跨组移动与组内排序', () => {
   it('组内排序:移到指定下标,全组 order 重排为 0..n-1', async () => {
     const { store, ids } = await storeWithMoves()
 
-    const moved = await store.moveBookmark(ids.c, { index: 0 })
+    const moved = await store.moveBookmark(ids.c, undefined, 0)
 
     expect(moved.ok).toBe(true)
     if (moved.ok) expect(moved.value).toMatchObject({ id: ids.c, order: 0 })
@@ -224,7 +224,7 @@ describe('移动收藏:跨组移动与组内排序', () => {
   it('跨组移动:插入目标组指定下标,原组剩余收藏 order 收紧', async () => {
     const { store, workId, ids } = await storeWithMoves()
 
-    const moved = await store.moveBookmark(ids.b, { groupId: workId, index: 1 })
+    const moved = await store.moveBookmark(ids.b, workId, 1)
 
     expect(moved.ok).toBe(true)
     if (moved.ok) expect(moved.value).toMatchObject({ id: ids.b, groupId: workId })
@@ -249,7 +249,7 @@ describe('移动收藏:跨组移动与组内排序', () => {
   it('不落下标:追加到目标组末尾;下标越界被夹取到末尾', async () => {
     const { store, workId, ids } = await storeWithMoves()
 
-    const appended = await store.moveBookmark(ids.a, { groupId: workId })
+    const appended = await store.moveBookmark(ids.a, workId)
     expect(appended.ok).toBe(true)
     expect(groupUrls(store.getState(), workId)).toEqual([
       'https://w1.example.com',
@@ -257,7 +257,7 @@ describe('移动收藏:跨组移动与组内排序', () => {
       'https://a.example.com',
     ])
 
-    const clamped = await store.moveBookmark(ids.c, { groupId: workId, index: 99 })
+    const clamped = await store.moveBookmark(ids.c, workId, 99)
     expect(clamped.ok).toBe(true)
     expect(groupUrls(store.getState(), workId)).toEqual([
       'https://w1.example.com',
@@ -269,17 +269,17 @@ describe('移动收藏:跨组移动与组内排序', () => {
 
   it('移动结果落盘;不存在的收藏或分组被拒,状态不变', async () => {
     const { storage, store, workId, ids } = await storeWithMoves()
-    await store.moveBookmark(ids.a, { groupId: workId, index: 0 })
+    await store.moveBookmark(ids.a, workId, 0)
 
     const reopened = await createBookmarkStore(storage)
     expect(groupUrls(reopened.getState(), workId)[0]).toBe('https://a.example.com')
 
     const before = store.getState()
-    expect(await store.moveBookmark('ghost', { groupId: workId })).toEqual({
+    expect(await store.moveBookmark('ghost', workId)).toEqual({
       ok: false,
       error: 'bookmark-not-found',
     })
-    expect(await store.moveBookmark(ids.a, { groupId: 'nope' })).toEqual({
+    expect(await store.moveBookmark(ids.a, 'nope')).toEqual({
       ok: false,
       error: 'group-not-found',
     })
