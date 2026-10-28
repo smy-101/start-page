@@ -69,3 +69,46 @@ describe('修改分组颜色', () => {
     expect(store.getState().groups.find((g) => g.id === INBOX_GROUP_ID)?.color).toBe('#3b82f6')
   })
 })
+
+describe('组间排序', () => {
+  it('传入全部 id 的新顺序,分组数组与 order 均重排为 0..n-1 并落盘', async () => {
+    const storage: StorageAdapter = createMemoryStorage()
+    const store = await createBookmarkStore(storage)
+    const work = await store.createGroup({ name: '工作', color: '#e99695' })
+    const news = await store.createGroup({ name: '资讯', color: '#9fe295' })
+    if (!work.ok || !news.ok) throw new Error('fixture setup failed')
+
+    const reordered = await store.reorderGroups([news.value.id, work.value.id, INBOX_GROUP_ID])
+
+    expect(reordered.ok).toBe(true)
+    expect(store.getState().groups.map((g) => [g.id, g.order])).toEqual([
+      [news.value.id, 0],
+      [work.value.id, 1],
+      [INBOX_GROUP_ID, 2],
+    ])
+    const reopened = await createBookmarkStore(storage)
+    expect(reopened.getState().groups.map((g) => g.id)).toEqual([
+      news.value.id,
+      work.value.id,
+      INBOX_GROUP_ID,
+    ])
+  })
+
+  it('含未知 id 被拒;缺组或重复 id 被拒;原顺序不变', async () => {
+    const { store, workId, newsId } = await storeWithGroups()
+
+    expect(await store.reorderGroups([INBOX_GROUP_ID, workId, 'ghost'])).toEqual({
+      ok: false,
+      error: 'group-not-found',
+    })
+    expect(await store.reorderGroups([INBOX_GROUP_ID, workId])).toEqual({
+      ok: false,
+      error: 'invalid-group-order',
+    })
+    expect(await store.reorderGroups([INBOX_GROUP_ID, workId, workId, newsId])).toEqual({
+      ok: false,
+      error: 'invalid-group-order',
+    })
+    expect(store.getState().groups.map((g) => g.id)).toEqual([INBOX_GROUP_ID, workId, newsId])
+  })
+})

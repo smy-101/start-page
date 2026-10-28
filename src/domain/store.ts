@@ -43,6 +43,8 @@ export interface BookmarkStore {
   createGroup(input: NewGroupInput): Promise<Result<Group>>
   renameGroup(id: GroupId, name: string): Promise<Result<Group>>
   recolorGroup(id: GroupId, color: string): Promise<Result<Group>>
+  /** 组间排序:传入全部分组 id 的新顺序,重排为 0..n-1。 */
+  reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>>
 }
 
 function initialState(): BookmarkState {
@@ -198,6 +200,23 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       }
       await adapter.save(state)
       return { ok: true, value: recolored }
+    },
+
+    async reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>> {
+      if (groupIds.some((id) => !groupExists(id))) {
+        return { ok: false, error: 'group-not-found' }
+      }
+      if (
+        groupIds.length !== state.groups.length ||
+        new Set(groupIds).size !== groupIds.length
+      ) {
+        return { ok: false, error: 'invalid-group-order' }
+      }
+      const byId = new Map(state.groups.map((g) => [g.id, g]))
+      const groups = groupIds.map((id, index) => ({ ...byId.get(id)!, order: index }))
+      state = { ...state, groups }
+      await adapter.save(state)
+      return { ok: true, value: groups }
     },
   }
 }
