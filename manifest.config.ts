@@ -19,8 +19,13 @@ export default defineManifest({
       '32': 'icons/outline-32.png',
     },
   },
+  background: {
+    service_worker: 'src/background/index.ts',
+    type: 'module',
+  },
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  permissions: ['storage', 'favicon'],
+  // contextMenus:右键「收藏到→某组」;tabs:「取消收藏」可见性需读活动标签页 URL(点击写入用 info.pageUrl,不需它)
+  permissions: ['storage', 'favicon', 'contextMenus', 'tabs'],
 })
