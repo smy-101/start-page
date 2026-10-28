@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { BookmarkState } from './types'
 import { INBOX_GROUP_ID } from './types'
@@ -12,12 +10,7 @@ import {
 } from './importExport'
 import { createMemoryStorage } from '../storage/memoryStorage'
 import { createBookmarkStore } from './store'
-
-/** 仿真实 Chrome 导出的书签 HTML(书签栏+嵌套文件夹+DD 备注+小书签+根级书签)。 */
-const chromeExportHtml = readFileSync(
-  join(process.cwd(), 'tests/fixtures/chrome-bookmarks-export.html'),
-  'utf8',
-)
+import chromeExportHtml from '../../tests/fixtures/chrome-bookmarks-export.html?raw'
 
 /** 与实现无耦合的字面量状态:导出/导入回环的独立真值来源。 */
 export function literalState(): BookmarkState {
@@ -284,6 +277,7 @@ describe('导入 JSON:合并模式', () => {
     const adapter = createMemoryStorage()
     const store = await createBookmarkStore(adapter)
     const work = await store.createGroup({ name: '工作', color: '#f97316' })
+    if (!work.ok) throw new Error('预置分组失败')
     await store.addBookmark({ url: 'https://a.example.com', title: '已有 A', groupId: work.value.id })
 
     const incoming: BookmarkState = {
@@ -359,6 +353,7 @@ describe('导入 JSON:替换全部模式', () => {
     const adapter = createMemoryStorage()
     const store = await createBookmarkStore(adapter)
     const old = await store.createGroup({ name: '将被清掉', color: '#000000' })
+    if (!old.ok) throw new Error('预置分组失败')
     await store.addBookmark({ url: 'https://old.example.com', groupId: old.value.id })
 
     const backup = literalState()
@@ -372,8 +367,9 @@ describe('导入 JSON:替换全部模式', () => {
   it('导出→清空→导入回环后数据无损(领域层锁定)', async () => {
     const original = literalState()
     const adapterA = createMemoryStorage(original)
-
-    const raw = exportStateAsJson(await adapterA.load()!)
+    const exported = await adapterA.load()
+    if (!exported) throw new Error('预置状态失败')
+    const raw = exportStateAsJson(exported)
 
     // 清空:换新空库模拟全新安装/抹除
     const adapterB = createMemoryStorage(null)
@@ -406,5 +402,65 @@ describe('导入 JSON:替换全部模式', () => {
     expect(state!.bookmarks.find((b) => b.title === '孤儿')!.groupId).toBe(INBOX_GROUP_ID)
     expect(state!.bookmarks.filter((b) => b.url === 'https://dup.example.com')).toHaveLength(1)
     expect(state!.bookmarks.find((b) => b.url === 'https://dup.example.com')!.title).toBe('第一条')
+  })
+})
+
+describe('HTML 生成→解析回环', () => {
+  it('导出的 HTML 再解析:分组顺序/名称与书签 URL/标题/备注一一还原', () => {
+    const state = literalState()
+    state.groups[0]!.name = '收集箱'
+
+    const parsed = parseBookmarksHtml(exportStateAsHtml(state))
+
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    // 导出按 order 排序:收集箱→工作→开发;根级无散落书签,收集箱组为空
+    expect(parsed.value.inbox).toEqual([])
+    expect(parsed.value.groups.map((g) => g.name)).toEqual(['收集箱', '工作', '开发'])
+    const flat = parsed.value.groups.flatMap((g) =>
+      g.bookmarks.map((b) => ({ group: g.name, ...b })),
+    )
+    expect(flat).toEqual([
+      { group: '收集箱', url: 'https://example.com', title: '示例站', note: '第一条备注' },
+      {
+        group: '工作',
+        url: 'https://git.example.com/org/repo?tab=readme',
+        title: '代码仓库',
+        note: '',
+      },
+      { group: '开发', url: 'http://localhost:5173', title: '本地开发服', note: '仅本机' },
+    ])
+  })
+})
+
+describe('导入后的不变量(与工单 02 锁定的一致)', () => {
+  it('HTML 与 JSON 合并导入后:每条收藏必属且仅属一个现存分组,收集箱存在', async () => {
+    const adapter = createMemoryStorage()
+    const store = await createBookmarkStore(adapter)
+    const other = await store.createGroup({ name: '已有组', color: '#654321' })
+    if (!other.ok) throw new Error('预置分组失败')
+    await store.addBookmark({ url: 'https://pre.example.com', groupId: other.value.id })
+
+    await importBookmarksFromHtml(adapter, chromeExportHtml)
+    const incoming: BookmarkState = {
+      schemaVersion: 1,
+      groups: [
+        { id: INBOX_GROUP_ID, name: '收集箱', color: '#3b82f6', order: 0 },
+        { id: 'bk-1', name: '备份组', color: '#111111', order: 1 },
+      ],
+      bookmarks: [
+        { id: 'k-1', url: 'https://json.example.com', title: 'J', note: '', groupId: 'bk-1', order: 0 },
+      ],
+    }
+    await importStateFromJson(adapter, JSON.stringify(incoming), 'merge')
+
+    const state = (await adapter.load())!
+    expect(state.groups.some((g) => g.id === INBOX_GROUP_ID)).toBe(true)
+    const groupIds = new Set(state.groups.map((g) => g.id))
+    for (const bookmark of state.bookmarks) {
+      expect(groupIds.has(bookmark.groupId)).toBe(true)
+    }
+    // 每条收藏恰好属于一个分组:分组 id 互不重叠即可由上式与唯一 groupId 保证
+    expect(new Set(state.bookmarks.map((b) => b.id)).size).toBe(state.bookmarks.length)
   })
 })

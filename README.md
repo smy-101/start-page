@@ -36,6 +36,7 @@ manifest.config.ts            # MV3 manifest(defineManifest)
 src/domain/                   # 领域层:纯 TypeScript,零 chrome.* 依赖,存储适配器注入
 src/storage/                  # 存储适配器:chrome.storage.local 真实实现 + 内存实现(测试)
 src/newtab/                   # 新标签页「初始页」React 应用
+tests/fixtures/               # 测试样本(真实形态的浏览器书签导出 HTML 等)
 icons/                        # 扩展图标(PNG,manifest 仅支持位图)
 scripts/generate-icons.mjs    # 图标生成脚本:node scripts/generate-icons.mjs
 ```
