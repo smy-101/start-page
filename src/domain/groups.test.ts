@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { INBOX_GROUP_ID, createBookmarkStore } from './store'
 import { createMemoryStorage } from '../storage/memoryStorage'
-import type { StorageAdapter } from './types'
+import type { BookmarkState, StorageAdapter } from './types'
 
 /** 三组夹具:收集箱 + 工作 + 资讯(按此顺序)。 */
 async function storeWithGroups() {
@@ -168,6 +168,121 @@ describe('删除分组:回收而非连带删除', () => {
 
     expect(await store.deleteGroup('ghost')).toEqual({ ok: false, error: 'group-not-found' })
     expect(await store.deleteGroup(INBOX_GROUP_ID)).toEqual({ ok: false, error: 'inbox-immutable' })
+    expect(store.getState()).toEqual(before)
+  })
+})
+
+describe('移动收藏:跨组移动与组内排序', () => {
+  async function storeWithMoves() {
+    const storage: StorageAdapter = createMemoryStorage()
+    const store = await createBookmarkStore(storage)
+    const work = await store.createGroup({ name: '工作', color: '#e99695' })
+    if (!work.ok) throw new Error('fixture setup failed')
+    const a = await store.addBookmark({ url: 'https://a.example.com' })
+    const b = await store.addBookmark({ url: 'https://b.example.com' })
+    const c = await store.addBookmark({ url: 'https://c.example.com' })
+    const w1 = await store.addBookmark({ url: 'https://w1.example.com', groupId: work.value.id })
+    const w2 = await store.addBookmark({ url: 'https://w2.example.com', groupId: work.value.id })
+    if (!a.ok || !b.ok || !c.ok || !w1.ok || !w2.ok) throw new Error('fixture setup failed')
+    return {
+      storage,
+      store,
+      workId: work.value.id,
+      ids: { a: a.value.id, b: b.value.id, c: c.value.id, w1: w1.value.id, w2: w2.value.id },
+    }
+  }
+
+  /** 返回某组内收藏 url 的顺序列表(按 order)。 */
+  function groupUrls(state: BookmarkState, groupId: string) {
+    return state.bookmarks
+      .filter((b) => b.groupId === groupId)
+      .sort((x, y) => x.order - y.order)
+      .map((b) => b.url)
+  }
+
+  it('组内排序:移到指定下标,全组 order 重排为 0..n-1', async () => {
+    const { store, ids } = await storeWithMoves()
+
+    const moved = await store.moveBookmark(ids.c, { index: 0 })
+
+    expect(moved.ok).toBe(true)
+    if (moved.ok) expect(moved.value).toMatchObject({ id: ids.c, order: 0 })
+    expect(groupUrls(store.getState(), INBOX_GROUP_ID)).toEqual([
+      'https://c.example.com',
+      'https://a.example.com',
+      'https://b.example.com',
+    ])
+    expect(
+      store
+        .getState()
+        .bookmarks.filter((b) => b.groupId === INBOX_GROUP_ID)
+        .sort((x, y) => x.order - y.order)
+        .map((b) => b.order),
+    ).toEqual([0, 1, 2])
+  })
+
+  it('跨组移动:插入目标组指定下标,原组剩余收藏 order 收紧', async () => {
+    const { store, workId, ids } = await storeWithMoves()
+
+    const moved = await store.moveBookmark(ids.b, { groupId: workId, index: 1 })
+
+    expect(moved.ok).toBe(true)
+    if (moved.ok) expect(moved.value).toMatchObject({ id: ids.b, groupId: workId })
+    expect(groupUrls(store.getState(), INBOX_GROUP_ID)).toEqual([
+      'https://a.example.com',
+      'https://c.example.com',
+    ])
+    expect(groupUrls(store.getState(), workId)).toEqual([
+      'https://w1.example.com',
+      'https://b.example.com',
+      'https://w2.example.com',
+    ])
+    // 原组 order 收紧为 0..1
+    const inboxOrders = store
+      .getState()
+      .bookmarks.filter((bm) => bm.groupId === INBOX_GROUP_ID)
+      .sort((x, y) => x.order - y.order)
+      .map((bm) => bm.order)
+    expect(inboxOrders).toEqual([0, 1])
+  })
+
+  it('不落下标:追加到目标组末尾;下标越界被夹取到末尾', async () => {
+    const { store, workId, ids } = await storeWithMoves()
+
+    const appended = await store.moveBookmark(ids.a, { groupId: workId })
+    expect(appended.ok).toBe(true)
+    expect(groupUrls(store.getState(), workId)).toEqual([
+      'https://w1.example.com',
+      'https://w2.example.com',
+      'https://a.example.com',
+    ])
+
+    const clamped = await store.moveBookmark(ids.c, { groupId: workId, index: 99 })
+    expect(clamped.ok).toBe(true)
+    expect(groupUrls(store.getState(), workId)).toEqual([
+      'https://w1.example.com',
+      'https://w2.example.com',
+      'https://a.example.com',
+      'https://c.example.com',
+    ])
+  })
+
+  it('移动结果落盘;不存在的收藏或分组被拒,状态不变', async () => {
+    const { storage, store, workId, ids } = await storeWithMoves()
+    await store.moveBookmark(ids.a, { groupId: workId, index: 0 })
+
+    const reopened = await createBookmarkStore(storage)
+    expect(groupUrls(reopened.getState(), workId)[0]).toBe('https://a.example.com')
+
+    const before = store.getState()
+    expect(await store.moveBookmark('ghost', { groupId: workId })).toEqual({
+      ok: false,
+      error: 'bookmark-not-found',
+    })
+    expect(await store.moveBookmark(ids.a, { groupId: 'nope' })).toEqual({
+      ok: false,
+      error: 'group-not-found',
+    })
     expect(store.getState()).toEqual(before)
   })
 })

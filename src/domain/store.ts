@@ -47,6 +47,11 @@ export interface BookmarkStore {
   reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>>
   /** 删除分组:组内收藏全部回收进收集箱(绝不连带删除)。 */
   deleteGroup(id: GroupId): Promise<Result<{ groupId: GroupId; recycledIds: BookmarkId[] }>>
+  /** 跨组移动与组内排序的统一入口:目标组缺省为原组,下标缺省追加到末尾。 */
+  moveBookmark(
+    id: BookmarkId,
+    to: { groupId?: GroupId; index?: number },
+  ): Promise<Result<Bookmark>>
 }
 
 function initialState(): BookmarkState {
@@ -239,6 +244,40 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       state = { ...state, groups, bookmarks }
       await adapter.save(state)
       return { ok: true, value: { groupId: id, recycledIds: recycled.map((b) => b.id) } }
+    },
+
+    async moveBookmark(
+      id: BookmarkId,
+      to: { groupId?: GroupId; index?: number },
+    ): Promise<Result<Bookmark>> {
+      const existing = state.bookmarks.find((b) => b.id === id)
+      if (!existing) return { ok: false, error: 'bookmark-not-found' }
+      const targetGroupId = to.groupId ?? existing.groupId
+      if (!groupExists(targetGroupId)) return { ok: false, error: 'group-not-found' }
+      // 目标组去掉被移动项后按下标插入,全组重排为 0..n-1(下标缺省/越界即末尾)
+      const others = state.bookmarks
+        .filter((b) => b.groupId === targetGroupId && b.id !== id)
+        .sort((a, b) => a.order - b.order)
+      const index = Math.max(0, Math.min(to.index ?? others.length, others.length))
+      const targetList = [
+        ...others.slice(0, index),
+        { ...existing, groupId: targetGroupId },
+        ...others.slice(index),
+      ].map((b, i) => ({ ...b, order: i }))
+      const byId = new Map(targetList.map((b) => [b.id, b] as const))
+      // 移出后原组剩余收藏 order 同步收紧为 0..n-1,避免留下空洞
+      if (targetGroupId !== existing.groupId) {
+        for (const [i, b] of state.bookmarks
+          .filter((bm) => bm.groupId === existing.groupId && bm.id !== id)
+          .sort((x, y) => x.order - y.order)
+          .entries()) {
+          byId.set(b.id, { ...b, order: i })
+        }
+      }
+      const bookmarks = state.bookmarks.map((b) => byId.get(b.id) ?? b)
+      state = { ...state, bookmarks }
+      await adapter.save(state)
+      return { ok: true, value: byId.get(id)! }
     },
   }
 }
