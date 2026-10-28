@@ -195,3 +195,16 @@ describe('编辑与删除收藏', () => {
     expect(reopened.getState().bookmarks).toEqual([])
   })
 })
+
+describe('编辑收藏的标题回退', () => {
+  it('编辑把标题清空时,与添加一致:回退主机名而不是存空串', async () => {
+    const store = await createBookmarkStore(createMemoryStorage())
+    const added = await store.addBookmark({ url: 'https://example.com', title: '示例' })
+    if (!added.ok) throw new Error('fixture setup failed')
+
+    const cleared = await store.updateBookmark(added.value.id, { title: '   ' })
+
+    expect(cleared.ok).toBe(true)
+    if (cleared.ok) expect(cleared.value.title).toBe('example.com')
+  })
+})

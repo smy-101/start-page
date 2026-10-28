@@ -130,7 +130,8 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       const updated: Bookmark = {
         ...existing,
         url,
-        title: patch.title !== undefined ? patch.title.trim() : existing.title,
+        // 与添加同规则:清空标题回退主机名,不存空串
+        title: patch.title === undefined ? existing.title : patch.title.trim() || new URL(url).hostname,
         note: patch.note !== undefined ? patch.note.trim() : existing.note,
         groupId,
       }
