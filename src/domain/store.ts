@@ -42,9 +42,19 @@ export interface BookmarkStore {
   addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>>
   updateBookmark(id: BookmarkId, patch: BookmarkPatch): Promise<Result<Bookmark>>
   removeBookmark(id: BookmarkId): Promise<Result<BookmarkId>>
-  /** 跨组移动:目标组内追加到末尾;同组视为无操作(右键换组收藏依赖) */
-  moveBookmark(id: BookmarkId, groupId: GroupId): Promise<Result<Bookmark>>
   createGroup(input: NewGroupInput): Promise<Result<Group>>
+  renameGroup(id: GroupId, name: string): Promise<Result<Group>>
+  recolorGroup(id: GroupId, color: string): Promise<Result<Group>>
+  /** 组间排序:传入全部分组 id 的新顺序,重排为 0..n-1。 */
+  reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>>
+  /** 删除分组:组内收藏全部回收进收集箱(绝不连带删除)。 */
+  deleteGroup(id: GroupId): Promise<Result<{ groupId: GroupId; recycledIds: BookmarkId[] }>>
+  /**
+   * 移动收藏统一入口:目标组缺省为原组,下标缺省追加到目标组末尾。
+   * 两参调用(仅给组)= 右键换组语义:跨组追加末尾、同组无操作不落盘;
+   * 给下标则跨组定点插入或组内排序,全组重排为 0..n-1。
+   */
+  moveBookmark(id: BookmarkId, groupId?: GroupId, index?: number): Promise<Result<Bookmark>>
 }
 
 function initialState(): BookmarkState {
@@ -87,6 +97,11 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
 
   function nextBookmarkOrder(groupId: GroupId): number {
     const orders = state.bookmarks.filter((b) => b.groupId === groupId).map((b) => b.order)
+    return orders.length === 0 ? 0 : Math.max(...orders) + 1
+  }
+
+  function nextGroupOrder(): number {
+    const orders = state.groups.map((g) => g.order)
     return orders.length === 0 ? 0 : Math.max(...orders) + 1
   }
 
@@ -157,36 +172,126 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       return { ok: true, value: id }
     },
 
-    async moveBookmark(id: BookmarkId, groupId: GroupId): Promise<Result<Bookmark>> {
-      const existing = state.bookmarks.find((b) => b.id === id)
-      if (!existing) return { ok: false, error: 'bookmark-not-found' }
-      if (!groupExists(groupId)) return { ok: false, error: 'group-not-found' }
-      if (existing.groupId === groupId) return { ok: true, value: existing }
-      const moved: Bookmark = {
-        ...existing,
-        groupId,
-        order: nextBookmarkOrder(groupId),
-      }
-      state = { ...state, bookmarks: state.bookmarks.map((b) => (b.id === id ? moved : b)) }
-      await adapter.save(state)
-      return { ok: true, value: moved }
-    },
-
     async createGroup({ name, color }: NewGroupInput): Promise<Result<Group>> {
       const trimmedName = name.trim()
       if (!trimmedName) return { ok: false, error: 'empty-group-name' }
       const trimmedColor = color.trim()
       if (!trimmedColor) return { ok: false, error: 'empty-group-color' }
-      const orders = state.groups.map((g) => g.order)
       const group: Group = {
         id: crypto.randomUUID(),
         name: trimmedName,
         color: trimmedColor,
-        order: orders.length === 0 ? 0 : Math.max(...orders) + 1,
+        order: nextGroupOrder(),
       }
       state = { ...state, groups: [...state.groups, group] }
       await adapter.save(state)
       return { ok: true, value: group }
+    },
+
+    async renameGroup(id: GroupId, name: string): Promise<Result<Group>> {
+      if (id === INBOX_GROUP_ID) return { ok: false, error: 'inbox-immutable' }
+      const group = state.groups.find((g) => g.id === id)
+      if (!group) return { ok: false, error: 'group-not-found' }
+      const trimmedName = name.trim()
+      if (!trimmedName) return { ok: false, error: 'empty-group-name' }
+      const renamed: Group = { ...group, name: trimmedName }
+      state = {
+        ...state,
+        groups: state.groups.map((g) => (g.id === id ? renamed : g)),
+      }
+      await adapter.save(state)
+      return { ok: true, value: renamed }
+    },
+
+    async recolorGroup(id: GroupId, color: string): Promise<Result<Group>> {
+      if (id === INBOX_GROUP_ID) return { ok: false, error: 'inbox-immutable' }
+      const group = state.groups.find((g) => g.id === id)
+      if (!group) return { ok: false, error: 'group-not-found' }
+      const trimmedColor = color.trim()
+      if (!trimmedColor) return { ok: false, error: 'empty-group-color' }
+      const recolored: Group = { ...group, color: trimmedColor }
+      state = {
+        ...state,
+        groups: state.groups.map((g) => (g.id === id ? recolored : g)),
+      }
+      await adapter.save(state)
+      return { ok: true, value: recolored }
+    },
+
+    async reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>> {
+      if (groupIds.some((id) => !groupExists(id))) {
+        return { ok: false, error: 'group-not-found' }
+      }
+      if (
+        groupIds.length !== state.groups.length ||
+        new Set(groupIds).size !== groupIds.length
+      ) {
+        return { ok: false, error: 'invalid-group-order' }
+      }
+      const byId = new Map(state.groups.map((g) => [g.id, g]))
+      const groups = groupIds.map((id, index) => ({ ...byId.get(id)!, order: index }))
+      state = { ...state, groups }
+      await adapter.save(state)
+      return { ok: true, value: groups }
+    },
+
+    async deleteGroup(id: GroupId): Promise<Result<{ groupId: GroupId; recycledIds: BookmarkId[] }>> {
+      if (id === INBOX_GROUP_ID) return { ok: false, error: 'inbox-immutable' }
+      if (!groupExists(id)) return { ok: false, error: 'group-not-found' }
+      // 按组内顺序回收,接在收集箱已有收藏之后
+      const recycled = state.bookmarks
+        .filter((b) => b.groupId === id)
+        .sort((a, b) => a.order - b.order)
+      const baseOrder = nextBookmarkOrder(INBOX_GROUP_ID)
+      const orderById = new Map(recycled.map((b, i) => [b.id, baseOrder + i] as const))
+      const bookmarks = state.bookmarks.map((b) =>
+        orderById.has(b.id)
+          ? { ...b, groupId: INBOX_GROUP_ID, order: orderById.get(b.id)! }
+          : b,
+      )
+      const groups = state.groups.filter((g) => g.id !== id)
+      state = { ...state, groups, bookmarks }
+      await adapter.save(state)
+      return { ok: true, value: { groupId: id, recycledIds: recycled.map((b) => b.id) } }
+    },
+
+    async moveBookmark(
+      id: BookmarkId,
+      groupId?: GroupId,
+      index?: number,
+    ): Promise<Result<Bookmark>> {
+      const existing = state.bookmarks.find((b) => b.id === id)
+      if (!existing) return { ok: false, error: 'bookmark-not-found' }
+      const targetGroupId = groupId ?? existing.groupId
+      if (!groupExists(targetGroupId)) return { ok: false, error: 'group-not-found' }
+      // 两参同组调用 = 无操作成功(右键换组依赖):状态与持久层均不变
+      if (targetGroupId === existing.groupId && index === undefined) {
+        return { ok: true, value: existing }
+      }
+      // 目标组去掉被移动项后按下标插入,全组重排为 0..n-1(下标缺省/越界即末尾)
+      const others = state.bookmarks
+        .filter((b) => b.groupId === targetGroupId && b.id !== id)
+        .sort((a, b) => a.order - b.order)
+      const insertAt = Math.max(0, Math.min(index ?? others.length, others.length))
+      const targetList = [
+        ...others.slice(0, insertAt),
+        { ...existing, groupId: targetGroupId },
+        ...others.slice(insertAt),
+      ].map((b, i) => ({ ...b, order: i }))
+      const byId = new Map(targetList.map((b) => [b.id, b] as const))
+      // 移出后原组剩余收藏 order 同步收紧为 0..n-1,避免留下空洞
+      if (targetGroupId !== existing.groupId) {
+        for (const [i, b] of state.bookmarks
+          .filter((bm) => bm.groupId === existing.groupId && bm.id !== id)
+          .sort((x, y) => x.order - y.order)
+          .entries()) {
+          byId.set(b.id, { ...b, order: i })
+        }
+      }
+      const bookmarks = state.bookmarks.map((b) => byId.get(b.id) ?? b)
+      state = { ...state, bookmarks }
+      await adapter.save(state)
+      return { ok: true, value: byId.get(id)! }
     },
   }
 }
