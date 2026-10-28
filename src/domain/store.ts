@@ -45,6 +45,8 @@ export interface BookmarkStore {
   recolorGroup(id: GroupId, color: string): Promise<Result<Group>>
   /** 组间排序:传入全部分组 id 的新顺序,重排为 0..n-1。 */
   reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>>
+  /** 删除分组:组内收藏全部回收进收集箱(绝不连带删除)。 */
+  deleteGroup(id: GroupId): Promise<Result<{ groupId: GroupId; recycledIds: BookmarkId[] }>>
 }
 
 function initialState(): BookmarkState {
@@ -217,6 +219,26 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       state = { ...state, groups }
       await adapter.save(state)
       return { ok: true, value: groups }
+    },
+
+    async deleteGroup(id: GroupId): Promise<Result<{ groupId: GroupId; recycledIds: BookmarkId[] }>> {
+      if (id === INBOX_GROUP_ID) return { ok: false, error: 'inbox-immutable' }
+      if (!groupExists(id)) return { ok: false, error: 'group-not-found' }
+      // 按组内顺序回收,接在收集箱已有收藏之后
+      const recycled = state.bookmarks
+        .filter((b) => b.groupId === id)
+        .sort((a, b) => a.order - b.order)
+      const baseOrder = nextBookmarkOrder(INBOX_GROUP_ID)
+      const orderById = new Map(recycled.map((b, i) => [b.id, baseOrder + i] as const))
+      const bookmarks = state.bookmarks.map((b) =>
+        orderById.has(b.id)
+          ? { ...b, groupId: INBOX_GROUP_ID, order: orderById.get(b.id)! }
+          : b,
+      )
+      const groups = state.groups.filter((g) => g.id !== id)
+      state = { ...state, groups, bookmarks }
+      await adapter.save(state)
+      return { ok: true, value: { groupId: id, recycledIds: recycled.map((b) => b.id) } }
     },
   }
 }

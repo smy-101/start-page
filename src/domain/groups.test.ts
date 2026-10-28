@@ -112,3 +112,62 @@ describe('组间排序', () => {
     expect(store.getState().groups.map((g) => g.id)).toEqual([INBOX_GROUP_ID, workId, newsId])
   })
 })
+
+describe('删除分组:回收而非连带删除', () => {
+  it('组内收藏全部回到收集箱,相对顺序保持、接在收集箱已有收藏之后,并落盘', async () => {
+    const storage: StorageAdapter = createMemoryStorage()
+    const store = await createBookmarkStore(storage)
+    const work = await store.createGroup({ name: '工作', color: '#e99695' })
+    if (!work.ok) throw new Error('fixture setup failed')
+    const stayInbox = await store.addBookmark({ url: 'https://stay.example.com' })
+    const w1 = await store.addBookmark({ url: 'https://w1.example.com', groupId: work.value.id })
+    const w2 = await store.addBookmark({ url: 'https://w2.example.com', groupId: work.value.id })
+    if (!stayInbox.ok || !w1.ok || !w2.ok) throw new Error('fixture setup failed')
+
+    const deleted = await store.deleteGroup(work.value.id)
+
+    expect(deleted).toEqual({
+      ok: true,
+      value: { groupId: work.value.id, recycledIds: [w1.value.id, w2.value.id] },
+    })
+    const state = store.getState()
+    expect(state.groups.map((g) => g.id)).toEqual([INBOX_GROUP_ID])
+    expect(state.bookmarks).toHaveLength(3)
+    const inboxBookmarks = state.bookmarks
+      .filter((b) => b.groupId === INBOX_GROUP_ID)
+      .sort((a, b) => a.order - b.order)
+    expect(inboxBookmarks.map((b) => b.url)).toEqual([
+      'https://stay.example.com',
+      'https://w1.example.com',
+      'https://w2.example.com',
+    ])
+    const reopened = await createBookmarkStore(storage)
+    expect(reopened.getState().bookmarks.map((b) => b.groupId)).toEqual([
+      INBOX_GROUP_ID,
+      INBOX_GROUP_ID,
+      INBOX_GROUP_ID,
+    ])
+  })
+
+  it('空分组直接删除,不影响其他分组与其收藏', async () => {
+    const { store, workId, newsId } = await storeWithGroups()
+    const kept = await store.addBookmark({ url: 'https://news.example.com', groupId: newsId })
+    if (!kept.ok) throw new Error('fixture setup failed')
+
+    const deleted = await store.deleteGroup(workId)
+
+    expect(deleted).toEqual({ ok: true, value: { groupId: workId, recycledIds: [] } })
+    const state = store.getState()
+    expect(state.groups.map((g) => g.id)).toEqual([INBOX_GROUP_ID, newsId])
+    expect(state.bookmarks.map((b) => b.url)).toEqual(['https://news.example.com'])
+  })
+
+  it('不存在的分组被拒;收集箱不可删除,状态不变', async () => {
+    const { store } = await storeWithGroups()
+    const before = store.getState()
+
+    expect(await store.deleteGroup('ghost')).toEqual({ ok: false, error: 'group-not-found' })
+    expect(await store.deleteGroup(INBOX_GROUP_ID)).toEqual({ ok: false, error: 'inbox-immutable' })
+    expect(store.getState()).toEqual(before)
+  })
+})
