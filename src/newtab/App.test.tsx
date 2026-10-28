@@ -1,12 +1,112 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { App } from './App'
+import { createMemoryStorage } from '../storage/memoryStorage'
 
-describe('初始页空壳', () => {
-  it('渲染收集箱分区,空状态给出中文提示', () => {
-    render(<App />)
+async function renderApp() {
+  render(<App adapter={createMemoryStorage()} />)
+  await screen.findByRole('heading', { name: '收集箱' })
+}
+
+async function addBookmark(url: string, title: string, note = '') {
+  fireEvent.change(screen.getByLabelText('网址'), { target: { value: url } })
+  fireEvent.change(screen.getByLabelText('标题'), { target: { value: title } })
+  if (note) fireEvent.change(screen.getByLabelText('备注'), { target: { value: note } })
+  fireEvent.click(screen.getByRole('button', { name: '添加收藏' }))
+}
+
+describe('初始页:添加收藏到收集箱', () => {
+  it('空收集箱渲染分组标题与空状态提示', async () => {
+    await renderApp()
 
     expect(screen.getByRole('heading', { name: '收集箱' })).toBeInTheDocument()
     expect(screen.getByText('还没有收藏')).toBeInTheDocument()
+  })
+
+  it('填写网址/标题/备注提交后,收藏卡片出现在收集箱,表单清空', async () => {
+    await renderApp()
+
+    await addBookmark('https://example.com', '示例站', '第一条')
+
+    const card = await screen.findByRole('listitem')
+    expect(within(card).getByText('示例站')).toBeInTheDocument()
+    expect(within(card).getByText('https://example.com')).toBeInTheDocument()
+    expect(within(card).getByText('第一条')).toBeInTheDocument()
+    expect(screen.getByLabelText('网址')).toHaveValue('')
+  })
+
+  it('重复 URL 添加被拒,界面给出中文提示', async () => {
+    await renderApp()
+    await addBookmark('https://example.com', '第一条')
+    await screen.findByRole('listitem')
+
+    await addBookmark('HTTPS://EXAMPLE.com/#x', '第二条')
+
+    expect(await screen.findByText('该网址已在收藏中')).toBeInTheDocument()
+    const cards = screen.getAllByRole('listitem')
+    expect(cards).toHaveLength(1)
+    expect(within(cards[0]).getByText('第一条')).toBeInTheDocument()
+  })
+
+  it('无效网址被拒,界面给出中文提示且不产生收藏', async () => {
+    await renderApp()
+
+    await addBookmark('不是网址', '无效')
+
+    expect(await screen.findByText('网址无效,请输入完整网址')).toBeInTheDocument()
+    expect(screen.getByText('还没有收藏')).toBeInTheDocument()
+  })
+})
+
+describe('初始页:收藏卡片', () => {
+  it('点击卡片在新标签页打开网页', async () => {
+    await renderApp()
+    await addBookmark('https://example.com', '示例站')
+
+    const link = await screen.findByRole('link', { name: /示例站/ })
+    expect(link).toHaveAttribute('href', 'https://example.com')
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  it('编辑标题/备注保存后卡片更新', async () => {
+    await renderApp()
+    await addBookmark('https://example.com', '旧标题')
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }))
+    const card = screen.getByRole('listitem')
+
+    fireEvent.change(within(card).getByLabelText('标题'), { target: { value: '新标题' } })
+    fireEvent.click(within(card).getByRole('button', { name: '保存' }))
+
+    expect(await screen.findByText('新标题')).toBeInTheDocument()
+    expect(screen.queryByText('旧标题')).toBeNull()
+  })
+
+  it('编辑时把 URL 改成重复值,提示且保留原值', async () => {
+    await renderApp()
+    await addBookmark('https://a.example.com', 'A')
+    await addBookmark('https://b.example.com', 'B')
+    const cards = await screen.findAllByRole('listitem')
+    expect(cards).toHaveLength(2)
+
+    const card = screen.getAllByRole('listitem')[0]
+    fireEvent.click(within(card).getByRole('button', { name: '编辑' }))
+    fireEvent.change(within(card).getByLabelText('网址'), { target: { value: 'https://b.example.com' } })
+    fireEvent.click(within(card).getByRole('button', { name: '保存' }))
+
+    expect(await within(card).findByText('该网址已在收藏中')).toBeInTheDocument()
+    // 被拒后留在编辑表单;取消可见原收藏未被改动
+    fireEvent.click(within(card).getByRole('button', { name: '取消' }))
+    expect(within(card).getByText('A')).toBeInTheDocument()
+    expect(within(card).getByText('https://a.example.com')).toBeInTheDocument()
+  })
+
+  it('删除收藏后卡片消失,空状态恢复', async () => {
+    await renderApp()
+    await addBookmark('https://example.com', '示例站')
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
+
+    expect(await screen.findByText('还没有收藏')).toBeInTheDocument()
+    expect(screen.queryByRole('listitem')).toBeNull()
   })
 })
