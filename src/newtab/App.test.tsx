@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { App } from './App'
 import { createMemoryStorage } from '../storage/memoryStorage'
+import { createBookmarkStore } from '../domain/store'
 
 async function renderApp() {
   render(<App adapter={createMemoryStorage()} />)
@@ -55,6 +56,27 @@ describe('初始页:添加收藏到收集箱', () => {
 
     expect(await screen.findByText('网址无效,请输入完整网址')).toBeInTheDocument()
     expect(screen.getByText('还没有收藏')).toBeInTheDocument()
+  })
+})
+
+describe('初始页:跨上下文同步', () => {
+  it('其他上下文(如工具栏 service worker)写入后,已打开的初始页即时刷新', async () => {
+    const storage = createMemoryStorage()
+    render(<App adapter={storage} />)
+    await screen.findByText('还没有收藏')
+
+    const toolbarContext = await createBookmarkStore(storage)
+    await toolbarContext.addBookmark({ url: 'https://example.com', title: '工具栏收藏' })
+
+    const card = await screen.findByText('工具栏收藏')
+    expect(card).toBeInTheDocument()
+
+    const found = toolbarContext.findBookmarkByUrl('https://example.com')
+    if (!found) throw new Error('fixture setup failed')
+    await toolbarContext.removeBookmark(found.id)
+
+    expect(await screen.findByText('还没有收藏')).toBeInTheDocument()
+    expect(screen.queryByRole('listitem')).toBeNull()
   })
 })
 

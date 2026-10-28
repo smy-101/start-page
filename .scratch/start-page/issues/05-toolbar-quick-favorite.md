@@ -4,12 +4,16 @@
 
 **Blocked by:** 02(收藏核心:领域层 + 初始页增删改)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 未收藏页点图标:收藏进收集箱,图标变为已收藏态
-- [ ] 已收藏页点图标:取消收藏,图标变为未收藏态
-- [ ] 切换标签页、页面导航后,图标状态即时且正确(每个标签页独立)
-- [ ] 操作有瞬时反馈(badge / title 提示)
-- [ ] chrome:// 等特殊页面呈不可收藏状态,点击不产生数据
-- [ ] 收藏/取消走领域层既有判重与不变量,测试通过
-- [ ] 所需权限(tabs 读取 URL、图标资源)在 manifest 中声明齐全
+- [x] 未收藏页点图标:收藏进收集箱,图标变为已收藏态
+- [x] 已收藏页点图标:取消收藏,图标变为未收藏态
+- [x] 切换标签页、页面导航后,图标状态即时且正确(每个标签页独立)
+- [x] 操作有瞬时反馈(badge / title 提示)
+- [x] chrome:// 等特殊页面呈不可收藏状态,点击不产生数据
+- [x] 收藏/取消走领域层既有判重与不变量,测试通过
+- [x] 所需权限(tabs 读取 URL、图标资源)在 manifest 中声明齐全
+
+## Comments
+
+- 2026-10-28: 已实现并合入 spec/start-page(merge commit 65ce9cf,卫生修复 e2f1977:移除误跟踪的 node_modules 符号链接)。SW 双事件驱动 per-tab 图标三态;findBookmarkByUrl 走唯一判重路径;适配器 subscribe 跨上下文同步;71 测试全绿。分支 ticket/05-toolbar-quick-favorite(84fe061..fbd7879)。

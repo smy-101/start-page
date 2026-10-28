@@ -36,6 +36,11 @@ export interface BookmarkState {
 export interface StorageAdapter {
   load(): Promise<BookmarkState | null>
   save(state: BookmarkState): Promise<void>
+  /**
+   * 状态被写入时通知(含写入方自己与其他扩展上下文,如 service worker)。
+ * 可选:消费者据此重建收藏库,实现跨上下文同步。返回取消订阅函数。
+   */
+  subscribe?(listener: () => void): () => void
 }
 
 /** 领域操作失败码,UI 层据此给出中文提示。 */

@@ -2,12 +2,18 @@
 // 运行:node scripts/generate-icons.mjs
 // - icon-{16,32,48,128}.png   扩展图标:圆角靛蓝底 + 白色书签丝带
 // - outline-{16,32}.png       工具栏「未收藏」态:透明底 + 灰色书签描边
+// - filled-{16,32}.png        工具栏「已收藏」态:实心靛蓝书签 + 白色勾
+// 工具栏状态图标(outline/filled)另写入 public/icons/:它们只被运行时
+// setIcon 引用、不在 manifest 中;Vite 仅将 public/ 原样复制进 dist,
+// 否则 dist/icons 缺文件导致 setIcon 404。
 import { deflateSync } from 'node:zlib'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const outDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'icons')
+const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..')
+const outDir = join(rootDir, 'icons')
+const publicIconsDir = join(rootDir, 'public', 'icons')
 
 // —— PNG 编码 ——
 const CRC_TABLE = new Int32Array(256).map((_, n) => {
@@ -86,6 +92,14 @@ function distToPolygonEdge(poly, px, py) {
   return d
 }
 
+function distToPolyline(pts, px, py) {
+  let d = Infinity
+  for (let i = 0; i + 1 < pts.length; i++) {
+    d = Math.min(d, distToSegment(px, py, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]))
+  }
+  return d
+}
+
 function insideRoundedRect(px, py, size, radius) {
   const x = Math.min(px, size - px)
   const y = Math.min(py, size - py)
@@ -149,6 +163,42 @@ function renderOutline(size, stroke) {
   return rgba
 }
 
+// 勾号折线(单位坐标,y 向下),整体落在书签丝带内部
+const CHECK = [
+  [0.385, 0.455],
+  [0.475, 0.545],
+  [0.625, 0.315],
+]
+
+function renderFilledCheck(size) {
+  const rgba = Buffer.alloc(size * size * 4)
+  const w = 0.07 * size
+  for (let py = 0; py < size; py++) {
+    for (let px = 0; px < size; px++) {
+      let ribHit = 0
+      let chkHit = 0
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const x = px + (sx + 0.5) / SS
+          const y = py + (sy + 0.5) / SS
+          if (!insidePolygon(BOOKMARK, x / size, y / size)) continue
+          ribHit++
+          if (distToPolyline(CHECK, x / size, y / size) * size <= w) chkHit++
+        }
+      }
+      if (ribHit === 0) continue
+      const i = (py * size + px) * 4
+      // 勾只在书签内部计数,混合比不会超过 1
+      const chkMix = Math.min(1, chkHit / ribHit)
+      rgba[i] = Math.round(INDIGO[0] * (1 - chkMix) + WHITE[0] * chkMix)
+      rgba[i + 1] = Math.round(INDIGO[1] * (1 - chkMix) + WHITE[1] * chkMix)
+      rgba[i + 2] = Math.round(INDIGO[2] * (1 - chkMix) + WHITE[2] * chkMix)
+      rgba[i + 3] = Math.round((255 * ribHit) / (SS * SS))
+    }
+  }
+  return rgba
+}
+
 // —— 输出 ——
 const INDIGO = [79, 70, 229] // #4f46e5
 const WHITE = [255, 255, 255]
@@ -158,6 +208,13 @@ mkdirSync(outDir, { recursive: true })
 const outputs = [
   ...[16, 32, 48, 128].map((s) => [`icon-${s}.png`, encodePng(s, renderFilled(s, INDIGO, WHITE))]),
   ...[16, 32].map((s) => [`outline-${s}.png`, encodePng(s, renderOutline(s, GRAY))]),
+  ...[16, 32].map((s) => [`filled-${s}.png`, encodePng(s, renderFilledCheck(s))]),
 ]
 for (const [name, png] of outputs) writeFileSync(join(outDir, name), png)
-console.log(`生成 ${outputs.length} 个图标 → icons/`)
+
+// 工具栏状态图标同步写入 public/icons(见文件头注释)
+mkdirSync(publicIconsDir, { recursive: true })
+for (const name of ['outline-16.png', 'outline-32.png', 'filled-16.png', 'filled-32.png']) {
+  writeFileSync(join(publicIconsDir, name), readFileSync(join(outDir, name)))
+}
+console.log(`生成 ${outputs.length} 个图标 → icons/(工具栏状态图标另同步 public/icons/)`)

@@ -37,9 +37,13 @@ export interface NewGroupInput {
 export interface BookmarkStore {
   /** 当前状态快照(创建时已从适配器加载) */
   getState(): BookmarkState
+  /** 按原始 URL 查收藏:内部走 normalizeUrl,不可收藏 URL 一律 null。图标状态判定用。 */
+  findBookmarkByUrl(url: string): Bookmark | null
   addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>>
   updateBookmark(id: BookmarkId, patch: BookmarkPatch): Promise<Result<Bookmark>>
   removeBookmark(id: BookmarkId): Promise<Result<BookmarkId>>
+  /** 跨组移动:目标组内追加到末尾;同组视为无操作(右键换组收藏依赖) */
+  moveBookmark(id: BookmarkId, groupId: GroupId): Promise<Result<Bookmark>>
   createGroup(input: NewGroupInput): Promise<Result<Group>>
 }
 
@@ -89,6 +93,12 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
   return {
     getState() {
       return state
+    },
+
+    findBookmarkByUrl(url: string): Bookmark | null {
+      const normalized = normalizeUrl(url)
+      if (normalized === null) return null
+      return state.bookmarks.find((b) => b.url === normalized) ?? null
     },
 
     async addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>> {
@@ -145,6 +155,21 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       state = { ...state, bookmarks: state.bookmarks.filter((b) => b.id !== id) }
       await adapter.save(state)
       return { ok: true, value: id }
+    },
+
+    async moveBookmark(id: BookmarkId, groupId: GroupId): Promise<Result<Bookmark>> {
+      const existing = state.bookmarks.find((b) => b.id === id)
+      if (!existing) return { ok: false, error: 'bookmark-not-found' }
+      if (!groupExists(groupId)) return { ok: false, error: 'group-not-found' }
+      if (existing.groupId === groupId) return { ok: true, value: existing }
+      const moved: Bookmark = {
+        ...existing,
+        groupId,
+        order: nextBookmarkOrder(groupId),
+      }
+      state = { ...state, bookmarks: state.bookmarks.map((b) => (b.id === id ? moved : b)) }
+      await adapter.save(state)
+      return { ok: true, value: moved }
     },
 
     async createGroup({ name, color }: NewGroupInput): Promise<Result<Group>> {
