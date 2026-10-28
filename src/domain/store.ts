@@ -37,6 +37,8 @@ export interface NewGroupInput {
 export interface BookmarkStore {
   /** 当前状态快照(创建时已从适配器加载) */
   getState(): BookmarkState
+  /** 按原始 URL 查收藏:内部走 normalizeUrl,不可收藏 URL 一律 null。图标状态判定用。 */
+  findBookmarkByUrl(url: string): Bookmark | null
   addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>>
   updateBookmark(id: BookmarkId, patch: BookmarkPatch): Promise<Result<Bookmark>>
   removeBookmark(id: BookmarkId): Promise<Result<BookmarkId>>
@@ -89,6 +91,12 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
   return {
     getState() {
       return state
+    },
+
+    findBookmarkByUrl(url: string): Bookmark | null {
+      const normalized = normalizeUrl(url)
+      if (normalized === null) return null
+      return state.bookmarks.find((b) => b.url === normalized) ?? null
     },
 
     async addBookmark(input: NewBookmarkInput): Promise<Result<Bookmark>> {

@@ -196,6 +196,62 @@ describe('编辑与删除收藏', () => {
   })
 })
 
+describe('按 URL 查收藏(工具栏图标状态判定)', () => {
+  it('按规范化 URL 命中:大小写、尾斜杠与 fragment 不影响匹配,不限收集箱', async () => {
+    const store = await createBookmarkStore(
+      createMemoryStorage({
+        schemaVersion: SCHEMA_VERSION,
+        groups: [
+          { id: INBOX_GROUP_ID, name: '收集箱', color: '#3b82f6', order: 0 },
+          { id: 'g-news', name: '资讯', color: '#e99695', order: 1 },
+        ],
+        bookmarks: [
+          {
+            id: 'b-1',
+            url: 'https://example.com',
+            title: '示例站',
+            note: '',
+            groupId: 'g-news',
+            order: 0,
+          },
+        ],
+      }),
+    )
+
+    const found = store.findBookmarkByUrl('HTTPS://Example.com/#top')
+
+    expect(found).toMatchObject({ id: 'b-1', url: 'https://example.com' })
+  })
+
+  it('未收藏的 URL 返回 null', async () => {
+    const store = await createBookmarkStore(createMemoryStorage())
+    await store.addBookmark({ url: 'https://example.com' })
+
+    expect(store.findBookmarkByUrl('https://other.example.org')).toBeNull()
+  })
+
+  it('不可收藏 URL(chrome:// 等)返回 null:拒绝只住在 URL 校验处,不重复实现', async () => {
+    const store = await createBookmarkStore(createMemoryStorage())
+
+    expect(store.findBookmarkByUrl('chrome://settings')).toBeNull()
+    expect(store.findBookmarkByUrl('about:blank')).toBeNull()
+    expect(store.findBookmarkByUrl('chrome-extension://abc/newtab.html')).toBeNull()
+  })
+
+  it('随增删同步:添加后可查到,删除同一 URL 后回到 null', async () => {
+    const store = await createBookmarkStore(createMemoryStorage())
+    expect(store.findBookmarkByUrl('https://example.com')).toBeNull()
+
+    await store.addBookmark({ url: 'https://example.com', title: '示例站' })
+    expect(store.findBookmarkByUrl('https://example.com')?.title).toBe('示例站')
+
+    const found = store.findBookmarkByUrl('https://example.com')
+    if (!found) throw new Error('fixture setup failed')
+    await store.removeBookmark(found.id)
+    expect(store.findBookmarkByUrl('https://example.com')).toBeNull()
+  })
+})
+
 describe('编辑收藏的标题回退', () => {
   it('编辑把标题清空时,与添加一致:回退主机名而不是存空串', async () => {
     const store = await createBookmarkStore(createMemoryStorage())
