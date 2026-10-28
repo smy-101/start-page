@@ -42,6 +42,7 @@ export interface BookmarkStore {
   removeBookmark(id: BookmarkId): Promise<Result<BookmarkId>>
   createGroup(input: NewGroupInput): Promise<Result<Group>>
   renameGroup(id: GroupId, name: string): Promise<Result<Group>>
+  recolorGroup(id: GroupId, color: string): Promise<Result<Group>>
 }
 
 function initialState(): BookmarkState {
@@ -182,6 +183,21 @@ export async function createBookmarkStore(adapter: StorageAdapter): Promise<Book
       }
       await adapter.save(state)
       return { ok: true, value: renamed }
+    },
+
+    async recolorGroup(id: GroupId, color: string): Promise<Result<Group>> {
+      if (id === INBOX_GROUP_ID) return { ok: false, error: 'inbox-immutable' }
+      const group = state.groups.find((g) => g.id === id)
+      if (!group) return { ok: false, error: 'group-not-found' }
+      const trimmedColor = color.trim()
+      if (!trimmedColor) return { ok: false, error: 'empty-group-color' }
+      const recolored: Group = { ...group, color: trimmedColor }
+      state = {
+        ...state,
+        groups: state.groups.map((g) => (g.id === id ? recolored : g)),
+      }
+      await adapter.save(state)
+      return { ok: true, value: recolored }
     },
   }
 }
