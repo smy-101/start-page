@@ -46,6 +46,7 @@ export type DomainErrorCode =
   | 'group-not-found'
   | 'empty-group-name'
   | 'empty-group-color'
+  | 'invalid-import'
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: DomainErrorCode }
 

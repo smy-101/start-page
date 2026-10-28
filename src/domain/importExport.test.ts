@@ -1,7 +1,15 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { BookmarkState } from './types'
 import { INBOX_GROUP_ID } from './types'
-import { exportStateAsHtml, exportStateAsJson } from './importExport'
+import { exportStateAsHtml, exportStateAsJson, parseBookmarksHtml } from './importExport'
+
+/** 仿真实 Chrome 导出的书签 HTML(书签栏+嵌套文件夹+DD 备注+小书签+根级书签)。 */
+const chromeExportHtml = readFileSync(
+  join(process.cwd(), 'tests/fixtures/chrome-bookmarks-export.html'),
+  'utf8',
+)
 
 /** 与实现无耦合的字面量状态:导出/导入回环的独立真值来源。 */
 export function literalState(): BookmarkState {
@@ -101,5 +109,73 @@ describe('导出 HTML:Netscape 书签格式', () => {
     )!
     expect(dt.nextElementSibling!.tagName).toBe('DD')
     expect(dt.nextElementSibling!.textContent!.trim()).toBe('Tom & Jerry <"贵宾">')
+  })
+})
+
+describe('解析 HTML:DOMParser 纯函数(真实 Chrome 导出样本)', () => {
+  it('文件夹→分组(含嵌套文件夹各成一组),书签→对应组,顺序保持文档顺序', () => {
+    const result = parseBookmarksHtml(chromeExportHtml)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.groups.map((g) => g.name)).toEqual(['书签栏', '开发工具', '阅读清单'])
+    expect(result.value.groups[0]!.bookmarks.map((b) => b.url)).toEqual([
+      'https://www.google.com/',
+      'https://github.com/',
+      'javascript:void(0)',
+    ])
+    expect(result.value.groups[1]!.bookmarks.map((b) => b.title)).toEqual([
+      'Chrome 扩展文档',
+      'Vitest',
+    ])
+  })
+
+  it('书签后的 <DD> 读为备注;根级书签(不在任何文件夹)归入收集箱', () => {
+    const result = parseBookmarksHtml(chromeExportHtml)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const github = result.value.groups[0]!.bookmarks[1]!
+    expect(github.note).toBe('代码托管')
+    expect(github.title).toBe('GitHub')
+    expect(result.value.inbox.map((b) => b.url)).toEqual(['https://news.example.org/daily'])
+    expect(result.value.inbox[0]!.note).toBe('')
+  })
+
+  it('同名文件夹并入同一分组;空标题文件夹回退「未命名分组」', () => {
+    const html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<DL><p>
+    <DT><H3>待读</H3>
+    <DL><p>
+        <DT><A HREF="https://a.example.com/">A</A>
+    </DL><p>
+    <DT><H3></H3>
+    <DL><p>
+        <DT><A HREF="https://b.example.com/">B</A>
+    </DL><p>
+    <DT><H3>待读</H3>
+    <DL><p>
+        <DT><A HREF="https://c.example.com/">C</A>
+    </DL><p>
+</DL><p>
+`
+
+    const result = parseBookmarksHtml(html)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.groups.map((g) => g.name)).toEqual(['待读', '未命名分组'])
+    expect(result.value.groups[0]!.bookmarks.map((b) => b.url)).toEqual([
+      'https://a.example.com/',
+      'https://c.example.com/',
+    ])
+  })
+
+  it('解析不到任何文件夹与书签时返回 invalid-import', () => {
+    expect(parseBookmarksHtml('<html><body><p>不是书签文件</p></body></html>')).toEqual({
+      ok: false,
+      error: 'invalid-import',
+    })
+    expect(parseBookmarksHtml('{"schemaVersion":1}')).toEqual({ ok: false, error: 'invalid-import' })
   })
 })
