@@ -79,6 +79,50 @@ body {
   margin-bottom: 20px;
 }
 
+.new-group-form {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.new-group-form label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.color-swatches {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.color-swatch {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.color-swatch[data-selected='true'] {
+  outline: 2px solid var(--fg);
+}
+
+.color-swatch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.color-dot {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+}
+
 .add-form label,
 .edit-form label {
   color: var(--muted);

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { BookmarkState, StorageAdapter } from '../domain/types'
+import type { BookmarkState, Result, StorageAdapter } from '../domain/types'
 import { createBookmarkStore } from '../domain/store'
-import type { BookmarkStore, NewBookmarkInput } from '../domain/store'
+import type { BookmarkStore, NewBookmarkInput, NewGroupInput } from '../domain/store'
 import { createChromeStorage } from '../storage/chromeStorage'
 import { AddBookmarkForm } from './AddBookmarkForm'
 import { GroupSection } from './GroupSection'
+import { NewGroupForm } from './NewGroupForm'
 import { domainErrorText } from './messages'
 
 const chromeStorage = createChromeStorage()
@@ -44,8 +45,9 @@ export function App({ adapter = chromeStorage }: AppProps) {
     setState(active.getState())
   }
 
-  async function handleAdd(input: NewBookmarkInput) {
-    const result = await active.addBookmark(input)
+  /** 领域操作的统一包装:成功刷新视图,失败给出中文提示。 */
+  async function run<T>(action: () => Promise<Result<T>>): Promise<Result<T>> {
+    const result = await action()
     if (result.ok) {
       setError(null)
       refresh()
@@ -55,12 +57,28 @@ export function App({ adapter = chromeStorage }: AppProps) {
     return result
   }
 
+  async function handleAdd(input: NewBookmarkInput) {
+    return run(() => active.addBookmark(input))
+  }
+
+  /** 表单类操作:成功即刷新,错误由表单就地展示(不没页面顶部)。 */
+  async function refreshOnOk<T>(action: () => Promise<Result<T>>): Promise<Result<T>> {
+    const result = await action()
+    if (result.ok) refresh()
+    return result
+  }
+
+  function handleCreateGroup(input: NewGroupInput) {
+    return refreshOnOk(() => active.createGroup(input))
+  }
+
   const groupsByOrder = [...state.groups].sort((a, b) => a.order - b.order)
 
   return (
     <main className="page">
       <h1 className="page-title">初始页</h1>
       <AddBookmarkForm onAdd={handleAdd} />
+      <NewGroupForm onCreate={handleCreateGroup} />
       {error && (
         <p className="form-error" role="alert">
           {error}
