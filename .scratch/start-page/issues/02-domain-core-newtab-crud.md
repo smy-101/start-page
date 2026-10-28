@@ -4,14 +4,18 @@
 
 **Blocked by:** 01(扩展骨架 + 初始页空壳)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 领域层提供:添加/编辑/删除收藏、建组、读取完整状态;经注入的存储适配器持久化,领域层代码零 chrome.* 依赖
-- [ ] 两个存储适配器:chrome.storage.local 真实实现 + 内存实现(供测试)
-- [ ] URL 规范化判重:重复 URL 添加被拒,初始页有用户提示
-- [ ] 不变量测试(锁定):每个收藏必属且仅属一个现存分组;收集箱(id 固定 inbox)永远存在
-- [ ] 初始页:添加收藏(URL/标题/备注)→ 出现在收集箱;点击卡片打开网页
-- [ ] 初始页:编辑(标题/URL/备注)与删除收藏可用
-- [ ] favicon 显示成功;加载失败回退为首字母色块
-- [ ] 状态含 schemaVersion 字段
-- [ ] 中文界面、深浅色跟随系统
+- [x] 领域层提供:添加/编辑/删除收藏、建组、读取完整状态;经注入的存储适配器持久化,领域层代码零 chrome.* 依赖
+- [x] 两个存储适配器:chrome.storage.local 真实实现 + 内存实现(供测试)
+- [x] URL 规范化判重:重复 URL 添加被拒,初始页有用户提示
+- [x] 不变量测试(锁定):每个收藏必属且仅属一个现存分组;收集箱(id 固定 inbox)永远存在
+- [x] 初始页:添加收藏(URL/标题/备注)→ 出现在收集箱;点击卡片打开网页
+- [x] 初始页:编辑(标题/URL/备注)与删除收藏可用
+- [x] favicon 显示成功;加载失败回退为首字母色块
+- [x] 状态含 schemaVersion 字段
+- [x] 中文界面、深浅色跟随系统
+
+## Comments
+
+- 2026-10-28: 已实现并合入 spec/start-page(merge commit 3dbb949)。领域层 createBookmarkStore + 双适配器 + normalizeUrl 单点判重;45 测试全绿。分支 ticket/02-domain-core-newtab-crud(ad328c3..228d7af)。
