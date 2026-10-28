@@ -1,0 +1,61 @@
+/* 深浅色跟随系统:同一套 CSS 变量,按 prefers-color-scheme 切换 */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --fg: #1f2328;
+  --muted: #6a737d;
+  --card: #ffffff;
+  --border: #e4e7eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --fg: #e6e8eb;
+    --muted: #9aa4af;
+    --card: #1e2126;
+    --border: #2c313a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+.group {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px 24px;
+}
+
+.group-name {
+  margin: 8px 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.group-empty {
+  margin: 0;
+  padding: 24px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
