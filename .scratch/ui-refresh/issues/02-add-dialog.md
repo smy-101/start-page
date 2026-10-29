@@ -1,7 +1,7 @@
 # 02: 「+」按钮弹窗(添加收藏 / 新建分组)
 
 **Type:** task
-**Status:** ready-for-agent
+**Status:** done
 
 ## What
 
@@ -19,3 +19,7 @@
 - [ ] 新建分组成功后弹窗关闭(新列展开出现——不再默认折叠)
 - [ ] Esc / 遮罩点击关闭;表单错误就地展示不关弹窗
 - [ ] 单测(App seam):打开/关闭/切换页签/成功关闭/失败留驻;`npm test` 全绿
+
+## Comments
+
+- 2026-10-30: 实现 = AddDialog(双页签 + Esc/遮罩/× 关闭)+ AddBookmarkForm Result 化就地报错。测试适配:旧内联表单流程改为弹窗流程;发现并防住「成功提交后异步关弹窗 vs 下一次开弹窗」竞态(helper 前置 waitFor 弹窗为空)与 findAllByRole 首个命中即返回的计数假失败(计数断言改 waitFor 重试)。198 测试全绿;Windows Chrome 实机截图过目(浅色)。
