@@ -594,7 +594,7 @@ button[type="submit"]:hover {
   gap: 8px;
 }
 
-/* 编辑模式开关:开启态收墨(aria-pressed) */
+/* 白板模式开关(原编辑模式,board-whiteboard/03 更名):开启态收墨(aria-pressed) */
 .edit-toggle[aria-pressed="true"] {
   background: var(--fg);
   border-color: transparent;
@@ -698,7 +698,7 @@ button[type="submit"]:hover {
   margin-bottom: 6px;
 }
 
-/* 拖拽换位仅编辑模式:grab 光标随 draggable 出现 */
+/* 组头拖拽随白板模式门禁(board-whiteboard/03):grab 光标随 draggable 出现 */
 .group-header[draggable="true"] {
   cursor: grab;
 }
@@ -728,7 +728,7 @@ button[type="submit"]:hover {
   padding-bottom: 6px;
 }
 
-/* 拖拽把手(board-refresh/04):列头悬停浮现的可拖暗示(纯装饰) */
+/* 拖拽把手(board-refresh/04):白板模式内列头悬停浮现的可拖暗示(纯装饰) */
 .drag-grip {
   flex: none;
   display: inline-flex;
@@ -1114,10 +1114,54 @@ button[type="submit"]:hover {
    白板(ADR-0004,board-whiteboard/02):分组卡在固定 1200px 画布上
    x/y 自由定位(坐标即布局,入库);窗口更窄横向滚动不重排。
    组位移走 Pointer 事件,松手吸附 16px 网格;组头原生 DnD 在画布层
-   被杀,组内收藏排序的 DnD(DropHint)不受影响
+   被杀,组内收藏排序的 DnD(DropHint)不受影响。
+   board-whiteboard/03 门禁:白板模式是唯一拖拽入口——日常态画布锁定(无 grab、
+   拖动意图出 nudge 引导),搜索过滤态同样锁定
    ============================================================ */
 
-/* 白板工具行:口径提示 + 自动整理(常驻;门禁是票 03) */
+.whiteboard {
+  position: relative;
+}
+
+/* nudge 引导浮层(board-whiteboard/03):拖动意图触发,画布上方居中;4s 自动消隐 */
+.whiteboard-nudge {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow:
+    0 2px 6px color-mix(in srgb, var(--fg) 8%, transparent),
+    0 12px 32px -10px color-mix(in srgb, var(--fg) 40%, transparent);
+}
+
+/* 反色浮层上的进入钮:墨底上亮起的胶囊主钮 */
+.whiteboard-nudge-enter {
+  min-height: 0;
+  padding: 5px 12px;
+  border-color: transparent;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  font-weight: 550;
+}
+
+.whiteboard-nudge-enter:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--bg) 84%, var(--fg));
+}
+
+/* 白板工具行(board-whiteboard/03 起仅白板模式出现):口径提示 + 自动整理 */
 .whiteboard-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1141,8 +1185,9 @@ button[type="submit"]:hover {
   position: relative;
 }
 
-/* 可拖手性:卡片非交互区 grab,拖中 grabbing(交互控件自带光标) */
-.whiteboard-canvas .group {
+/* 可拖手性:卡片非交互区 grab,拖中 grabbing(交互控件自带光标);
+   锁定态(非白板模式/搜索中,board-whiteboard/03)无 grab 暗示 */
+.whiteboard-canvas:not([data-locked="true"]) .group {
   cursor: grab;
 }
 

@@ -16,8 +16,8 @@ type BookmarkCardProps = {
   group: Group;
   /** 分组候选(按 order 排序,含收集箱):spec 故事 24 编辑需可换组 */
   groups: Group[];
-  /** 编辑模式(ui-refresh/04):行尾出编辑/删除、行可拖拽;平时纯浏览行 */
-  editMode: boolean;
+  /** 白板模式(board-whiteboard/03):行尾出编辑/删除、行可拖拽;日常态纯浏览行 */
+  whiteboardMode: boolean;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
   /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(插到目标之前/之后)。
@@ -35,14 +35,14 @@ type BookmarkCardProps = {
 
 /**
  * 收藏行(ui-refresh/04):favicon + 标题的长条行,点击新标签页打开;
- * 网址与备注进 title 提示不占行宽;编辑/删除与拖拽仅在编辑模式。
+ * 网址与备注进 title 提示不占行宽;编辑/删除与拖拽仅在白板模式。
  * memo:行数据与回调未变时跳过重渲染(工单 10a)。
  */
 export const BookmarkCard = memo(function BookmarkCard({
   bookmark,
   group,
   groups,
-  editMode,
+  whiteboardMode,
   onEdit,
   onDelete,
   onDragStart,
@@ -144,7 +144,7 @@ export const BookmarkCard = memo(function BookmarkCard({
   return (
     <li
       className="card"
-      draggable={editMode}
+      draggable={whiteboardMode}
       data-dragging={dragging ? "true" : undefined}
       onDragStart={(event) => {
         setDragging(true);
@@ -163,8 +163,8 @@ export const BookmarkCard = memo(function BookmarkCard({
         target="_blank"
         rel="noreferrer"
         title={tooltip}
-        // 编辑模式下关闭链接原生拖拽(否则拖的是 URL 而非卡片),浏览态保留原生行为
-        draggable={editMode ? false : undefined}
+        // 白板模式下关闭链接原生拖拽(否则拖的是 URL 而非卡片),浏览态保留原生行为
+        draggable={whiteboardMode ? false : undefined}
       >
         <Favicon
           pageUrl={bookmark.url}
@@ -174,7 +174,7 @@ export const BookmarkCard = memo(function BookmarkCard({
         />
         <span className="card-title">{bookmark.title}</span>
       </a>
-      {editMode && (
+      {whiteboardMode && (
         <div className="card-actions">
           <button
             type="button"

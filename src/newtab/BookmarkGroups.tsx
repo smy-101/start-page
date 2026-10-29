@@ -55,8 +55,8 @@ export type BookmarkGroupsProps = {
   searching: boolean;
   /** 被折叠的分组 id 集;搜索时全部临时展开 */
   collapsedIds: ReadonlySet<GroupId>;
-  /** 编辑模式:操作与拖拽仅在此模式出现(ui-refresh/04) */
-  editMode: boolean;
+  /** 白板模式(board-whiteboard/03):操作与拖拽仅在此模式出现(原编辑模式更名) */
+  whiteboardMode: boolean;
   /** 拖收藏中的插入指示线(App 依指针位置维护);null = 无拖拽/不在本组 */
   dropHint: DropHint;
   /** 折叠/展开分组(稳定身份;子组件以自身 group 数据供给 id) */
@@ -191,7 +191,7 @@ export function BookmarkGroups({
   groups,
   searching,
   collapsedIds,
-  editMode,
+  whiteboardMode,
   dropHint,
   onToggleCollapse,
   onRenameGroup,
@@ -239,7 +239,7 @@ export function BookmarkGroups({
           placement={wall.plan.placements[i]}
           // 搜索时忽略折叠:找内容不藏命中项(board-refresh/03)
           collapsed={!searching && collapsedIds.has(group.id)}
-          editMode={editMode}
+          whiteboardMode={whiteboardMode}
           dropIndex={dropHint?.groupId === group.id ? dropHint.index : null}
           onToggleCollapse={onToggleCollapse}
           onRename={onRenameGroup}

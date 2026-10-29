@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
-import { enterEditMode } from "./testUtils";
+import { enterWhiteboardMode } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { createBookmarkStore } from "../domain/store";
 
@@ -131,7 +131,7 @@ describe("初始页:添加与编辑选分组(spec 故事 17/24)", () => {
     await renderApp();
     const work = await createGroup("工作");
     await addBookmark("https://move.example.com", "待移动");
-    enterEditMode();
+    enterWhiteboardMode();
 
     const card = await screen.findByRole("listitem");
     fireEvent.click(within(card).getByRole("button", { name: "编辑" }));
@@ -184,7 +184,7 @@ describe("初始页:收藏卡片", () => {
   it("编辑标题/备注保存后卡片更新", async () => {
     await renderApp();
     await addBookmark("https://example.com", "旧标题");
-    enterEditMode();
+    enterWhiteboardMode();
     fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
     const card = screen.getByRole("listitem");
 
@@ -205,7 +205,7 @@ describe("初始页:收藏卡片", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(2)
     );
-    enterEditMode();
+    enterWhiteboardMode();
 
     const card = screen.getAllByRole("listitem")[0];
     fireEvent.click(within(card).getByRole("button", { name: "编辑" }));
@@ -229,7 +229,7 @@ describe("初始页:收藏卡片", () => {
   it("删除收藏后卡片消失,空状态恢复", async () => {
     await renderApp();
     await addBookmark("https://example.com", "示例站");
-    enterEditMode();
+    enterWhiteboardMode();
 
     fireEvent.click(await screen.findByRole("button", { name: "删除" }));
 

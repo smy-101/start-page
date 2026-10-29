@@ -10,8 +10,8 @@ type GroupHeaderProps = {
   bookmarkCount: number;
   /** 折叠态(board-refresh/03):仅影响折叠钮指向与 aria-expanded */
   collapsed: boolean;
-  /** 编辑模式(ui-refresh/04):展示分组操作;拖拽换位已常时可用(board-refresh/04) */
-  editMode: boolean;
+  /** 白板模式(board-whiteboard/03):分组操作出现;组拖拽随门禁开放(白板内走 Pointer 定位) */
+  whiteboardMode: boolean;
   onToggleCollapse(): void;
   onRename(name: string): Promise<Result<Group>>;
   onRecolor(color: string): Promise<Result<Group>>;
@@ -23,14 +23,15 @@ type GroupHeaderProps = {
 };
 
 /**
- * 分组列头:折叠钮/色点/名字/计数;拖拽换位常时可用(board-refresh/04);
- * 改名/换色/删除仅在编辑模式出现。收集箱是保留分组,始终只读(可折叠可拖)。
+ * 分组列头:折叠钮/色点/名字/计数;改名/换色/删除与拖拽仅在白板模式
+ * 出现(board-whiteboard/03 门禁;board-refresh/04 的常时拖拽回收入闸)。收集箱是
+ * 保留分组,始终只读(可折叠可拖)。
  */
 export function GroupHeader({
   group,
   bookmarkCount,
   collapsed,
-  editMode,
+  whiteboardMode,
   onToggleCollapse,
   onRename,
   onRecolor,
@@ -81,9 +82,10 @@ export function GroupHeader({
   return (
     <div
       className="group-header"
-      // 组间换位是整理动作,不再限于编辑模式(board-refresh/04);
+      // 拖拽随白板模式门禁(board-whiteboard/03;board-refresh/04 常时拖拽回收入闸):
+      // 墙上走原生 DnD 换位,白板内被画布拦截改走 Pointer 定位;
       // 编辑/删除确认中临时不可拖,避免与表单控件冲突
-      draggable={mode === "view"}
+      draggable={mode === "view" && whiteboardMode}
       onDragStart={(event) => onDragStart(event)}
       onDragEnd={onDragEnd}
     >
@@ -156,10 +158,12 @@ export function GroupHeader({
           />
           <h2 className="group-name">{group.name}</h2>
           <span className="group-count">{bookmarkCount}</span>
-          <span className="drag-grip" aria-hidden="true">
-            <GripIcon size={14} />
-          </span>
-          {!isInbox && editMode && (
+          {whiteboardMode && (
+            <span className="drag-grip" aria-hidden="true">
+              <GripIcon size={14} />
+            </span>
+          )}
+          {!isInbox && whiteboardMode && (
             <span className="group-actions">
               <button
                 type="button"

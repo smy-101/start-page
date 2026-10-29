@@ -34,6 +34,10 @@ import { useGroupedBookmarks } from "./useGroupedBookmarks";
 
 /** 松手吸附网格(px,ADR-0004 Q4)。 */
 const SNAP = 16;
+/** 拖动意图阈值(px,board-whiteboard/03):位移超过即视为想拖分组,日常态出 nudge。 */
+const INTENT_PX = 5;
+/** nudge 自动消隐时长(ms,board-whiteboard/03)。 */
+const NUDGE_MS = 4000;
 /** 画布底衬:内容底边之外再留的呼吸位。 */
 const CANVAS_PAD = 24;
 
@@ -49,7 +53,11 @@ const CANVAS_PAD = 24;
  *   (DropHint 体系),收藏卡(.card)的 dragstart 放行。
  * - 「自动整理」:量高贪心装箱回 planWall 落点;测不出高度(零高,
  *   jsdom)退化零高铺开——与 v2→v3 迁移共用 spreadPositions。
- * - 本票不带门禁(门禁是票 03);App 以 boardView 注入缝替换墙视图。
+ * - 本票门禁(board-whiteboard/03):白板模式(原编辑模式)是唯一拖拽入口。
+ *   日常态不进拖拽会话,按住分组卡移动超 5px 出 nudge 引导
+ *   (一键进入,4s 自动消隐);搜索过滤态禁拖也不出 nudge
+ *   (过滤态坐标无意义),「自动整理」同因禁用。
+ * - App 以 boardView 注入缝替换墙视图。
  */
 /** 白板 props(渲染测试的 harness 供外部注入用)。 */
 export type WhiteboardProps = {
@@ -60,8 +68,10 @@ export type WhiteboardProps = {
   searching: boolean;
   /** 被折叠的分组 id 集;搜索时全部临时展开 */
   collapsedIds: ReadonlySet<GroupId>;
-  /** 编辑模式照旧透传(编辑删除控件;票 03 起更名白板模式) */
-  editMode: boolean;
+  /** 白板模式(原编辑模式,board-whiteboard/03):唯一开拖拽与编辑控件的门禁 */
+  whiteboardMode: boolean;
+  /** nudge 一键进入白板模式(稳定身份;App 供给) */
+  onEnterWhiteboard(): void;
   /** 拖收藏中的插入指示线(组内排序 DropHint 体系照常工作) */
   dropHint: DropHint;
   /** 折叠/展开分组(稳定身份) */
@@ -86,7 +96,8 @@ export function Whiteboard({
   groups,
   searching,
   collapsedIds,
-  editMode,
+  whiteboardMode,
+  onEnterWhiteboard,
   dropHint,
   onToggleCollapse,
   onRenameGroup,
@@ -111,6 +122,10 @@ export function Whiteboard({
   const { itemRef, idOf, heightOf, heights } = useCardRegistry(ids);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<DragPos | null>(null);
+  // 日常态拖动意图:位移超 INTENT_PX 出 nudge(board-whiteboard/03 门禁的发现性补偿)
+  const [nudge, setNudge] = useState(false);
+  // 拖拽禁用态(光标/锁定标记):非白板模式或搜索过滤中
+  const locked = searching || !whiteboardMode;
 
   // ---- 落点表:坐标来自分组数据(持久);引用稳定(memo 契约),
   // 数值未变的格子沿用旧对象,无关渲染不打断 GroupSection 的 memo。
@@ -165,12 +180,15 @@ export function Whiteboard({
   // ---- Pointer 拖拽 ----
   // 抓取偏移与会话坐标存 ref(会话坐标的 state 只为驱动重渲染);
   // 监听器挂 window、只读 ref,不随渲染重订阅。
+  // intentRef 是日常态的拖动意图起点(board-whiteboard/03):不 preventDefault、
+  // 不进拖拽会话,位移超阈即出 nudge 后即弃。
   const grabRef = useRef<{
     id: GroupId;
     grabX: number;
     grabY: number;
   } | null>(null);
   const dragPosRef = useRef<{ x: number; y: number } | null>(null);
+  const intentRef = useRef<{ x: number; y: number } | null>(null);
 
   const onPointerDown = (event: React.PointerEvent) => {
     if (event.button !== 0) return;
@@ -183,6 +201,15 @@ export function Whiteboard({
     const id = idOf(section);
     const pos = id ? placements.get(id) : undefined;
     if (!id || !pos) return;
+    // 门禁(board-whiteboard/03):白板模式是唯一拖拽入口。日常态只记拖动意图
+    // 起点(搜索时连意图也不记:过滤态坐标无意义),不拦默认行为。
+    if (!whiteboardMode) {
+      intentRef.current = searching
+        ? null
+        : { x: event.clientX, y: event.clientY };
+      return;
+    }
+    if (searching) return;
     event.preventDefault();
     const rect = section.getBoundingClientRect();
     grabRef.current = {
@@ -198,19 +225,32 @@ export function Whiteboard({
     const move = (event: PointerEvent) => {
       const grab = grabRef.current;
       const canvas = canvasRef.current;
-      if (!grab || !canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      // 拖中只压非负(右界由松手吸附后的领域钳回收口)
-      const x = Math.max(0, event.clientX - rect.left - grab.grabX);
-      const y = Math.max(0, event.clientY - rect.top - grab.grabY);
-      dragPosRef.current = { x, y };
-      setDrag((prev) => (prev ? { ...prev, x, y } : prev));
+      if (grab && canvas) {
+        const rect = canvas.getBoundingClientRect();
+        // 拖中只压非负(右界由松手吸附后的领域钳回收口)
+        const x = Math.max(0, event.clientX - rect.left - grab.grabX);
+        const y = Math.max(0, event.clientY - rect.top - grab.grabY);
+        dragPosRef.current = { x, y };
+        setDrag((prev) => (prev ? { ...prev, x, y } : prev));
+        return;
+      }
+      // 日常态拖动意图(board-whiteboard/03):位移超阈即出 nudge,一次性
+      const origin = intentRef.current;
+      if (origin) {
+        const dx = event.clientX - origin.x;
+        const dy = event.clientY - origin.y;
+        if (dx * dx + dy * dy > INTENT_PX * INTENT_PX) {
+          intentRef.current = null;
+          setNudge(true);
+        }
+      }
     };
     const finish = () => {
       const grab = grabRef.current;
       const pos = dragPosRef.current;
       grabRef.current = null;
       dragPosRef.current = null;
+      intentRef.current = null;
       setDrag(null);
       if (!grab || !pos) return;
       // 松手吸附:16px 网格取整;越右界的钳回交给 store(clampToCanvas)
@@ -222,6 +262,7 @@ export function Whiteboard({
     const cancel = () => {
       grabRef.current = null;
       dragPosRef.current = null;
+      intentRef.current = null;
       setDrag(null);
     };
     window.addEventListener("pointermove", move);
@@ -233,6 +274,18 @@ export function Whiteboard({
       window.removeEventListener("pointercancel", cancel);
     };
   }, [onSetGroupPositions]);
+
+  // nudge 生命周期(board-whiteboard/03):出笼 4s 自动消隐;进白板模式或进搜索
+  // 即撤(前者使命完成,后者场景失效——过滤态不出引导)
+  useEffect(() => {
+    if (!nudge) return;
+    const timer = window.setTimeout(() => setNudge(false), NUDGE_MS);
+    return () => window.clearTimeout(timer);
+  }, [nudge]);
+
+  useEffect(() => {
+    if (whiteboardMode || searching) setNudge(false);
+  }, [whiteboardMode, searching]);
 
   // ---- 自动整理:量高 → planWall 贪心装箱回坐标;零高(测不出,
   // jsdom)退化零高铺开(与 v2→v3 迁移共用 spreadPositions 策略)。 ----
@@ -272,19 +325,44 @@ export function Whiteboard({
 
   return (
     <div className="whiteboard">
-      <div className="whiteboard-toolbar">
-        <span className="whiteboard-hint">
-          拖动分组卡任意摆放 · 松手吸附 {SNAP}px 网格
-        </span>
-        <button type="button" className="whiteboard-pack" onClick={pack}>
-          自动整理
-        </button>
-      </div>
+      {nudge && (
+        <p className="whiteboard-nudge" role="status">
+          布局已锁定,进入白板模式后才能拖动分组
+          <button
+            type="button"
+            className="whiteboard-nudge-enter"
+            onClick={() => {
+              setNudge(false);
+              onEnterWhiteboard();
+            }}
+          >
+            进入白板
+          </button>
+        </p>
+      )}
+      {whiteboardMode && (
+        <div className="whiteboard-toolbar">
+          <span className="whiteboard-hint">
+            {searching
+              ? "搜索过滤中,拖拽与整理暂不可用"
+              : `拖动分组卡任意摆放 · 松手吸附 ${SNAP}px 网格`}
+          </span>
+          <button
+            type="button"
+            className="whiteboard-pack"
+            onClick={pack}
+            disabled={searching}
+          >
+            自动整理
+          </button>
+        </div>
+      )}
       <div className="whiteboard-scroll">
         <div
           className="whiteboard-canvas"
           ref={canvasRef}
           data-wb-dragging={drag ? "true" : undefined}
+          data-locked={locked ? "true" : undefined}
           style={{ width: CANVAS_W, minHeight: canvasMinH }}
           onPointerDown={onPointerDown}
           onDragStartCapture={onCanvasDragStart}
@@ -297,7 +375,7 @@ export function Whiteboard({
               groups={groups}
               placement={placementOf(group)}
               collapsed={!searching && collapsedIds.has(group.id)}
-              editMode={editMode}
+              whiteboardMode={whiteboardMode}
               dragActive={drag?.id === group.id}
               dropIndex={dropHint?.groupId === group.id ? dropHint.index : null}
               onToggleCollapse={onToggleCollapse}

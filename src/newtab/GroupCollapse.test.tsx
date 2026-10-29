@@ -154,7 +154,7 @@ describe("分组折叠(board-refresh/03)", () => {
     await screen.findByRole("region", { name: "工作" });
 
     fireEvent.click(screen.getByRole("button", { name: "折叠分组 工作" }));
-    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    fireEvent.click(screen.getByRole("button", { name: "进入白板" }));
     fireEvent.click(screen.getByRole("button", { name: "删除分组 工作" }));
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 

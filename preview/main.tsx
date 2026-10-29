@@ -232,7 +232,8 @@ const seed: BookmarkState = {
 
 const adapter = createMemoryStorage(seed);
 
-// 宿主可选:缺省瀑布流墙;?variant=whiteboard 挂白板(免门禁形态)
+// 宿主可选:缺省瀑布流墙;?variant=whiteboard 挂白板(board-whiteboard/03 起带门禁;
+// 墙体退役/白板接管是票 04)
 const boardView =
   new URLSearchParams(window.location.search).get("variant") === "whiteboard"
     ? Whiteboard

@@ -23,8 +23,8 @@ type GroupSectionProps = {
   placement: WallPlacement | null;
   /** 折叠态(board-refresh/03):仅渲染列头,不挂载组内 DOM */
   collapsed: boolean;
-  /** 编辑模式:列头出分组操作、行出编辑删除,均可拖拽(ui-refresh/04) */
-  editMode: boolean;
+  /** 白板模式(原编辑模式,board-whiteboard/03):唯一开编辑控件与拖拽的门禁 */
+  whiteboardMode: boolean;
   /** 白板 Pointer 拖拽中且本卡是被拖卡(whiteboard):拖中关位移过渡、提升浮起 */
   dragActive?: boolean;
   /** 拖收藏中的插入槽位(本组渲染坐标);null = 指针不在本组 */
@@ -52,7 +52,7 @@ export const GroupSection = memo(function GroupSection({
   groups,
   placement,
   collapsed,
-  editMode,
+  whiteboardMode,
   dragActive,
   dropIndex,
   elementRef,
@@ -95,7 +95,7 @@ export const GroupSection = memo(function GroupSection({
         group={group}
         bookmarkCount={bookmarks.length}
         collapsed={collapsed}
-        editMode={editMode}
+        whiteboardMode={whiteboardMode}
         onToggleCollapse={() => onToggleCollapse(group.id)}
         onRename={(name) => onRename(group.id, name)}
         onRecolor={(color) => onRecolor(group.id, color)}
@@ -129,7 +129,7 @@ export const GroupSection = memo(function GroupSection({
                   bookmark={bookmark}
                   group={group}
                   groups={groups}
-                  editMode={editMode}
+                  whiteboardMode={whiteboardMode}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   onDragStart={onCardDragStart}

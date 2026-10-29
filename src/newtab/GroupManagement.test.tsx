@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
-import { enterEditMode } from "./testUtils";
+import { enterWhiteboardMode } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/store";
 import type { BookmarkState } from "../domain/types";
@@ -107,7 +107,7 @@ async function renderSeeded() {
 describe("分组管理:重命名与换色", () => {
   it("内联编辑:改名与换色保存后即时生效", async () => {
     const { work } = await renderSeeded();
-    enterEditMode();
+    enterWhiteboardMode();
 
     fireEvent.click(
       within(work).getByRole("button", { name: "编辑分组 工作" })
@@ -126,7 +126,7 @@ describe("分组管理:重命名与换色", () => {
 
   it("收集箱列头始终只读:编辑模式下也不提供改名/换色/删除入口", async () => {
     const { inbox } = await renderSeeded();
-    enterEditMode();
+    enterWhiteboardMode();
 
     expect(
       within(inbox).queryByRole("button", { name: /^编辑分组/ })
@@ -140,7 +140,7 @@ describe("分组管理:重命名与换色", () => {
 describe("分组管理:删除分组回收", () => {
   it("删除前给出回收警告,确认后组内收藏全部回到收集箱", async () => {
     const { work } = await renderSeeded();
-    enterEditMode();
+    enterWhiteboardMode();
 
     fireEvent.click(
       within(work).getByRole("button", { name: "删除分组 工作" })
@@ -163,7 +163,7 @@ describe("分组管理:删除分组回收", () => {
 
   it("取消删除则分组与收藏原封不动", async () => {
     const { work } = await renderSeeded();
-    enterEditMode();
+    enterWhiteboardMode();
 
     fireEvent.click(
       within(work).getByRole("button", { name: "删除分组 工作" })

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { Whiteboard } from "./Whiteboard";
 import type { WhiteboardProps } from "./Whiteboard";
+import { pointerEvent, queryNudge } from "./testUtils";
 import type { GroupPositionInput } from "../domain/store";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/store";
 import { byOrder } from "../domain/types";
@@ -10,25 +11,12 @@ import type { BookmarkState, GroupId } from "../domain/types";
 
 /**
  * 白板(board-whiteboard/02):Pointer 拖拽落点吸附、自动整理装箱、
- * 新分组落位、编辑控件随 editMode、画布杀组头原生 DnD。
+ * 新分组落位、编辑控件随白板模式(board-whiteboard/03 门禁)、画布杀组头原生 DnD。
  *
  * jsdom 几何全 0(getBoundingClientRect/offsetHeight):拖拽的抓取
  * 偏移 = 指针坐标,自动整理退化为零高铺开(与迁移共用策略);
  * 量高路径用 Object.defineProperty 给分区卡 mock offsetHeight。
  */
-
-/** 带 Pointer props 的合成事件(jsdom 30 有 PointerEvent 构造器)。 */
-function pointerEvent(
-  type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
-  opts: { clientX?: number; clientY?: number; button?: number } = {}
-): PointerEvent {
-  return new PointerEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    button: 0,
-    ...opts,
-  });
-}
 
 function seedGroups() {
   return [
@@ -62,6 +50,7 @@ function seededState(): BookmarkState {
 
 type Board = {
   onSetGroupPositions: Mock;
+  onEnterWhiteboard: Mock;
   rerender(next: BookmarkState, overrides?: Partial<WhiteboardProps>): void;
 };
 
@@ -73,12 +62,14 @@ function renderBoard(
     ok: true as const,
     value: [...initial.groups].sort(byOrder),
   }));
+  const onEnterWhiteboard = vi.fn();
   const props: WhiteboardProps = {
     state: initial,
     groups: [...initial.groups].sort(byOrder),
     searching: false,
     collapsedIds: new Set<GroupId>(),
-    editMode: false,
+    whiteboardMode: false,
+    onEnterWhiteboard,
     dropHint: null,
     onToggleCollapse: vi.fn(),
     onRenameGroup: vi.fn(),
@@ -98,6 +89,7 @@ function renderBoard(
   const view = render(<Whiteboard {...props} />);
   return {
     onSetGroupPositions,
+    onEnterWhiteboard,
     rerender(next, extra) {
       view.rerender(
         <Whiteboard
@@ -140,9 +132,9 @@ function dragBy(
   });
 }
 
-describe("白板:Pointer 拖拽与吸附", () => {
+describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
   it("拖动分组卡跟手移动,松手吸附 16px 网格并写回落点", () => {
-    const board = renderBoard();
+    const board = renderBoard(undefined, { whiteboardMode: true });
     const groupA = sectionOf("甲组");
 
     // jsdom 几何全 0:抓取偏移 = 指针坐标;画布原点也在 0
@@ -167,7 +159,7 @@ describe("白板:Pointer 拖拽与吸附", () => {
   });
 
   it("吸附后的越右界坐标由领域层钳回收口(组件只送吸附值)", () => {
-    const board = renderBoard();
+    const board = renderBoard(undefined, { whiteboardMode: true });
     const groupA = sectionOf("甲组");
 
     // 拖到画布外右侧:吸附值(2992, 48)超出右界 810.67,原样送出
@@ -181,7 +173,7 @@ describe("白板:Pointer 拖拽与吸附", () => {
   });
 
   it("指针按在交互控件上不发起拖拽(链接/按钮照常工作)", () => {
-    const board = renderBoard();
+    const board = renderBoard(undefined, { whiteboardMode: true });
     const toggle = within(sectionOf("甲组")).getByRole("button", {
       name: "折叠分组 甲组",
     });
@@ -205,7 +197,7 @@ describe("白板:Pointer 拖拽与吸附", () => {
   });
 
   it("指针取消(切窗/触控打断)只清会话,不写落点", () => {
-    const board = renderBoard();
+    const board = renderBoard(undefined, { whiteboardMode: true });
     const groupA = sectionOf("甲组");
 
     dragBy(groupA, { x: 30, y: 40 }, { x: 101, y: 90 });
@@ -220,7 +212,7 @@ describe("白板:Pointer 拖拽与吸附", () => {
 
 describe("白板:自动整理", () => {
   it("量高装箱:planWall 贪心装箱回坐标(floor 取整),画布高随内容增长", () => {
-    const board = renderBoard();
+    const board = renderBoard(undefined, { whiteboardMode: true });
     // 三卡同高 100,第四组(乙组)200 高:装箱后乙组进首列第二行
     withHeight(sectionOf("收集箱"), 100);
     withHeight(sectionOf("甲组"), 100);
@@ -242,7 +234,7 @@ describe("白板:自动整理", () => {
       ...seedGroups(),
       { id: "g-c", name: "丙组", color: "#f0c674", order: 3, x: 405, y: 300 },
     ];
-    const board = renderBoard(state);
+    const board = renderBoard(state, { whiteboardMode: true });
     withHeight(sectionOf("收集箱"), 100);
     withHeight(sectionOf("甲组"), 100);
     withHeight(sectionOf("乙组"), 100);
@@ -260,7 +252,7 @@ describe("白板:自动整理", () => {
   });
 
   it("测不出高度(jsdom 恒 0)退化零高铺开:与迁移共用 spreadPositions", () => {
-    const board = renderBoard();
+    const board = renderBoard(undefined, { whiteboardMode: true });
 
     fireEvent.click(screen.getByRole("button", { name: "自动整理" }));
 
@@ -308,15 +300,15 @@ describe("白板:落位与渲染", () => {
 });
 
 describe("白板:编辑控件与 DnD 分流", () => {
-  it("编辑控件随 editMode:组头操作与行内编辑仅编辑模式出现", () => {
+  it("编辑控件随白板模式:组头操作与行内编辑仅白板模式出现", () => {
     const state = seededState();
-    const board = renderBoard(state, { editMode: false });
+    const board = renderBoard(state, { whiteboardMode: false });
 
     expect(
       screen.queryByRole("button", { name: "编辑分组 甲组" })
     ).not.toBeInTheDocument();
 
-    board.rerender(state, { editMode: true });
+    board.rerender(state, { whiteboardMode: true });
 
     expect(
       screen.getByRole("button", { name: "编辑分组 甲组" })
@@ -331,7 +323,7 @@ describe("白板:编辑控件与 DnD 分流", () => {
   });
 
   it("组头原生 dragstart 被画布拦下;收藏卡的组内排序 DnD 放行", () => {
-    renderBoard(undefined, { editMode: true });
+    renderBoard(undefined, { whiteboardMode: true });
 
     // 组头:preventDefault → fireEvent 返回 false,且 App 侧回调不触发
     const header = sectionOf("甲组").querySelector(".group-header")!;
@@ -342,5 +334,125 @@ describe("白板:编辑控件与 DnD 分流", () => {
       .getAllByRole("listitem")
       .find((el) => el.classList.contains("card"))!;
     expect(fireEvent.dragStart(card)).toBe(true);
+  });
+});
+
+describe("白板模式门禁(board-whiteboard/03)", () => {
+  it("日常态拖不动:不进拖拽会话、不写落点、位置不动", () => {
+    const board = renderBoard(); // 默认 whiteboardMode: false
+    const groupA = sectionOf("甲组");
+
+    dragBy(groupA, { x: 30, y: 40 }, { x: 101, y: 90 });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+
+    expect(groupA).not.toHaveAttribute("data-drag-active");
+    expect(board.onSetGroupPositions).not.toHaveBeenCalled();
+    expect(groupA).toHaveStyle({ left: "405px", top: "0px" });
+  });
+
+  it("日常态拖动意图(位移 >5px)出 nudge;4s 自动消隐", () => {
+    vi.useFakeTimers();
+    try {
+      renderBoard();
+      const groupA = sectionOf("甲组");
+
+      // 位移 71/50 超过 5px 阈值 → nudge 引导
+      dragBy(groupA, { x: 30, y: 40 }, { x: 101, y: 90 });
+      expect(queryNudge()).toBeInTheDocument();
+      expect(
+        screen.getByText("布局已锁定,进入白板模式后才能拖动分组")
+      ).toBeInTheDocument();
+
+      // 松手不清引导,由 4s 计时消隐
+      act(() => {
+        window.dispatchEvent(pointerEvent("pointerup"));
+      });
+      expect(queryNudge()).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(queryNudge()).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("nudge 一键进入:点「进入白板」回调进入且引导消隐", () => {
+    const board = renderBoard();
+    dragBy(sectionOf("甲组"), { x: 0, y: 0 }, { x: 30, y: 0 });
+
+    fireEvent.click(
+      within(queryNudge()!).getByRole("button", { name: "进入白板" })
+    );
+
+    expect(board.onEnterWhiteboard).toHaveBeenCalledTimes(1);
+    expect(queryNudge()).not.toBeInTheDocument();
+  });
+
+  it("位移不超过 5px 不出 nudge(点击意图不误报;阈值含边界)", () => {
+    renderBoard();
+    // 位移 (3,4):欧氏距离恰 5px(含边界,不触发)
+    dragBy(sectionOf("甲组"), { x: 30, y: 40 }, { x: 33, y: 44 });
+    expect(queryNudge()).not.toBeInTheDocument();
+
+    // 再超出一点(5.66px)即触发
+    dragBy(sectionOf("甲组"), { x: 30, y: 40 }, { x: 34, y: 44 });
+    expect(queryNudge()).toBeInTheDocument();
+  });
+
+  it("按在交互控件上移动不算拖动意图", () => {
+    renderBoard();
+    const toggle = within(sectionOf("甲组")).getByRole("button", {
+      name: "折叠分组 甲组",
+    });
+
+    act(() => {
+      toggle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 0, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 60, clientY: 0 })
+      );
+    });
+
+    expect(queryNudge()).not.toBeInTheDocument();
+  });
+
+  it("搜索过滤态:日常态意图不出 nudge,白板模式内也拖不动", () => {
+    // 日常 + 搜索:连拖动意图都不记(过滤态坐标无意义)
+    const daily = renderBoard(undefined, { searching: true });
+    dragBy(sectionOf("甲组"), { x: 0, y: 0 }, { x: 60, y: 60 });
+    expect(queryNudge()).not.toBeInTheDocument();
+
+    // 白板模式 + 搜索:拖拽会话不发起,不写落点
+    daily.rerender(seededState(), { whiteboardMode: true, searching: true });
+    dragBy(sectionOf("甲组"), { x: 30, y: 40 }, { x: 101, y: 90 });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    expect(daily.onSetGroupPositions).not.toHaveBeenCalled();
+    expect(sectionOf("甲组")).not.toHaveAttribute("data-drag-active");
+  });
+
+  it("工具行门禁:自动整理仅白板模式出现;搜索中禁用", () => {
+    const board = renderBoard();
+    expect(
+      screen.queryByRole("button", { name: "自动整理" })
+    ).not.toBeInTheDocument();
+
+    board.rerender(seededState(), { whiteboardMode: true });
+    const pack = screen.getByRole("button", { name: "自动整理" });
+    expect(pack).toBeEnabled();
+
+    board.rerender(seededState(), {
+      whiteboardMode: true,
+      searching: true,
+    });
+    expect(screen.getByRole("button", { name: "自动整理" })).toBeDisabled();
   });
 });

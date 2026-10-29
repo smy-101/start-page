@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { enterEditMode } from "./testUtils";
+import { enterWhiteboardMode } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import type { BookmarkState } from "../domain/types";
 import { INBOX_GROUP_COLOR, INBOX_GROUP_ID } from "../domain/types";
@@ -121,7 +121,7 @@ describe("初始页:搜索框实时过滤", () => {
     fireEvent.change(searchInput(), { target: { value: "MDN" } });
 
     // ui-refresh/04:编辑操作在编辑模式下启用(头部开关 → 行编辑按钮)
-    enterEditMode();
+    enterWhiteboardMode();
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
     const card = screen.getByRole("listitem");
     fireEvent.change(within(card).getByLabelText("标题"), {

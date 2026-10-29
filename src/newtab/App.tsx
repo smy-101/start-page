@@ -80,11 +80,14 @@ type AppProps = {
 };
 
 /** 看板视图 props 并集:墙(默认)与白板共用同一注入缝;
- * 白板多收 onSetGroupPositions(拖拽松手/自动整理写回),墙视图忽略之。 */
+ * 白板多收 onSetGroupPositions(拖拽松手/自动整理写回)与
+ * onEnterWhiteboard(nudge 一键进入,board-whiteboard/03),墙视图忽略之。 */
 export type BoardViewProps = BookmarkGroupsProps & {
   onSetGroupPositions(
     positions: GroupPositionInput[]
   ): Promise<Result<Group[]>>;
+  /** nudge 一键进入白板模式(board-whiteboard/03;白板视图供给,墙视图忽略) */
+  onEnterWhiteboard(): void;
 };
 
 export function App({
@@ -105,8 +108,9 @@ export function App({
   const deferredQuery = useDeferredValue(query);
   const [view, setView] = useState<"start" | "settings">("start");
   const [addOpen, setAddOpen] = useState(false);
-  // 编辑模式(ui-refresh/04):开启后收藏行/分组列头才出现编辑删除与拖拽
-  const [editMode, setEditMode] = useState(false);
+  // 白板模式(board-whiteboard/03,原编辑模式更名):唯一开分组拖拽与收藏/分组
+  // 编辑 UI 的门禁(ADR-0004);入口常驻头部,nudge 一键进入
+  const [whiteboardMode, setWhiteboardMode] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [drag, setDrag] = useState<Drag>(null);
   // 拖收藏中的插入指示线:目标组 + 渲染坐标槽位(指针移动时更新)
@@ -376,6 +380,11 @@ export function App({
     [run]
   );
 
+  /** nudge 一键进入(board-whiteboard/03):只开不关,关闭走头部开关 */
+  const handleEnterWhiteboard = useCallback(() => {
+    setWhiteboardMode(true);
+  }, []);
+
   // 拖拽回调束(DragHandlers):表头换位 + 卡片组内排序/跨组移动 + 插入指示线
   const dragHandlers: DragHandlers = useMemo(
     () => ({
@@ -582,10 +591,10 @@ export function App({
           <button
             type="button"
             className="edit-toggle"
-            aria-pressed={editMode}
-            onClick={() => setEditMode((on) => !on)}
+            aria-pressed={whiteboardMode}
+            onClick={() => setWhiteboardMode((on) => !on)}
           >
-            {editMode ? "完成" : "编辑"}
+            {whiteboardMode ? "完成" : "进入白板"}
           </button>
           <button
             type="button"
@@ -647,13 +656,14 @@ export function App({
         groups={groupsInOrder}
         searching={deferredQuery.trim() !== ""}
         collapsedIds={collapsedGroups}
-        editMode={editMode}
+        whiteboardMode={whiteboardMode}
         dropHint={dropHint}
         onToggleCollapse={handleToggleCollapse}
         onRenameGroup={handleRenameGroup}
         onRecolorGroup={handleRecolorGroup}
         onDeleteGroup={handleDeleteGroup}
         onSetGroupPositions={handleSetGroupPositions}
+        onEnterWhiteboard={handleEnterWhiteboard}
         {...dragHandlers}
         onEdit={handleCardEdit}
         onDelete={handleCardDelete}

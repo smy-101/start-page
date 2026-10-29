@@ -9,7 +9,7 @@ import {
 import { Profiler, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { enterEditMode } from "./testUtils";
+import { enterWhiteboardMode } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import type { BookmarkState } from "../domain/types";
 import { INBOX_GROUP_NAME } from "../domain/types";
@@ -174,7 +174,7 @@ describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "工作" });
-    enterEditMode();
+    enterWhiteboardMode();
     const learnCard = screen.getByText("学件").closest(".card") as HTMLElement;
     commits = 0;
 
@@ -197,7 +197,7 @@ describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "工作" });
-    enterEditMode();
+    enterWhiteboardMode();
     mockCardRenders.titles = [];
 
     // 通过卡片自身编辑按钮改备注(触发全状态替换)
