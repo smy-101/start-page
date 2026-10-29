@@ -54,7 +54,7 @@ import {
 import { domainErrorText } from "./messages";
 import { PlusIcon, SettingsIcon } from "./Icon";
 import { loadCollapsedGroups, saveCollapsedGroups } from "./collapsedGroups";
-import type { DragHandlers } from "./BookmarkGroups";
+import type { DragHandlers, DropHint } from "./BookmarkGroups";
 
 const chromeStorage = createChromeStorage();
 const chromeSettingsStorage = createChromeSettingsStorage();
@@ -95,6 +95,8 @@ export function App({
   const [editMode, setEditMode] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [drag, setDrag] = useState<Drag>(null);
+  // 拖收藏中的插入指示线:目标组 + 渲染坐标槽位(指针移动时更新)
+  const [dropHint, setDropHint] = useState<DropHint>(null);
   // 折叠分组集(board-refresh/03):默认空集全部展开,localStorage 持久化
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupId>>(() =>
     loadCollapsedGroups()
@@ -231,9 +233,57 @@ export function App({
     });
   }, []);
 
-  /** 放置前置条件:dragover 阻止默认行为,浏览器才允许 drop。 */
+  /** 放置前置条件:dragover 阻止默认行为并声明 move 光标,浏览器才允许 drop。 */
   const allowDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  /** 拖拽源声明:只允许移动(光标不出现复制加号)。jsdom 事件无 dataTransfer,守卫。 */
+  const markDragSource = useCallback((event: React.DragEvent) => {
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  }, []);
+
+  /** 拖收藏悬停在某卡片上/下半:插入槽位(目标组坐标,不含被拖项)。 */
+  function cardInsertionIndex(
+    event: React.DragEvent,
+    target: Bookmark,
+    draggedId: BookmarkId
+  ): number {
+    const siblings = (stateRef.current?.bookmarks ?? [])
+      .filter((b) => b.groupId === target.groupId && b.id !== draggedId)
+      .sort(byOrder);
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    // jsdom 量高为 0:视为悬停上半(与既有「插到目标之前」行为一致)
+    const after = rect.height > 0 && event.clientY - rect.top > rect.height / 2;
+    const at = siblings.findIndex((b) => b.id === target.id);
+    if (at < 0) {
+      // 悬停在被拖卡片自身:前/后都是原位(无操作),指示线贴自身前/后
+      const full = (stateRef.current?.bookmarks ?? [])
+        .filter((b) => b.groupId === target.groupId)
+        .sort(byOrder);
+      const p = full.findIndex((b) => b.id === target.id);
+      return after ? p + 1 : p;
+    }
+    return at + (after ? 1 : 0);
+  }
+
+  /** 更新插入指示线:槽位换算到目标组的渲染坐标(被拖项还在列内)。 */
+  const hintAt = useCallback((groupId: GroupId, insertion: number) => {
+    const current = dragRef.current;
+    setDropHint((prev) => {
+      let index = insertion;
+      if (current?.kind === "bookmark" && current.groupId === groupId) {
+        const full = (stateRef.current?.bookmarks ?? [])
+          .filter((b) => b.groupId === groupId)
+          .sort(byOrder);
+        const p = full.findIndex((b) => b.id === current.id);
+        if (p >= 0 && p < insertion) index = insertion + 1;
+      }
+      return prev && prev.groupId === groupId && prev.index === index
+        ? prev
+        : { groupId, index };
+    });
   }, []);
 
   /** 分区放置:拖组→与目标组换位;拖收藏→追加到目标组末尾。 */
@@ -241,6 +291,7 @@ export function App({
     (_event: React.DragEvent, targetGroupId: GroupId) => {
       const current = dragRef.current;
       setDrag(null);
+      setDropHint(null);
       if (!current) return;
       if (current.kind === "group") {
         if (current.id === targetGroupId) return;
@@ -263,7 +314,8 @@ export function App({
     [run]
   );
 
-  /** 卡片放置:移到目标卡片之前(组内排序与跨组移动共用);拖组则冒泡给分区。 */
+  /** 卡片放置:按悬停上/下半插到目标之前/之后(组内排序与跨组移动共用);
+   * 拖组则冒泡给分区。 */
   const handleCardDrop = useCallback(
     (event: React.DragEvent, targetBookmarkId: BookmarkId) => {
       const current = dragRef.current;
@@ -271,17 +323,13 @@ export function App({
       // 收藏拖放由卡片就地处理,不再冒泡给分区(避免二次追加)
       event.stopPropagation();
       setDrag(null);
+      setDropHint(null);
       if (current.id === targetBookmarkId) return;
       const target = stateRef.current?.bookmarks.find(
         (b) => b.id === targetBookmarkId
       );
       if (!target) return;
-      const index = stateRef
-        .current!.bookmarks.filter(
-          (b) => b.groupId === target.groupId && b.id !== current.id
-        )
-        .sort(byOrder)
-        .findIndex((b) => b.id === targetBookmarkId);
+      const index = cardInsertionIndex(event, target, current.id);
       void run(() =>
         storeRef.current!.moveBookmark(current.id, target.groupId, index)
       );
@@ -307,19 +355,56 @@ export function App({
     [refresh]
   );
 
-  // 拖拽回调束(DragHandlers):表头换位 + 卡片组内排序/跨组移动
+  // 拖拽回调束(DragHandlers):表头换位 + 卡片组内排序/跨组移动 + 插入指示线
   const dragHandlers: DragHandlers = useMemo(
     () => ({
-      onGroupDragStart: (groupId) => setDrag({ kind: "group", id: groupId }),
-      onCardDragStart: (bookmarkId, groupId) =>
-        setDrag({ kind: "bookmark", id: bookmarkId, groupId }),
-      onDragEnd: () => setDrag(null),
-      onSectionDragOver: allowDrop,
+      onGroupDragStart: (event, groupId) => {
+        markDragSource(event);
+        setDropHint(null);
+        setDrag({ kind: "group", id: groupId });
+      },
+      onCardDragStart: (event, bookmarkId, groupId) => {
+        markDragSource(event);
+        setDrag({ kind: "bookmark", id: bookmarkId, groupId });
+      },
+      onDragEnd: () => {
+        setDrag(null);
+        setDropHint(null);
+      },
+      onSectionDragOver: (event, targetGroupId) => {
+        allowDrop(event);
+        // 拖收藏悬停在非卡片区(列头/空白):指示追加到该组末尾
+        const current = dragRef.current;
+        if (current?.kind !== "bookmark") return;
+        const count = (stateRef.current?.bookmarks ?? []).filter(
+          (b) => b.groupId === targetGroupId && b.id !== current.id
+        ).length;
+        hintAt(targetGroupId, count);
+      },
       onSectionDrop: handleSectionDrop,
-      onCardDragOver: allowDrop,
+      onCardDragOver: (event, targetBookmarkId) => {
+        event.preventDefault();
+        const current = dragRef.current;
+        // 拖组经过卡片:交给分区高亮,不抢指示线
+        if (current?.kind !== "bookmark") return;
+        event.stopPropagation();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        const target = stateRef.current?.bookmarks.find(
+          (b) => b.id === targetBookmarkId
+        );
+        if (!target) return;
+        hintAt(target.groupId, cardInsertionIndex(event, target, current.id));
+      },
       onCardDrop: handleCardDrop,
+      onWallDragLeave: (event) => {
+        // 拖拽整墙拖离才清指示线;组内/组间移动触发的 dragleave 不算
+        const to = event.relatedTarget;
+        if (!(to instanceof Node) || !event.currentTarget.contains(to)) {
+          setDropHint(null);
+        }
+      },
     }),
-    [allowDrop, handleSectionDrop, handleCardDrop]
+    [allowDrop, markDragSource, hintAt, handleSectionDrop, handleCardDrop]
   );
 
   /** 换引擎即存,回车立即生效(设置全量落盘,保留 iconFetch 开关) */
@@ -540,6 +625,7 @@ export function App({
         searching={deferredQuery.trim() !== ""}
         collapsedIds={collapsedGroups}
         editMode={editMode}
+        dropHint={dropHint}
         onToggleCollapse={handleToggleCollapse}
         onRenameGroup={handleRenameGroup}
         onRecolorGroup={handleRecolorGroup}

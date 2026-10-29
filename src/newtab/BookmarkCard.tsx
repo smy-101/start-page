@@ -20,11 +20,16 @@ type BookmarkCardProps = {
   editMode: boolean;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
-  /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(拖到某卡片之前)。
-   * 共享回调(稳定身份):卡片以自身 bookmark 数据供给 id 与所属组。 */
-  onDragStart(bookmarkId: BookmarkId, groupId: GroupId): void;
+  /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(插到目标之前/之后)。
+   * 共享回调(稳定身份):卡片以自身 bookmark 数据供给 id 与所属组;
+   * 事件对象透传给 App(effectAllowed / 指针坐标)。 */
+  onDragStart(
+    event: React.DragEvent,
+    bookmarkId: BookmarkId,
+    groupId: GroupId
+  ): void;
   onDragEnd(): void;
-  onDragOver(event: React.DragEvent): void;
+  onDragOver(event: React.DragEvent, targetBookmarkId: BookmarkId): void;
   onDrop(event: React.DragEvent, targetBookmarkId: BookmarkId): void;
 };
 
@@ -46,6 +51,7 @@ export const BookmarkCard = memo(function BookmarkCard({
   onDrop,
 }: BookmarkCardProps) {
   const [editing, setEditing] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [url, setUrl] = useState(bookmark.url);
   const [title, setTitle] = useState(bookmark.title);
   const [note, setNote] = useState(bookmark.note);
@@ -139,9 +145,16 @@ export const BookmarkCard = memo(function BookmarkCard({
     <li
       className="card"
       draggable={editMode}
-      onDragStart={() => onDragStart(bookmark.id, bookmark.groupId)}
-      onDragEnd={onDragEnd}
-      onDragOver={(event) => onDragOver(event)}
+      data-dragging={dragging ? "true" : undefined}
+      onDragStart={(event) => {
+        setDragging(true);
+        onDragStart(event, bookmark.id, bookmark.groupId);
+      }}
+      onDragEnd={() => {
+        setDragging(false);
+        onDragEnd();
+      }}
+      onDragOver={(event) => onDragOver(event, bookmark.id)}
       onDrop={(event) => onDrop(event, bookmark.id)}
     >
       <a
@@ -150,6 +163,8 @@ export const BookmarkCard = memo(function BookmarkCard({
         target="_blank"
         rel="noreferrer"
         title={tooltip}
+        // 编辑模式下关闭链接原生拖拽(否则拖的是 URL 而非卡片),浏览态保留原生行为
+        draggable={editMode ? false : undefined}
       >
         <Favicon
           pageUrl={bookmark.url}

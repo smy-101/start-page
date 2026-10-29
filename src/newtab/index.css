@@ -13,6 +13,12 @@
   --border-strong: #c6ccd4;
   --danger: #d1242f;
 
+  /* 看板分层:组托盘沉入页面一级,收藏卡浮出托盘(浅影属于卡片层) */
+  --tray: color-mix(in srgb, var(--fg) 4.5%, var(--bg));
+  --shadow-card: 0 1px 2px rgba(16, 19, 23, 0.05);
+  --shadow-card-hover:
+    0 1px 2px rgba(16, 19, 23, 0.05), 0 2px 8px rgba(16, 19, 23, 0.07);
+
   /* 圆角分级:分区 > 卡片/输入 > 按钮/色点 */
   --r-lg: 14px;
   --r-md: 10px;
@@ -35,6 +41,10 @@
     --border: #272b31;
     --border-strong: #3a404a;
     --danger: #ff7b72;
+    --tray: color-mix(in srgb, black 18%, var(--bg));
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --shadow-card-hover:
+      0 2px 4px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
     --shadow-hero:
       0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
   }
@@ -593,25 +603,55 @@ button[type="submit"]:hover {
 }
 
 /* ============================================================
-   看板(board-refresh/02):分组铺满全宽的自适应网格,自动换行;
-   列内条目多时列内滚动,色脊保留为分组颜色的信息用法
+   看板(ADR-0003 瀑布流):分组卡高度不一,墙测高后贪心装箱到
+   最矮列,无行间空隙。墙是定位上下文,格子绝对定位、DOM 顺序
+   仍保持组间逻辑顺序;组托盘 + 白卡三层表面;列内条目多时列内
+   滚动,色脊保留为分组颜色的信息用法
    ============================================================ */
 .groups-wall {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
-  align-items: start;
+  position: relative;
+  /* 高度与格子坐标由 JS 布局(wallLayout.ts)内联供给 */
 }
 
+/* 组 = 托盘:比页面底沉一级的容器面,收藏卡浮在其上。
+   位移过渡让增删/换位/折叠后的重排有连续性;宽不参与过渡
+   (窗口缩放时时跟手,不拖泥带水) */
 .group {
-  position: relative;
+  position: absolute;
   overflow: hidden;
   min-width: 0;
-  background: var(--card);
+  background: var(--tray);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 12px 10px 14px;
-  transition: border-color 120ms var(--ease-out);
+  padding: 6px 8px 10px;
+  transition:
+    border-color 120ms var(--ease-out),
+    opacity 120ms var(--ease-out),
+    top 180ms var(--ease-out),
+    left 180ms var(--ease-out);
+}
+
+/* 拖拽源反馈:被拖的组列就地淡化(落点由 dragover 高亮承担) */
+.group[data-group-dragging="true"] {
+  opacity: 0.45;
+}
+
+/* 收藏插入指示:目标组着色的细线,落在列内两个槽位之间 */
+.drop-indicator {
+  flex: none;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--group-color, var(--fg));
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--group-color, var(--fg)) 16%, transparent);
+  pointer-events: none;
+  animation: drop-hint-in 120ms var(--ease-out);
+}
+
+@keyframes drop-hint-in {
+  from {
+    opacity: 0;
+  }
 }
 
 /* 列内滚动:视口高度铺开时上限约 18 行,窄屏不低于 280px */
@@ -621,18 +661,6 @@ button[type="submit"]:hover {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
-}
-
-.group-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 64px;
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  border: 1px dashed var(--border);
-  border-radius: var(--r-md);
 }
 
 /* 分组色脊柱:颜色的信息用法(扫视定位),不是装饰 */
@@ -652,13 +680,22 @@ button[type="submit"]:hover {
   );
 }
 
+/* 指示线在场时同样点亮目标组:悬停在卡片上时分区自身收不到 dragover */
+.group[data-drop-hint="true"] {
+  border-color: color-mix(
+    in srgb,
+    var(--group-color, var(--fg)) 55%,
+    var(--border)
+  );
+}
+
+/* 列头:托盘即结构,无分隔线;计数退为安静灰字(Notion 式) */
 .group-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px 10px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px 4px 6px;
+  margin-bottom: 6px;
 }
 
 /* 拖拽换位仅编辑模式:grab 光标随 draggable 出现 */
@@ -685,11 +722,10 @@ button[type="submit"]:hover {
   transform: rotate(-90deg);
 }
 
-/* 折叠态列卡:只剩列头,去分隔线收紧留白 */
+/* 折叠态列卡:只剩列头,收紧留白 */
 .group[data-collapsed="true"] .group-header {
-  border-bottom-color: transparent;
   margin-bottom: 0;
-  padding-bottom: 4px;
+  padding-bottom: 6px;
 }
 
 /* 拖拽把手(board-refresh/04):列头悬停浮现的可拖暗示(纯装饰) */
@@ -730,15 +766,12 @@ button[type="submit"]:hover {
   white-space: nowrap;
 }
 
-/* 计数徽章:等宽数字,安静地缀在列尾 */
+/* 计数:等宽数字,安静地缀在列尾 */
 .group-count {
   margin-left: auto;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-  padding: 1px 7px;
-  border-radius: 999px;
 }
 
 .group-actions {
@@ -766,37 +799,49 @@ button[type="submit"]:hover {
   flex: 1 1 100%;
 }
 
+/* 空列占位:托盘上的虚线坑位,邀请放入第一张卡 */
 .group-empty {
-  margin: 0;
-  padding: 14px 0;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  margin: 0 4px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
   color: var(--muted);
   font-size: 12px;
 }
 
 /* ============================================================
-   收藏行:favicon + 标题的长条行(网址/备注进 title 提示)
+   收藏卡:托盘上的白瓷砖,边框+浅影浮出;网址/备注进 title 提示
    编辑模式下行尾出现操作、行可拖拽(ui-refresh/04)
    ============================================================ */
 .group-grid {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 6px;
   margin: 0;
-  padding: 0;
+  padding: 0 4px;
   list-style: none;
 }
 
 .card {
   display: flex;
   align-items: center;
-  border-radius: var(--r-sm);
-  transition: background-color 120ms var(--ease-out);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
 }
 
+/* 悬停:边框加深 + 影微升,无位移(高频交互保持克制) */
 @media (hover: hover) and (pointer: fine) {
   .card:hover {
-    background: color-mix(in srgb, var(--fg) 5%, transparent);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-card-hover);
   }
 }
 
@@ -808,8 +853,14 @@ button[type="submit"]:hover {
   cursor: grabbing;
 }
 
+/* 拖拽源反馈:被拖行就地淡化,原位留一个安静的坑 */
+.card[data-dragging="true"] {
+  opacity: 0.45;
+}
+
 .card:dragover {
-  background: color-mix(in srgb, var(--fg) 9%, transparent);
+  border-color: color-mix(in srgb, var(--fg) 45%, var(--border));
+  background: color-mix(in srgb, var(--fg) 3%, var(--card));
 }
 
 .card-link {
@@ -818,8 +869,8 @@ button[type="submit"]:hover {
   gap: 10px;
   flex: 1;
   min-width: 0;
-  padding: 6px 8px;
-  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  border-radius: calc(var(--r-md) - 1px);
   color: inherit;
   text-decoration: none;
 }
@@ -863,10 +914,9 @@ button[type="submit"]:hover {
   height: 24px;
 }
 
-/* 行内编辑表单:占满列宽 */
+/* 行内编辑表单:占满列宽(瓷砖底色即表单底) */
 .card-editing {
-  padding: 4px;
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  padding: 4px 4px 2px;
 }
 
 .edit-form {

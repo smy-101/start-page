@@ -16,8 +16,9 @@ type GroupHeaderProps = {
   onRename(name: string): Promise<Result<Group>>;
   onRecolor(color: string): Promise<Result<Group>>;
   onDeleteGroup(): Promise<DeleteGroupResult>;
-  /** 组间拖拽排序:表头作为拖拽源(放置目标由所在分区承担)。 */
-  onDragStart(): void;
+  /** 组间拖拽排序:表头作为拖拽源(放置目标由所在分区承担);
+   * 事件透传给 App 设 effectAllowed。 */
+  onDragStart(event: React.DragEvent): void;
   onDragEnd(): void;
 };
 
@@ -83,7 +84,7 @@ export function GroupHeader({
       // 组间换位是整理动作,不再限于编辑模式(board-refresh/04);
       // 编辑/删除确认中临时不可拖,避免与表单控件冲突
       draggable={mode === "view"}
-      onDragStart={() => onDragStart()}
+      onDragStart={(event) => onDragStart(event)}
       onDragEnd={onDragEnd}
     >
       {mode === "edit" && !isInbox ? (
