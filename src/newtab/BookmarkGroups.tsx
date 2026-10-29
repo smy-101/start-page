@@ -100,7 +100,7 @@ export function BookmarkGroups({
   }
 
   return (
-    <>
+    <div className="groups-wall">
       {groupsByOrder.map((group) => (
         <GroupSection
           key={group.id}
@@ -124,6 +124,6 @@ export function BookmarkGroups({
           onDelete={onDelete}
         />
       ))}
-    </>
+    </div>
   );
 }

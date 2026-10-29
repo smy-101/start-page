@@ -1,4 +1,5 @@
 import { memo } from "react";
+import type { CSSProperties } from "react";
 import type {
   Bookmark,
   BookmarkId,
@@ -60,6 +61,8 @@ export const GroupSection = memo(function GroupSection({
     <section
       className="group"
       aria-label={group.name}
+      // 分组色注入为 CSS 变量:左脊/悬停边框等着色用(纯表现,不影响语义)
+      style={{ "--group-color": group.color } as CSSProperties}
       onDragOver={onSectionDragOver}
       onDrop={(event) => onSectionDrop(event, group.id)}
     >

@@ -1,17 +1,18 @@
-import { useState } from 'react'
+import { useState } from "react";
+import type { CSSProperties } from "react";
 
 type FaviconProps = {
-  pageUrl: string
-  title: string
+  pageUrl: string;
+  title: string;
   /** 回退色块的底色(取所属分组颜色) */
-  fallbackColor: string
-}
+  fallbackColor: string;
+};
 
 function faviconUrl(pageUrl: string): string {
-  const url = new URL(chrome.runtime.getURL('/_favicon/'))
-  url.searchParams.set('pageUrl', pageUrl)
-  url.searchParams.set('size', '32')
-  return url.toString()
+  const url = new URL(chrome.runtime.getURL("/_favicon/"));
+  url.searchParams.set("pageUrl", pageUrl);
+  url.searchParams.set("size", "32");
+  return url.toString();
 }
 
 /**
@@ -19,14 +20,18 @@ function faviconUrl(pageUrl: string): string {
  * onError 与 naturalWidth === 0(默认图)双保险回退首字母色块。
  */
 export function Favicon({ pageUrl, title, fallbackColor }: FaviconProps) {
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState(false);
 
   if (failed) {
     return (
-      <span className="favicon-tile" style={{ backgroundColor: fallbackColor }} aria-hidden="true">
-        {(title.trim().charAt(0) || '?').toUpperCase()}
+      <span
+        className="favicon-tile"
+        style={{ "--tile-color": fallbackColor } as CSSProperties}
+        aria-hidden="true"
+      >
+        {(title.trim().charAt(0) || "?").toUpperCase()}
       </span>
-    )
+    );
   }
   return (
     <img
@@ -35,8 +40,8 @@ export function Favicon({ pageUrl, title, fallbackColor }: FaviconProps) {
       alt=""
       onError={() => setFailed(true)}
       onLoad={(e) => {
-        if (e.currentTarget.naturalWidth === 0) setFailed(true)
+        if (e.currentTarget.naturalWidth === 0) setFailed(true);
       }}
     />
-  )
+  );
 }
