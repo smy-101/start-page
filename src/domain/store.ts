@@ -130,6 +130,18 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
   return true;
 }
 
+/**
+ * 是否仍是全新安装的初始态(仅收集箱、零收藏):懒挂载的折叠缺省判定用
+ * (工单 10b:未记录折叠偏好且状态初始 → 首屏全部折叠;老用户不命中,视图不变)。
+ */
+export function isFreshInstallState(state: BookmarkState): boolean {
+  return (
+    state.groups.length === 1 &&
+    state.groups[0].id === INBOX_GROUP_ID &&
+    state.bookmarks.length === 0
+  );
+}
+
 export async function createBookmarkStore(
   adapter: StorageAdapter
 ): Promise<BookmarkStore> {

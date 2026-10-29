@@ -89,6 +89,10 @@ function makeState(titles: string[]): BookmarkState {
 }
 
 describe("渲染契约:单次变更单提交", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it("添加一条收藏只产生一次提交", async () => {
     let commits = 0;
     render(
@@ -102,6 +106,9 @@ describe("渲染契约:单次变更单提交", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "收集箱" });
+    // 工单 10b:全新安装收集箱默认折叠;单提交契约需观察卡片,先展开
+    fireEvent.click(screen.getByRole("button", { name: "展开分组 收集箱" }));
+    await screen.findByRole("button", { name: "折叠分组 收集箱" });
     commits = 0;
 
     fireEvent.change(screen.getByLabelText("网址"), {
@@ -133,6 +140,9 @@ describe("渲染契约:单次变更单提交", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "收集箱" });
+    // 全新安装收集箱默认折叠(工单 10b);跨上下文同步观察卡片需展开态
+    fireEvent.click(screen.getByRole("button", { name: "展开分组 收集箱" }));
+    await screen.findByRole("button", { name: "折叠分组 收集箱" });
     commits = 0;
 
     // 模拟 service worker 等其他上下文的写入

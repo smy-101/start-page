@@ -15,7 +15,11 @@ import type {
   Result,
   StorageAdapter,
 } from "../domain/types";
-import { createBookmarkStore, statesEqual } from "../domain/store";
+import {
+  createBookmarkStore,
+  isFreshInstallState,
+  statesEqual,
+} from "../domain/store";
 import type {
   BookmarkStore,
   BookmarkPatch,
@@ -79,8 +83,8 @@ export function App({
   const [view, setView] = useState<"start" | "settings">("start");
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   // 折叠是 UI 状态:localStorage 侧通道持久化,刷新后保持
-  const [collapsed, setCollapsed] = useState<Set<GroupId>>(() =>
-    loadCollapsedGroups()
+  const [collapsed, setCollapsed] = useState<Set<GroupId>>(
+    () => loadCollapsedGroups().ids
   );
   const [drag, setDrag] = useState<Drag>(null);
 
@@ -88,6 +92,8 @@ export function App({
   const storeRef = useRef<BookmarkStore | null>(null);
   const stateRef = useRef<BookmarkState | null>(null);
   const collapsedRef = useRef(collapsed);
+  // 首启折叠缺省只判定一次(工单 10b):后续 boot(跨上下文同步/epoch)不再进入
+  const collapseDefaultRef = useRef(false);
   const settingsRef = useRef(settings);
   const dragRef = useRef<Drag>(drag);
   storeRef.current = store;
@@ -111,6 +117,16 @@ export function App({
         prev && statesEqual(prev.getState(), next) ? prev : created
       );
       setState((prev) => (prev && statesEqual(prev, next) ? prev : next));
+      // 折叠缺省(工单 10b):偏好未记录时,全新安装(仍是初始态)首屏全部折叠
+      // 并落盘;老用户不命中也不写键,视图维持展开 —— 升级不重置已持久化状态
+      if (!collapseDefaultRef.current) {
+        collapseDefaultRef.current = true;
+        if (!loadCollapsedGroups().recorded && isFreshInstallState(next)) {
+          const ids = new Set(next.groups.map((g) => g.id));
+          saveCollapsedGroups(ids);
+          setCollapsed(ids);
+        }
+      }
     }
     void boot();
     // 跨上下文同步:任何上下文写入状态(含本页自己)→ 重建收藏库重渲染
@@ -171,6 +187,14 @@ export function App({
     const next = new Set(collapsedRef.current);
     if (next.has(groupId)) next.delete(groupId);
     else next.add(groupId);
+    saveCollapsedGroups(next);
+    setCollapsed(next);
+  }, []);
+
+  /** 折叠指定分组并持久化(新建分组默认折叠,工单 10b)。 */
+  const collapseGroup = useCallback((groupId: GroupId) => {
+    const next = new Set(collapsedRef.current);
+    next.add(groupId);
     saveCollapsedGroups(next);
     setCollapsed(next);
   }, []);
@@ -335,8 +359,14 @@ export function App({
     return run(() => storeRef.current!.addBookmark(input));
   }
 
-  function handleCreateGroup(input: NewGroupInput) {
-    return refreshOnOk(() => storeRef.current!.createGroup(input));
+  /** 新建分组:成功即折叠(工单 10b 产品行为:新组首屏只挂表头),与刷新同批提交。 */
+  async function handleCreateGroup(input: NewGroupInput) {
+    const result = await storeRef.current!.createGroup(input);
+    if (result.ok) {
+      refresh();
+      collapseGroup(result.value.id);
+    }
+    return result;
   }
 
   function bumpStoreEpoch() {
