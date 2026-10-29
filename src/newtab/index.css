@@ -129,10 +129,20 @@ body {
 /* ============================================================
    搜索:页面唯一主角,居中胶囊,唯一带阴影的元素
    ============================================================ */
+/* 搜索行:胶囊主角 + 圆形添加钮(ui-refresh/02),整体居中 */
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(680px, 100%);
+  margin: 0 auto 22px;
+}
+
 .search-input {
   display: block;
-  width: min(640px, 100%);
-  margin: 0 auto 22px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   padding: 12px 20px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -141,6 +151,25 @@ body {
   font-size: 15px;
   box-shadow: var(--shadow-hero);
   transition: border-color 120ms var(--ease-out);
+}
+
+.add-button {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(16, 19, 23, 0.05);
+}
+
+.add-button:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
 }
 
 .search-input:hover {
@@ -299,6 +328,90 @@ button[type="submit"] {
 
 button[type="submit"]:hover {
   background: color-mix(in srgb, var(--fg) 86%, var(--bg));
+}
+
+/* ============================================================
+   添加弹窗: occasional 频次 → 标准动效(scale+opacity, <300ms, ease-out)
+   ============================================================ */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--fg) 24%, transparent);
+}
+
+.dialog {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: 0 24px 64px -24px rgba(16, 19, 23, 0.4);
+  padding: 16px 20px 20px;
+  transform-origin: center;
+  animation: dialog-in 180ms var(--ease-out);
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.dialog-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog-tab {
+  min-height: 34px;
+  border: none;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dialog-tab[aria-selected="true"] {
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--fg);
+}
+
+.dialog-close {
+  margin-left: auto;
+  min-height: 30px;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* 弹窗内表单:窄容器改纵向排布,标签与输入同行 */
+.dialog .add-form,
+.dialog .new-group-form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.dialog .add-form button[type="submit"],
+.dialog .new-group-form button[type="submit"] {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 34px;
+  padding: 6px 18px;
+}
+
+.dialog .color-swatches {
+  grid-column: 1 / -1;
 }
 
 /* ============================================================

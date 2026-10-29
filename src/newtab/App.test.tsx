@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { createMemoryStorage } from "../storage/memoryStorage";
@@ -26,13 +32,21 @@ async function expandGroup(name: string) {
 }
 
 async function addBookmark(url: string, title: string, note = "") {
-  fireEvent.change(screen.getByLabelText("网址"), { target: { value: url } });
-  fireEvent.change(screen.getByLabelText("标题"), { target: { value: title } });
+  // 成功提交后的关弹窗是异步的;连续添加时先等上一轮弹窗关闭再开新的
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "添加收藏或分组" }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText("网址"), {
+    target: { value: url },
+  });
+  fireEvent.change(within(dialog).getByLabelText("标题"), {
+    target: { value: title },
+  });
   if (note)
-    fireEvent.change(screen.getByLabelText("备注"), {
+    fireEvent.change(within(dialog).getByLabelText("备注"), {
       target: { value: note },
     });
-  fireEvent.click(screen.getByRole("button", { name: "添加收藏" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "添加收藏" }));
 }
 
 describe("初始页:添加收藏到收集箱", () => {
@@ -43,7 +57,7 @@ describe("初始页:添加收藏到收集箱", () => {
     expect(screen.getByText("还没有收藏")).toBeInTheDocument();
   });
 
-  it("填写网址/标题/备注提交后,收藏卡片出现在收集箱,表单清空", async () => {
+  it("填写网址/标题/备注提交后,收藏卡片出现在收集箱,弹窗关闭", async () => {
     await renderApp();
 
     await addBookmark("https://example.com", "示例站", "第一条");
@@ -52,7 +66,8 @@ describe("初始页:添加收藏到收集箱", () => {
     expect(within(card).getByText("示例站")).toBeInTheDocument();
     expect(within(card).getByText("https://example.com")).toBeInTheDocument();
     expect(within(card).getByText("第一条")).toBeInTheDocument();
-    expect(screen.getByLabelText("网址")).toHaveValue("");
+    // ui-refresh/02:提交成功即关弹窗(表单状态随弹窗销毁,重开为空)
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("重复 URL 添加被拒,界面给出中文提示", async () => {
@@ -82,10 +97,13 @@ describe("初始页:添加收藏到收集箱", () => {
 
 describe("初始页:添加与编辑选分组(spec 故事 17/24)", () => {
   async function createGroup(name: string) {
-    fireEvent.change(screen.getByLabelText("分组名"), {
+    fireEvent.click(screen.getByRole("button", { name: "添加收藏或分组" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("tab", { name: "新建分组" }));
+    fireEvent.change(within(dialog).getByLabelText("分组名"), {
       target: { value: name },
     });
-    fireEvent.click(screen.getByRole("button", { name: "新建分组" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "新建分组" }));
     await screen.findByRole("region", { name });
     // 工单 10b:新建分组默认折叠;后续流程需要组内卡片可见
     await expandGroup(name);
@@ -104,8 +122,17 @@ describe("初始页:添加与编辑选分组(spec 故事 17/24)", () => {
     await renderApp();
     const work = await createGroup("工作");
 
-    pickGroup(document.body, "工作");
-    await addBookmark("https://work.example.com", "工作站");
+    // ui-refresh/02:选组在弹窗内完成(表单不再常驻页面)
+    fireEvent.click(screen.getByRole("button", { name: "添加收藏或分组" }));
+    const dialog = await screen.findByRole("dialog");
+    pickGroup(dialog, "工作");
+    fireEvent.change(within(dialog).getByLabelText("网址"), {
+      target: { value: "https://work.example.com" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("标题"), {
+      target: { value: "工作站" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "添加收藏" }));
 
     expect(await within(work).findByText("工作站")).toBeInTheDocument();
     expect(within(work).getAllByRole("listitem")).toHaveLength(1);
@@ -188,8 +215,10 @@ describe("初始页:收藏卡片", () => {
     await renderApp();
     await addBookmark("https://a.example.com", "A");
     await addBookmark("https://b.example.com", "B");
-    const cards = await screen.findAllByRole("listitem");
-    expect(cards).toHaveLength(2);
+    // 弹窗提交后的渲染是异步的:计数断言需重试等待,不能只 findAll 到首张就断言
+    await waitFor(() =>
+      expect(screen.getAllByRole("listitem")).toHaveLength(2)
+    );
 
     const card = screen.getAllByRole("listitem")[0];
     fireEvent.click(within(card).getByRole("button", { name: "编辑" }));

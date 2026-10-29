@@ -131,10 +131,13 @@ describe("懒挂载:全新安装与新建分组默认折叠", () => {
     const { unmount } = render(<App adapter={storage} />);
     await screen.findByRole("heading", { name: "收集箱" });
 
-    fireEvent.change(screen.getByLabelText("分组名"), {
+    fireEvent.click(screen.getByRole("button", { name: "添加收藏或分组" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("tab", { name: "新建分组" }));
+    fireEvent.change(within(dialog).getByLabelText("分组名"), {
       target: { value: "工作" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "新建分组" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "新建分组" }));
 
     const work = await screen.findByRole("region", { name: "工作" });
     expect(

@@ -29,9 +29,8 @@ import type {
 import { filterState } from "../domain/search";
 import { createChromeStorage } from "../storage/chromeStorage";
 import type { NativeBookmarkNode } from "../domain/nativeImport";
-import { AddBookmarkForm } from "./AddBookmarkForm";
+import { AddDialog } from "./AddDialog";
 import { BookmarkGroups } from "./BookmarkGroups";
-import { NewGroupForm } from "./NewGroupForm";
 import { SearchBox } from "./SearchBox";
 import { SettingsView } from "./SettingsView";
 import { searchUrl } from "./searchEngine";
@@ -81,6 +80,7 @@ export function App({
   // 输入走紧急通道(搜索框即时回显);大列表的重挂/卸载走延迟通道,不阻塞输入(工单 10a)
   const deferredQuery = useDeferredValue(query);
   const [view, setView] = useState<"start" | "settings">("start");
+  const [addOpen, setAddOpen] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   // 折叠是 UI 状态:localStorage 侧通道持久化,刷新后保持
   const [collapsed, setCollapsed] = useState<Set<GroupId>>(
@@ -356,7 +356,8 @@ export function App({
 
   async function handleAdd(input: NewBookmarkInput) {
     setNotice(null);
-    return run(() => storeRef.current!.addBookmark(input));
+    // 错误由弹窗内表单就地展示(ui-refresh/02),不走页面顶部通道
+    return refreshOnOk(() => storeRef.current!.addBookmark(input));
   }
 
   /** 新建分组:成功即折叠(工单 10b 产品行为:新组首屏只挂表头),与刷新同批提交。 */
@@ -405,9 +406,26 @@ export function App({
           ⚙ 设置
         </button>
       </header>
-      <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
-      <AddBookmarkForm groups={groupsInOrder} onAdd={handleAdd} />
-      <NewGroupForm onCreate={handleCreateGroup} />
+      <div className="search-row">
+        <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
+        <button
+          type="button"
+          className="add-button"
+          aria-label="添加收藏或分组"
+          title="添加收藏或分组"
+          onClick={() => setAddOpen(true)}
+        >
+          ＋
+        </button>
+      </div>
+      {addOpen && (
+        <AddDialog
+          groups={groupsInOrder}
+          onClose={() => setAddOpen(false)}
+          onAdd={handleAdd}
+          onCreateGroup={handleCreateGroup}
+        />
+      )}
       {error && (
         <p className="form-error" role="alert">
           {error}

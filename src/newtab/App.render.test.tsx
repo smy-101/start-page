@@ -111,15 +111,17 @@ describe("渲染契约:单次变更单提交", () => {
     await screen.findByRole("button", { name: "折叠分组 收集箱" });
     commits = 0;
 
-    fireEvent.change(screen.getByLabelText("网址"), {
+    fireEvent.click(screen.getByRole("button", { name: "添加收藏或分组" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("网址"), {
       target: { value: "https://example.com" },
     });
-    fireEvent.change(screen.getByLabelText("标题"), {
+    fireEvent.change(within(dialog).getByLabelText("标题"), {
       target: { value: "示例站" },
     });
     // 表单输入是子组件自身状态(与被测契约无关),填完后归零再计数
     commits = 0;
-    fireEvent.click(screen.getByRole("button", { name: "添加收藏" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "添加收藏" }));
     await screen.findByRole("listitem");
 
     expect(screen.getByText("示例站")).toBeInTheDocument();
