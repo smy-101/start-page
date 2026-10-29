@@ -31,7 +31,10 @@ describe("搜索胶囊:引擎切换(ui-refresh/03)", () => {
     fireEvent.click(screen.getByRole("option", { name: "Google" }));
 
     expect(screen.queryByRole("listbox")).toBeNull();
-    expect(await settingsAdapter.load()).toEqual({ engine: "google" });
+    expect(await settingsAdapter.load()).toEqual({
+      engine: "google",
+      iconFetch: true,
+    });
 
     fireEvent.change(screen.getByLabelText("搜索收藏"), {
       target: { value: "起始页" },
@@ -51,7 +54,10 @@ describe("搜索胶囊:引擎切换(ui-refresh/03)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "必应" }));
     fireEvent.click(screen.getByRole("option", { name: "百度" }));
-    expect(await settingsAdapter.load()).toEqual({ engine: "baidu" });
+    expect(await settingsAdapter.load()).toEqual({
+      engine: "baidu",
+      iconFetch: true,
+    });
 
     render(
       <App adapter={createMemoryStorage()} settingsAdapter={settingsAdapter} />

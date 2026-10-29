@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ENGINES, ENGINE_IDS } from "./searchEngine";
 import type { EngineId } from "./searchEngine";
+import { ChevronDownIcon } from "./Icon";
 
 type SearchBoxProps = {
   query: string;
@@ -50,9 +51,7 @@ export function SearchBox({
         onClick={() => setMenuOpen((open) => !open)}
       >
         {ENGINES[engine].name}
-        <span className="engine-caret" aria-hidden="true">
-          ▾
-        </span>
+        <ChevronDownIcon className="engine-caret" size={12} />
       </button>
       {menuOpen && (
         <div className="engine-menu" role="listbox" aria-label="搜索引擎">

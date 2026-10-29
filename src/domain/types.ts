@@ -11,6 +11,11 @@ export interface Bookmark {
   groupId: GroupId;
   /** 组内顺序,组内递增分配 */
   order: number;
+  /**
+   * 网页图标 data URL(schema v2,board-refresh/05):添加时抓取存入,
+   * 离线可用、不依赖 favicon 缓存。缺省回退 _favicon 端点/首字母方块。
+   */
+  icon?: string;
 }
 
 /** 分组:收藏的具名容器,扁平不嵌套。 */
@@ -58,8 +63,14 @@ export type DomainErrorCode =
 export type Result<T> =
   { ok: true; value: T } | { ok: false; error: DomainErrorCode };
 
-/** 当前数据结构版本,随结构演进递增(导入导出的 JSON 备份依赖它)。 */
-export const SCHEMA_VERSION = 1;
+/**
+ * 持久化数据结构版本,随结构演进递增(导入导出的 JSON 备份依赖它)。
+ * v2:收藏新增可选 icon(data URL);v1 备份仍可导入。
+ */
+export const SCHEMA_VERSION = 2;
+
+/** 可导入的备份 schemaVersion 下限(v1 起有 JSON 备份)。 */
+export const MIN_IMPORT_SCHEMA_VERSION = 1;
 
 /** 收集箱:保留分组,固定 id,永远存在、不可删除。 */
 export const INBOX_GROUP_ID = "inbox";

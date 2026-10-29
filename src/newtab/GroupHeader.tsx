@@ -3,12 +3,16 @@ import { INBOX_GROUP_ID } from "../domain/store";
 import type { DeleteGroupResult, Group, Result } from "../domain/types";
 import { ColorSwatches } from "./ColorSwatches";
 import { domainErrorText } from "./messages";
+import { ChevronDownIcon, GripIcon, PencilIcon, TrashIcon } from "./Icon";
 
 type GroupHeaderProps = {
   group: Group;
   bookmarkCount: number;
-  /** 编辑模式(ui-refresh/04):展示分组操作并允许拖拽换位;平时列头只读 */
+  /** 折叠态(board-refresh/03):仅影响折叠钮指向与 aria-expanded */
+  collapsed: boolean;
+  /** 编辑模式(ui-refresh/04):展示分组操作;拖拽换位已常时可用(board-refresh/04) */
   editMode: boolean;
+  onToggleCollapse(): void;
   onRename(name: string): Promise<Result<Group>>;
   onRecolor(color: string): Promise<Result<Group>>;
   onDeleteGroup(): Promise<DeleteGroupResult>;
@@ -18,13 +22,15 @@ type GroupHeaderProps = {
 };
 
 /**
- * 分组列头:色点/名字/计数;改名/换色/删除仅在编辑模式出现(ui-refresh/04)。
- * 收集箱是保留分组,始终只读。
+ * 分组列头:折叠钮/色点/名字/计数;拖拽换位常时可用(board-refresh/04);
+ * 改名/换色/删除仅在编辑模式出现。收集箱是保留分组,始终只读(可折叠可拖)。
  */
 export function GroupHeader({
   group,
   bookmarkCount,
+  collapsed,
   editMode,
+  onToggleCollapse,
   onRename,
   onRecolor,
   onDeleteGroup,
@@ -74,8 +80,9 @@ export function GroupHeader({
   return (
     <div
       className="group-header"
-      // 拖拽换位是整理动作:仅编辑模式可拖(ui-refresh/04)
-      draggable={editMode && mode === "view"}
+      // 组间换位是整理动作,不再限于编辑模式(board-refresh/04);
+      // 编辑/删除确认中临时不可拖,避免与表单控件冲突
+      draggable={mode === "view"}
       onDragStart={() => onDragStart()}
       onDragEnd={onDragEnd}
     >
@@ -128,27 +135,48 @@ export function GroupHeader({
         </div>
       ) : (
         <>
+          <button
+            type="button"
+            className="collapse-toggle icon-button"
+            aria-expanded={!collapsed}
+            aria-label={
+              collapsed ? `展开分组 ${group.name}` : `折叠分组 ${group.name}`
+            }
+            title={
+              collapsed ? `展开分组 ${group.name}` : `折叠分组 ${group.name}`
+            }
+            onClick={onToggleCollapse}
+          >
+            <ChevronDownIcon size={14} />
+          </button>
           <span
             className="group-color-dot"
             style={{ backgroundColor: group.color }}
           />
           <h2 className="group-name">{group.name}</h2>
           <span className="group-count">{bookmarkCount}</span>
+          <span className="drag-grip" aria-hidden="true">
+            <GripIcon size={14} />
+          </span>
           {!isInbox && editMode && (
             <span className="group-actions">
               <button
                 type="button"
+                className="icon-button"
                 aria-label={`编辑分组 ${group.name}`}
+                title={`编辑分组 ${group.name}`}
                 onClick={startEdit}
               >
-                编辑
+                <PencilIcon size={14} />
               </button>
               <button
                 type="button"
+                className="icon-button danger"
                 aria-label={`删除分组 ${group.name}`}
+                title={`删除分组 ${group.name}`}
                 onClick={() => setMode("delete")}
               >
-                删除
+                <TrashIcon size={14} />
               </button>
             </span>
           )}

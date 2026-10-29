@@ -9,6 +9,7 @@ import type {
 import type { BookmarkPatch } from "../domain/store";
 import { Favicon } from "./Favicon";
 import { domainErrorText } from "./messages";
+import { PencilIcon, TrashIcon } from "./Icon";
 
 type BookmarkCardProps = {
   bookmark: Bookmark;
@@ -154,16 +155,29 @@ export const BookmarkCard = memo(function BookmarkCard({
           pageUrl={bookmark.url}
           title={bookmark.title}
           fallbackColor={group.color}
+          iconDataUrl={bookmark.icon}
         />
         <span className="card-title">{bookmark.title}</span>
       </a>
       {editMode && (
         <div className="card-actions">
-          <button type="button" onClick={startEdit}>
-            编辑
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="编辑"
+            title="编辑"
+            onClick={startEdit}
+          >
+            <PencilIcon size={14} />
           </button>
-          <button type="button" onClick={handleDelete}>
-            删除
+          <button
+            type="button"
+            className="icon-button danger"
+            aria-label="删除"
+            title="删除"
+            onClick={handleDelete}
+          >
+            <TrashIcon size={14} />
           </button>
         </div>
       )}

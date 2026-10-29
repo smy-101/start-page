@@ -5,6 +5,7 @@ import { importNativeBookmarks } from "../domain/nativeImport";
 import { getNativeBookmarkTree } from "./nativeBookmarks";
 import { importReportText } from "./messages";
 import { ImportExport } from "./ImportExport";
+import { ArrowLeftIcon } from "./Icon";
 
 type SettingsViewProps = {
   onBack: () => void;
@@ -15,6 +16,9 @@ type SettingsViewProps = {
   onImported: () => void;
   /** chrome.bookmarks 树读取缝隙(测试注入假树) */
   getBookmarkTree?: () => Promise<NativeBookmarkNode[]>;
+  /** 图标抓取开关(board-refresh/05) */
+  iconFetch: boolean;
+  onToggleIconFetch(enabled: boolean): void;
 };
 
 /**
@@ -27,6 +31,8 @@ export function SettingsView({
   adapter,
   onImported,
   getBookmarkTree = getNativeBookmarkTree,
+  iconFetch,
+  onToggleIconFetch,
 }: SettingsViewProps) {
   const [nativeReport, setNativeReport] = useState<string | null>(null);
   const [nativeError, setNativeError] = useState<string | null>(null);
@@ -56,7 +62,8 @@ export function SettingsView({
     <main className="page settings">
       <header className="settings-header">
         <h1 className="page-title">设置</h1>
-        <button type="button" onClick={onBack}>
+        <button type="button" className="back-button" onClick={onBack}>
+          <ArrowLeftIcon size={15} />
           返回初始页
         </button>
       </header>
@@ -79,6 +86,25 @@ export function SettingsView({
             {nativeError}
           </p>
         )}
+      </section>
+
+      <section className="settings-section" aria-label="网页图标">
+        <h2>网页图标</h2>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={iconFetch}
+            onChange={(event) => onToggleIconFetch(event.target.checked)}
+          />
+          <span>
+            添加收藏时自动抓取网页图标(需「读取网站数据」授权,拒绝后会关闭此开关)
+          </span>
+        </label>
+        <p className="settings-hint">
+          开启后由扩展直接请求网页解析图标并存入本地,离线可用;
+          关闭时图标回退浏览器缓存(仅访问过的站点)与首字母方块。
+          重新开启后,下次添加收藏时会再次请求授权
+        </p>
       </section>
 
       <h2 className="settings-subheading">导入导出</h2>

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import { createMemoryStorage } from "../storage/memoryStorage";
@@ -65,11 +71,12 @@ describe("编辑模式(ui-refresh/04)", () => {
 
     const inboxRegion = screen.getByRole("region", { name: "收集箱" });
     const card = within(inboxRegion).getByRole("listitem");
+    // 卡片拖拽仍限编辑模式(与链接点击冲突);列头拖拽已常时可用(board-refresh/04)
     expect(card).toHaveAttribute("draggable", "false");
     const work = screen.getByRole("region", { name: "工作" });
     expect(work.querySelector(".group-header")).toHaveAttribute(
       "draggable",
-      "false"
+      "true"
     );
   });
 
@@ -108,9 +115,18 @@ describe("编辑模式(ui-refresh/04)", () => {
       within(boardAgain).queryAllByRole("button", { name: "删除" })
     ).toHaveLength(0);
   });
+  it("不开编辑模式也能拖组头换位(board-refresh/04)", async () => {
+    await renderSeeded();
+
+    const work = screen.getByRole("region", { name: "工作" });
+    fireEvent.dragStart(work.querySelector(".group-header")!);
+    fireEvent.drop(screen.getByRole("region", { name: "收集箱" }));
+
+    await waitFor(() => expect(sectionNames()).toEqual(["工作", "收集箱"]));
+  });
 });
 
-describe("分组常显(ui-refresh/04:折叠已移除)", () => {
+describe("分组默认展开,可折叠(board-refresh/03)", () => {
   it("渲染即见组内收藏行,无需展开;空分组显示空态提示", async () => {
     render(
       <App
@@ -140,3 +156,11 @@ describe("分组常显(ui-refresh/04:折叠已移除)", () => {
     expect(screen.getByText("还没有收藏")).toBeInTheDocument();
   });
 });
+
+/** 页面上分组分区的顺序,即组间排序结果(同 GroupManagement 测试)。 */
+function sectionNames(): string[] {
+  return screen
+    .getAllByRole("region")
+    .filter((el) => el.classList.contains("group"))
+    .map((el) => el.getAttribute("aria-label") ?? "");
+}

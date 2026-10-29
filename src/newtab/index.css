@@ -70,9 +70,9 @@ body {
    页面骨架
    ============================================================ */
 .page {
-  max-width: 1120px;
+  max-width: 1760px;
   margin: 0 auto;
-  padding: 36px 28px 72px;
+  padding: 32px 36px 56px;
 }
 
 .page-header {
@@ -115,8 +115,11 @@ body {
   opacity: 0.9;
 }
 
+/* 设置齿轮:页头图标钮(32px,方形圆角) */
 .gear-button {
-  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
 }
 
 .loading {
@@ -196,7 +199,7 @@ body {
 }
 
 .engine-caret {
-  font-size: 10px;
+  flex: none;
 }
 
 /* 引擎菜单:锚在胶囊左下,150-250ms 释出 */
@@ -277,6 +280,51 @@ body {
   text-align: center;
   color: var(--muted);
   font-size: 14px;
+}
+
+/* ============================================================
+   全新安装引导(board-refresh/06):页面中央的初始化卡,一次性的
+   ============================================================ */
+.fresh-cta {
+  margin: 6vh auto 28px;
+  max-width: 460px;
+  text-align: center;
+  padding: 36px 32px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.fresh-cta-title {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.fresh-cta-hint {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.fresh-cta-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.fresh-cta-actions .primary {
+  min-height: 34px;
+  padding: 6px 18px;
+  background: var(--fg);
+  border-color: transparent;
+  color: var(--bg);
+  font-weight: 550;
+}
+
+.fresh-cta-actions .primary:hover {
+  background: color-mix(in srgb, var(--fg) 86%, var(--bg));
 }
 
 /* ============================================================
@@ -421,6 +469,31 @@ button[type="submit"]:hover {
   background: color-mix(in srgb, var(--fg) 86%, var(--bg));
 }
 
+/* 图标钮(board-refresh/01):安静圆角底,悬停才显;语义在按钮 aria-label */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+
+.icon-button:hover {
+  border: none;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.icon-button.danger:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
 /* ============================================================
    添加弹窗: occasional 频次 → 标准动效(scale+opacity, <300ms, ease-out)
    ============================================================ */
@@ -520,27 +593,46 @@ button[type="submit"]:hover {
 }
 
 /* ============================================================
-   看板:分组横向成列,分组多时横向滚动;分组颜色成为左脊
-   (ui-refresh/04:折叠已移除,列常显)
+   看板(board-refresh/02):分组铺满全宽的自适应网格,自动换行;
+   列内条目多时列内滚动,色脊保留为分组颜色的信息用法
    ============================================================ */
 .groups-wall {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 14px;
-  overflow-x: auto;
-  padding: 2px 2px 16px;
+  align-items: start;
 }
 
 .group {
   position: relative;
   overflow: hidden;
-  flex: 0 0 264px;
-  width: 264px;
+  min-width: 0;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 10px 8px 12px;
+  padding: 12px 10px 14px;
   transition: border-color 120ms var(--ease-out);
+}
+
+/* 列内滚动:视口高度铺开时上限约 18 行,窄屏不低于 280px */
+.group-grid,
+.group-empty {
+  max-height: clamp(280px, calc(100vh - 330px), 560px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.group-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
 }
 
 /* 分组色脊柱:颜色的信息用法(扫视定位),不是装饰 */
@@ -564,8 +656,8 @@ button[type="submit"]:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px 8px;
-  margin-bottom: 6px;
+  padding: 6px 8px 10px;
+  margin-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -578,19 +670,61 @@ button[type="submit"]:hover {
   cursor: grabbing;
 }
 
+/* 折叠钮(board-refresh/03):列头左缘,箭头旋转指向,不换图标 */
+.collapse-toggle {
+  width: 22px;
+  height: 22px;
+  margin-left: -4px;
+}
+
+.collapse-toggle svg {
+  transition: transform 160ms var(--ease-out);
+}
+
+.collapse-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+/* 折叠态列卡:只剩列头,去分隔线收紧留白 */
+.group[data-collapsed="true"] .group-header {
+  border-bottom-color: transparent;
+  margin-bottom: 0;
+  padding-bottom: 4px;
+}
+
+/* 拖拽把手(board-refresh/04):列头悬停浮现的可拖暗示(纯装饰) */
+.drag-grip {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.group-header:hover .drag-grip {
+  opacity: 0.55;
+}
+
+@media (hover: none) {
+  .drag-grip {
+    display: none;
+  }
+}
+
 .group-color-dot {
   display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 4px;
   flex: none;
   background: var(--group-color, var(--border-strong));
 }
 
 .group-name {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -612,18 +746,9 @@ button[type="submit"]:hover {
   gap: 2px;
 }
 
-.group-actions button {
-  border-color: transparent;
-  color: var(--muted);
-  min-height: 0;
-  padding: 2px 6px;
-  font-size: 12px;
-}
-
-.group-actions button:hover {
-  border-color: transparent;
-  color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+.group-actions .icon-button {
+  width: 24px;
+  height: 24px;
 }
 
 .group-delete-confirm {
@@ -690,10 +815,10 @@ button[type="submit"]:hover {
 .card-link {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border-radius: var(--r-sm);
   color: inherit;
   text-decoration: none;
@@ -733,18 +858,9 @@ button[type="submit"]:hover {
   padding-right: 4px;
 }
 
-.card-actions button {
-  min-height: 0;
-  padding: 2px 6px;
-  border-color: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.card-actions button:hover {
-  border-color: transparent;
-  color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
+.card-actions .icon-button {
+  width: 24px;
+  height: 24px;
 }
 
 /* 行内编辑表单:占满列宽 */
@@ -928,6 +1044,20 @@ button[type="submit"]:hover {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+/* 图标抓取开关(board-refresh/05):勾选行 + 说明 */
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  margin: 2px 0 0;
+  accent-color: var(--fg);
 }
 
 /* ============================================================

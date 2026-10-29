@@ -26,6 +26,8 @@ export interface NewBookmarkInput {
   note?: string;
   /** 缺省进收集箱 */
   groupId?: GroupId;
+  /** 预抓取的网页图标 data URL(schema v2,缺省由添加后补令牌回填) */
+  icon?: string;
 }
 
 export interface BookmarkPatch {
@@ -33,6 +35,8 @@ export interface BookmarkPatch {
   title?: string;
   note?: string;
   groupId?: GroupId;
+  /** 网页图标回填(board-refresh/05);undefined = 不动 */
+  icon?: string;
 }
 
 export interface NewGroupInput {
@@ -122,7 +126,8 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
       x.title !== y.title ||
       x.note !== y.note ||
       x.groupId !== y.groupId ||
-      x.order !== y.order
+      x.order !== y.order ||
+      x.icon !== y.icon
     ) {
       return false;
     }
@@ -151,8 +156,9 @@ export async function createBookmarkStore(
     await adapter.save(loaded);
   } else {
     const repaired = ensureInbox(loaded);
-    if (repaired !== loaded) {
-      loaded = repaired;
+    // 旧版本状态(v1 无 icon)读入时在内存升级到当前版本,下次写入自然落盘
+    if (repaired !== loaded || repaired.schemaVersion !== SCHEMA_VERSION) {
+      loaded = { ...repaired, schemaVersion: SCHEMA_VERSION };
       await adapter.save(loaded);
     }
   }
@@ -197,6 +203,7 @@ export async function createBookmarkStore(
         note: (input.note ?? "").trim(),
         groupId,
         order: nextBookmarkOrder(groupId),
+        ...(input.icon ? { icon: input.icon } : {}),
       };
       state = { ...state, bookmarks: [...state.bookmarks, bookmark] };
       await adapter.save(state);
@@ -235,6 +242,8 @@ export async function createBookmarkStore(
         note: patch.note !== undefined ? patch.note.trim() : existing.note,
         groupId,
       };
+      // 图标回填:仅在拿到可用 data URL 时覆盖;空串/undefined 不动原有值
+      if (patch.icon) updated.icon = patch.icon;
       state = {
         ...state,
         bookmarks: state.bookmarks.map((b) => (b.id === id ? updated : b)),

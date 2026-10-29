@@ -3,6 +3,7 @@ import type { Bookmark, Group, Result } from "../domain/types";
 import type { NewBookmarkInput, NewGroupInput } from "../domain/store";
 import { AddBookmarkForm } from "./AddBookmarkForm";
 import { NewGroupForm } from "./NewGroupForm";
+import { XIcon } from "./Icon";
 
 type AddDialogProps = {
   /** 全部分组(按 order 排序,含收集箱):添加收藏选分组候选 */
@@ -75,7 +76,7 @@ export function AddDialog({
             aria-label="关闭"
             onClick={onClose}
           >
-            ×
+            <XIcon size={16} />
           </button>
         </div>
         {tab === "bookmark" ? (

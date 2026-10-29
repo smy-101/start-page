@@ -7,6 +7,7 @@ import { createBookmarkStore, normalizeUrl } from "../domain/store";
 import type { BookmarkStore } from "../domain/store";
 import type { Bookmark } from "../domain/types";
 import { createChromeStorage } from "../storage/chromeStorage";
+import { enrichBookmarkIcon } from "./enrichIcon";
 
 /** 图标路径相对扩展根;manifest 之外引用的位图经 public/icons 原样进 dist。 */
 const ICON_PATHS = {
@@ -133,7 +134,12 @@ export function initToolbar(): void {
     if (state.kind === "favorited") {
       await s.removeBookmark(state.bookmark.id);
     } else {
-      await s.addBookmark({ url: tab.url ?? "", title: tab.title });
+      const added = await s.addBookmark({
+        url: tab.url ?? "",
+        title: tab.title,
+      });
+      // 异步补图标:不阻塞图标状态切换(board-refresh/05)
+      if (added.ok) void enrichBookmarkIcon(s, added.value);
     }
     // 即时反馈:图标立即切换到新状态 + 徽标瞬时提示后自行恢复
     const tabId = tab.id;

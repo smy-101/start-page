@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StorageAdapter } from "../domain/types";
 import { INBOX_GROUP_ID } from "../domain/types";
+import { SCHEMA_VERSION } from "../domain/store";
 import type { NativeBookmarkNode } from "../domain/nativeImport";
 import type { SettingsAdapter } from "./settings";
 import { createMemorySettingsStorage } from "./settings";
@@ -83,8 +84,26 @@ describe("设置页入口与迁入", () => {
     ).toBeInTheDocument();
   });
 
-  it("初始页头部只保留齿轮:导入导出不再直接暴露,收纳于设置页", async () => {
-    await renderApp();
+  it("初始页头部只保留齿轮:导入导出不再直接暴露,收纳于设置页(fresh 态的空状态引导除外,board-refresh/06)", async () => {
+    // 预置一条收藏避开 fresh 态(空状态引导会合法携带导入钮)
+    await renderApp({
+      adapter: createMemoryStorage({
+        schemaVersion: SCHEMA_VERSION,
+        groups: [
+          { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
+        ],
+        bookmarks: [
+          {
+            id: "b1",
+            url: "https://a.example.com",
+            title: "A",
+            note: "",
+            groupId: INBOX_GROUP_ID,
+            order: 0,
+          },
+        ],
+      }),
+    });
 
     expect(screen.queryByRole("region", { name: "导入导出" })).toBeNull();
     expect(screen.queryByRole("button", { name: "导出 JSON" })).toBeNull();
