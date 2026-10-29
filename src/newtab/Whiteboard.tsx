@@ -1,0 +1,420 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { byOrder } from "../domain/types";
+import type {
+  Bookmark,
+  BookmarkId,
+  BookmarkState,
+  DeleteGroupResult,
+  Group,
+  GroupId,
+  Result,
+} from "../domain/types";
+import type { BookmarkPatch, GroupPositionInput } from "../domain/store";
+import {
+  CANVAS_COLUMNS,
+  CANVAS_W,
+  CARD_W,
+  GAP,
+  appendPositions,
+  spreadPositions,
+} from "../domain/canvas";
+import type { CanvasPos } from "../domain/canvas";
+import { GroupSection } from "./GroupSection";
+import { planWall } from "./wallLayout";
+import type { WallPlacement } from "./wallLayout";
+import type { DropHint, DragHandlers } from "./BookmarkGroups";
+import { useGroupedBookmarks } from "./useGroupedBookmarks";
+
+/** 松手吸附网格(px,ADR-0004 Q4)。 */
+const SNAP = 16;
+/** 画布底衬:内容底边之外再留的呼吸位。 */
+const CANVAS_PAD = 24;
+
+/**
+ * 白板(ADR-0004,board-whiteboard/02):分组卡在固定 1200px 画布上
+ * x/y 自由定位(坐标即布局,入库 schema v3),窗口更窄横向滚动不重排。
+ *
+ * - 组位移走 Pointer 事件:画布级委托 pointerdown(交互控件放行),
+ *   move/up 挂 window;拖中关位移过渡跟手 1:1,松手吸附 16px 网格
+ *   后经 onSetGroupPositions 写回(clamp 由领域层收口)。
+ * - 画布捕获阶段拦组头原生 DnD(board-refresh/04 常开拖拽,在白板上
+ *   会劫持 pointermove——原型实测坑);组内收藏排序仍走 HTML5 DnD
+ *   (DropHint 体系),收藏卡(.card)的 dragstart 放行。
+ * - 「自动整理」:量高贪心装箱回 planWall 落点;测不出高度(零高,
+ *   jsdom)退化零高铺开——与 v2→v3 迁移共用 spreadPositions。
+ * - 本票不带门禁(门禁是票 03);App 以 boardView 注入缝替换墙视图。
+ */
+/** 白板 props(渲染测试的 harness 供外部注入用)。 */
+export type WhiteboardProps = {
+  state: BookmarkState;
+  /** 全部分组(按 order 排序,含收集箱;搜索过滤时也不缩水):选分组候选 */
+  groups: Group[];
+  /** true = 正在搜索过滤(查询非空):全部无命中时显示空状态 */
+  searching: boolean;
+  /** 被折叠的分组 id 集;搜索时全部临时展开 */
+  collapsedIds: ReadonlySet<GroupId>;
+  /** 编辑模式照旧透传(编辑删除控件;票 03 起更名白板模式) */
+  editMode: boolean;
+  /** 拖收藏中的插入指示线(组内排序 DropHint 体系照常工作) */
+  dropHint: DropHint;
+  /** 折叠/展开分组(稳定身份) */
+  onToggleCollapse(groupId: GroupId): void;
+  /** 共享回调(稳定身份):分组操作 */
+  onRenameGroup(id: GroupId, name: string): Promise<Result<Group>>;
+  onRecolorGroup(id: GroupId, color: string): Promise<Result<Group>>;
+  onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
+  /** 白板落点批量写回:拖拽松手(单条)与自动整理(整批) */
+  onSetGroupPositions(
+    positions: GroupPositionInput[]
+  ): Promise<Result<Group[]>>;
+  onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
+  onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
+} & Omit<DragHandlers, "onGroupDragStart" | "onWallDragLeave">;
+
+/** Pointer 拖拽会话的被拖卡跟手坐标(未吸附;松手才吸附写回)。 */
+type DragPos = { id: GroupId; x: number; y: number };
+
+export function Whiteboard({
+  state,
+  groups,
+  searching,
+  collapsedIds,
+  editMode,
+  dropHint,
+  onToggleCollapse,
+  onRenameGroup,
+  onRecolorGroup,
+  onDeleteGroup,
+  onSetGroupPositions,
+  onCardDragStart,
+  onDragEnd,
+  onSectionDragOver,
+  onSectionDrop,
+  onCardDragOver,
+  onCardDrop,
+  onEdit,
+  onDelete,
+}: WhiteboardProps) {
+  const groupsByOrder = useMemo(
+    () => [...state.groups].sort(byOrder),
+    [state.groups]
+  );
+  const ids = useMemo(() => groupsByOrder.map((g) => g.id), [groupsByOrder]);
+  const grouped = useGroupedBookmarks(state.bookmarks, groupsByOrder);
+  const { itemRef, idOf, heightOf, heights } = useCardRegistry(ids);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const [drag, setDrag] = useState<DragPos | null>(null);
+
+  // ---- 落点表:坐标来自分组数据(持久);引用稳定(memo 契约),
+  // 数值未变的格子沿用旧对象,无关渲染不打断 GroupSection 的 memo。
+  // 无坐标的分组(运行时损坏防御)落画布底部追加位,同新建分组口径。 ----
+  const placementsRef = useRef(new Map<GroupId, WallPlacement>());
+  const placements = useMemo(() => {
+    const prev = placementsRef.current;
+    const known = groupsByOrder.filter(
+      (g) => Number.isFinite(g.x) && Number.isFinite(g.y)
+    );
+    const appends =
+      known.length < groupsByOrder.length
+        ? appendPositions(known, groupsByOrder.length - known.length)
+        : [];
+    let appendAt = 0;
+    const next = new Map<GroupId, WallPlacement>();
+    for (const g of groupsByOrder) {
+      const pos: CanvasPos =
+        Number.isFinite(g.x) && Number.isFinite(g.y)
+          ? { x: g.x, y: g.y }
+          : appends[appendAt++];
+      const kept = prev.get(g.id);
+      next.set(
+        g.id,
+        kept && kept.left === pos.x && kept.top === pos.y
+          ? kept
+          : { left: pos.x, top: pos.y, width: CARD_W }
+      );
+    }
+    placementsRef.current = next;
+    return next;
+  }, [groupsByOrder]);
+
+  /** 渲染落点:被拖卡用跟手坐标(每帧新对象;其余引用稳定)。 */
+  function placementOf(group: Group): WallPlacement | null {
+    return drag?.id === group.id
+      ? { left: drag.x, top: drag.y, width: CARD_W }
+      : (placements.get(group.id) ?? null);
+  }
+
+  // 画布高随内容增长:最底卡片底边 + 底衬(测不出高度时退化为坐标底)
+  let canvasMinH = CANVAS_PAD;
+  for (const g of groupsByOrder) {
+    const top = drag?.id === g.id ? drag.y : placements.get(g.id)?.top;
+    if (top !== undefined)
+      canvasMinH = Math.max(
+        canvasMinH,
+        top + (heights[g.id] ?? 0) + CANVAS_PAD
+      );
+  }
+
+  // ---- Pointer 拖拽 ----
+  // 抓取偏移与会话坐标存 ref(会话坐标的 state 只为驱动重渲染);
+  // 监听器挂 window、只读 ref,不随渲染重订阅。
+  const grabRef = useRef<{
+    id: GroupId;
+    grabX: number;
+    grabY: number;
+  } | null>(null);
+  const dragPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const onPointerDown = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    // 交互控件不抢:链接/按钮/表单照常点击,不给拖拽
+    if (target.closest("a,button,input,textarea,select,[contenteditable]"))
+      return;
+    const section = target.closest<HTMLElement>(".group");
+    if (!section || !canvasRef.current?.contains(section)) return;
+    const id = idOf(section);
+    const pos = id ? placements.get(id) : undefined;
+    if (!id || !pos) return;
+    event.preventDefault();
+    const rect = section.getBoundingClientRect();
+    grabRef.current = {
+      id,
+      grabX: event.clientX - rect.left,
+      grabY: event.clientY - rect.top,
+    };
+    dragPosRef.current = { x: pos.left, y: pos.top };
+    setDrag({ id, x: pos.left, y: pos.top });
+  };
+
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const grab = grabRef.current;
+      const canvas = canvasRef.current;
+      if (!grab || !canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      // 拖中只压非负(右界由松手吸附后的领域钳回收口)
+      const x = Math.max(0, event.clientX - rect.left - grab.grabX);
+      const y = Math.max(0, event.clientY - rect.top - grab.grabY);
+      dragPosRef.current = { x, y };
+      setDrag((prev) => (prev ? { ...prev, x, y } : prev));
+    };
+    const finish = () => {
+      const grab = grabRef.current;
+      const pos = dragPosRef.current;
+      grabRef.current = null;
+      dragPosRef.current = null;
+      setDrag(null);
+      if (!grab || !pos) return;
+      // 松手吸附:16px 网格取整;越右界的钳回交给 store(clampToCanvas)
+      const x = Math.round(pos.x / SNAP) * SNAP;
+      const y = Math.round(pos.y / SNAP) * SNAP;
+      void onSetGroupPositions([{ id: grab.id, x, y }]);
+    };
+    // 指针被系统取消(切窗/触控打断):只清会话,不落吸附坐标
+    const cancel = () => {
+      grabRef.current = null;
+      dragPosRef.current = null;
+      setDrag(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+    };
+  }, [onSetGroupPositions]);
+
+  // ---- 自动整理:量高 → planWall 贪心装箱回坐标;零高(测不出,
+  // jsdom)退化零高铺开(与 v2→v3 迁移共用 spreadPositions 策略)。 ----
+  const pack = useCallback(() => {
+    if (ids.length === 0) return;
+    const heights = ids.map((id) => heightOf(id));
+    const positions: CanvasPos[] = heights.every((h) => h === 0)
+      ? spreadPositions(ids.length)
+      : planWall(heights, CANVAS_COLUMNS, CANVAS_W, GAP).placements.map(
+          (p) => ({ x: Math.floor(p.left), y: Math.floor(p.top) })
+        );
+    void onSetGroupPositions(
+      ids.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }))
+    );
+  }, [ids, heightOf, onSetGroupPositions]);
+
+  // 组头原生 DnD 在白板上被杀(捕获阶段,组头自身 handler 不再触发);
+  // 收藏卡(.card,含浏览态链接拖曳)照常放行,组内排序 DnD 不受影响
+  const onCanvasDragStart = (event: React.DragEvent) => {
+    const target = event.target as HTMLElement;
+    if (!target.closest(".card")) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  // 组头拖拽回调占位:画布层已拦组头 dragstart,这里仅满足 GroupSection
+  // 的 prop 形状(白板内不会因交互触发)
+  const noopGroupDragStart = useCallback(
+    (_event: React.DragEvent, _groupId: GroupId) => {},
+    []
+  );
+
+  if (searching && state.bookmarks.length === 0) {
+    return <p className="search-empty">没有找到匹配的收藏</p>;
+  }
+
+  return (
+    <div className="whiteboard">
+      <div className="whiteboard-toolbar">
+        <span className="whiteboard-hint">
+          拖动分组卡任意摆放 · 松手吸附 {SNAP}px 网格
+        </span>
+        <button type="button" className="whiteboard-pack" onClick={pack}>
+          自动整理
+        </button>
+      </div>
+      <div className="whiteboard-scroll">
+        <div
+          className="whiteboard-canvas"
+          ref={canvasRef}
+          data-wb-dragging={drag ? "true" : undefined}
+          style={{ width: CANVAS_W, minHeight: canvasMinH }}
+          onPointerDown={onPointerDown}
+          onDragStartCapture={onCanvasDragStart}
+        >
+          {groupsByOrder.map((group) => (
+            <GroupSection
+              key={group.id}
+              group={group}
+              bookmarks={grouped.get(group.id) ?? []}
+              groups={groups}
+              placement={placementOf(group)}
+              collapsed={!searching && collapsedIds.has(group.id)}
+              editMode={editMode}
+              dragActive={drag?.id === group.id}
+              dropIndex={dropHint?.groupId === group.id ? dropHint.index : null}
+              onToggleCollapse={onToggleCollapse}
+              onRename={onRenameGroup}
+              onRecolor={onRecolorGroup}
+              onDeleteGroup={onDeleteGroup}
+              onGroupDragStart={noopGroupDragStart}
+              onCardDragStart={onCardDragStart}
+              onDragEnd={onDragEnd}
+              onSectionDragOver={onSectionDragOver}
+              onSectionDrop={onSectionDrop}
+              onCardDragOver={onCardDragOver}
+              onCardDrop={onCardDrop}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              elementRef={itemRef(group.id)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 分组卡登记与量高(白板版):itemRef 正向登记(按 id 缓存的稳定回调,
+ * memo 前提)、拖拽委托反查 id;量高两条腿——挂载/集合变化时
+ * useLayoutEffect 同步量(首帧不闪),ResizeObserver 跟踪后续变化
+ * (收藏增删/折叠/编辑态)。高度进 state(渲染用)而非只存 ref:
+ * 画布高随测随长,StrictMode 双调用下时序确定(原型 ref 版翻车教训)。
+ * jsdom 无 RO、量出恒 0 → 画布高退化、自动整理走零高铺开,行为不受影响。
+ */
+function useCardRegistry(ids: readonly GroupId[]) {
+  const idToEl = useRef(new Map<GroupId, HTMLElement>());
+  const elToId = useRef(new Map<HTMLElement, GroupId>());
+  const [heights, setHeights] = useState<Record<string, number>>({});
+
+  const register = useCallback((id: GroupId, el: HTMLElement | null) => {
+    const forward = idToEl.current;
+    const reverse = elToId.current;
+    const old = forward.get(id);
+    if (old) reverse.delete(old);
+    if (el) {
+      forward.set(id, el);
+      reverse.set(el, id);
+    } else {
+      forward.delete(id);
+    }
+  }, []);
+
+  // 回调按 id 缓存:渲染间身份稳定,不打断 GroupSection 的 memo
+  const refCache = useRef(new Map<GroupId, (el: HTMLElement | null) => void>());
+  const itemRef = useCallback(
+    (id: GroupId) => {
+      let fn = refCache.current.get(id);
+      if (!fn) {
+        fn = (el) => register(id, el);
+        refCache.current.set(id, fn);
+      }
+      return fn;
+    },
+    [register]
+  );
+
+  // 同步测量:首帧(绘画前)即得到真实高度;jsdom 里恒 0,同样无害
+  useLayoutEffect(() => {
+    setHeights((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of ids) {
+        const el = idToEl.current.get(id);
+        const height = el ? Math.round(el.offsetHeight) : 0;
+        if (prev[id] !== height) {
+          next[id] = height;
+          changed = true;
+        }
+      }
+      for (const key of Object.keys(next)) {
+        if (!ids.includes(key as GroupId)) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [ids]);
+
+  // 后续高度变化(增删收藏/折叠/编辑表单)由 RO 跟踪
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      setHeights((prev) => {
+        let next = prev;
+        for (const entry of entries) {
+          const id = elToId.current.get(entry.target as HTMLElement);
+          if (!id) continue;
+          const height = Math.round((entry.target as HTMLElement).offsetHeight);
+          if (next[id] !== height) next = { ...next, [id]: height };
+        }
+        return next;
+      });
+    });
+    for (const el of idToEl.current.values()) observer.observe(el);
+    return () => observer.disconnect();
+  }, [ids]);
+
+  const idOf = useCallback(
+    (el: HTMLElement): GroupId | undefined => elToId.current.get(el),
+    []
+  );
+
+  /** 即时量高(自动整理用):读 DOM 当前值,不吃 state 的旧账。 */
+  const heightOf = useCallback(
+    (id: GroupId): number =>
+      Math.round(idToEl.current.get(id)?.offsetHeight ?? 0),
+    []
+  );
+
+  return { itemRef, idOf, heightOf, heights };
+}

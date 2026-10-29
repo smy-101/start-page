@@ -20,6 +20,20 @@ export const STACK_STEP = 72;
 const CARD_PROXY_H = 48;
 
 /**
+ * 零高装箱(未测量/测不出高度):三列轮流派位,行距 STACK_STEP。
+ * 迁移(v2→v3 存量铺开)与白板「自动整理」的测不出退化共用同一份
+ * 策略(board-whiteboard/02 评审遗留:两侧同形,聚拱于纯模块)。
+ * 坐标向下取整:int px 约定,且不越过 clampToCanvas 右界
+ * (CANVAS_W − CARD_W = 810.67…,round 会得出 811 导致往返被改写)。
+ */
+export function spreadPositions(count: number): CanvasPos[] {
+  return Array.from({ length: count }, (_, i) => ({
+    x: Math.floor((i % CANVAS_COLUMNS) * (CARD_W + GAP)),
+    y: Math.floor(i / CANVAS_COLUMNS) * STACK_STEP,
+  }));
+}
+
+/**
  * 画布底部左侧追加位:新分组的默认落点(「第一个空位」的简单实现,同原型)。
  * 连续 count 个按堆叠步长顺次排开;高度未知,用代理卡高推底。
  */

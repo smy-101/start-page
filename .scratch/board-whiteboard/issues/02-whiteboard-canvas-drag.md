@@ -1,6 +1,6 @@
 # 02 白板画布 + Pointer 拖拽 + 吸附 + 自动整理
 
-Status: ready-for-agent
+Status: done
 
 Blocked by: 01
 
@@ -27,6 +27,14 @@ Blocked by: 01
 ## Comments
 
 - 2026-10-29 立票。原型参考:`git checkout prototype/board-whiteboard` → `preview/index.html?variant=C`(免门禁即本票形态)。
+- 2026-10-29 完成。落地:
+  - `Whiteboard.tsx`:固定 1200px 画布 + 横向滚动壳;落点表引用稳定(memo 契约,同 planWall 的 prev 复用);无坐标分组(运行时损坏防御)落画布底部追加位
+  - Pointer 拖拽:画布委托 pointerdown(跳过交互控件)→ window move/up/cancel;拖中 `data-drag-active` 关过渡跟手 1:1;松手 16px 吸附后 `onSetGroupPositions` 写回,越右界钳回收口在领域层;pointercancel 只清会话不落点
+  - 画布 `onDragStartCapture` 拦组头原生 DnD(捕获阶段,App 侧组拖状态不 latch);收藏卡(.card,含浏览态链接)放行,组内排序 DropHint 照常
+  - 自动整理:即时量高(不吃 state 旧账)→ planWall 装箱 floor 取整;零高(测不出/jsdom)退化 `spreadPositions` —— 与 v2→v3 迁移聚拢共用(canvas.ts,code-review 01 遗留落地)
+  - `store.setGroupPositions`:批量写回,clampToCanvas 钳回、未知 id 整批拒绝、无变化不落盘;拖拽单条与整理整批共用一入口
+  - App 增 `boardView` 注入缝(BoardViewProps = 墙 props + onSetGroupPositions),默认墙行为不变;`GroupSection` 增可选 `dragActive`;CSS 白板段(grab/grabbing、拖影、自动整理钮);preview `?variant=whiteboard` 宿主可选;`useGroupedBookmarks` 抽出共享(墙/白板)
+  - 测试:`Whiteboard.test.tsx` 12 例(吸附/右界透传/交互控件放行/cancel 清场/装箱两路/新组落位/画布高/搜索空态/编辑控件/DnD 分流),全量 269 绿 + typecheck 过;真实浏览器烟测(Windows Chrome + preview):拖拽吸附 (320,496)、持久化、画布高随内容 406→697、自动整理按实测高度装箱、默认宿主墙无回归、控制台零报错
 
 ## Comments
 

@@ -12,6 +12,7 @@ import type {
   Bookmark,
   BookmarkId,
   BookmarkState,
+  Group,
   GroupId,
   Result,
   StorageAdapter,
@@ -55,6 +56,8 @@ import { domainErrorText } from "./messages";
 import { PlusIcon, SettingsIcon } from "./Icon";
 import { loadCollapsedGroups, saveCollapsedGroups } from "./collapsedGroups";
 import type { DragHandlers, DropHint } from "./BookmarkGroups";
+import type { BookmarkGroupsProps } from "./BookmarkGroups";
+import type { GroupPositionInput } from "../domain/store";
 
 const chromeStorage = createChromeStorage();
 const chromeSettingsStorage = createChromeSettingsStorage();
@@ -72,12 +75,23 @@ type AppProps = {
   settingsAdapter?: SettingsAdapter;
   /** 原生书签树读取缝隙;测试注入假树 */
   getBookmarkTree?: () => Promise<NativeBookmarkNode[]>;
+  /** 看板视图注入缝(board-whiteboard/02):缺省瀑布流墙;白板由此注入替换 */
+  boardView?: React.ComponentType<BoardViewProps>;
+};
+
+/** 看板视图 props 并集:墙(默认)与白板共用同一注入缝;
+ * 白板多收 onSetGroupPositions(拖拽松手/自动整理写回),墙视图忽略之。 */
+export type BoardViewProps = BookmarkGroupsProps & {
+  onSetGroupPositions(
+    positions: GroupPositionInput[]
+  ): Promise<Result<Group[]>>;
 };
 
 export function App({
   adapter = chromeStorage,
   settingsAdapter = chromeSettingsStorage,
   getBookmarkTree = getNativeBookmarkTree,
+  boardView,
 }: AppProps) {
   const [store, setStore] = useState<BookmarkStore | null>(null);
   const [state, setState] = useState<BookmarkState | null>(null);
@@ -355,6 +369,13 @@ export function App({
     [refresh]
   );
 
+  /** 白板落点写回(board-whiteboard/02):分组拖拽松手/自动整理 → 批量落位 */
+  const handleSetGroupPositions = useCallback(
+    (positions: GroupPositionInput[]) =>
+      run(() => storeRef.current!.setGroupPositions(positions)),
+    [run]
+  );
+
   // 拖拽回调束(DragHandlers):表头换位 + 卡片组内排序/跨组移动 + 插入指示线
   const dragHandlers: DragHandlers = useMemo(
     () => ({
@@ -444,6 +465,8 @@ export function App({
     () => (state ? [...state.groups].sort(byOrder) : []),
     [state?.groups]
   );
+
+  const Board = boardView ?? BookmarkGroups;
 
   if (!store || !state) {
     return (
@@ -619,7 +642,7 @@ export function App({
           onManualAdd={() => setAddOpen(true)}
         />
       )}
-      <BookmarkGroups
+      <Board
         state={visible}
         groups={groupsInOrder}
         searching={deferredQuery.trim() !== ""}
@@ -630,6 +653,7 @@ export function App({
         onRenameGroup={handleRenameGroup}
         onRecolorGroup={handleRecolorGroup}
         onDeleteGroup={handleDeleteGroup}
+        onSetGroupPositions={handleSetGroupPositions}
         {...dragHandlers}
         onEdit={handleCardEdit}
         onDelete={handleCardDelete}

@@ -16,7 +16,7 @@ import {
 } from "./types";
 import { normalizeUrl } from "./url";
 import { migrateState } from "./migrations";
-import { appendPositions } from "./canvas";
+import { appendPositions, clampToCanvas } from "./canvas";
 
 export { INBOX_GROUP_COLOR, INBOX_GROUP_ID, SCHEMA_VERSION } from "./types";
 
@@ -46,6 +46,13 @@ export interface NewGroupInput {
   color: string;
 }
 
+/** 白板落点写回条目:分组 id + 画布坐标(px)。 */
+export interface GroupPositionInput {
+  id: GroupId;
+  x: number;
+  y: number;
+}
+
 export interface BookmarkStore {
   /** 当前状态快照(创建时已从适配器加载) */
   getState(): BookmarkState;
@@ -62,6 +69,14 @@ export interface BookmarkStore {
   recolorGroup(id: GroupId, color: string): Promise<Result<Group>>;
   /** 组间排序:传入全部分组 id 的新顺序,重排为 0..n-1。 */
   reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>>;
+  /**
+   * 白板落点批量写回(ADR-0004):拖拽单卡(一条)与「自动整理」(整批)
+   * 共用同一入口。坐标经 clampToCanvas 钳回(非负、不越右界);
+   * 任何未知 id 整批拒绝,无部分写入;坐标无变化不落盘。
+   */
+  setGroupPositions(
+    positions: readonly GroupPositionInput[]
+  ): Promise<Result<Group[]>>;
   /** 删除分组:组内收藏全部回收进收集箱(绝不连带删除)。 */
   deleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   /**
@@ -336,6 +351,33 @@ export async function createBookmarkStore(
       }));
       state = { ...state, groups };
       await adapter.save(state);
+      return { ok: true, value: groups };
+    },
+
+    async setGroupPositions(
+      positions: readonly GroupPositionInput[]
+    ): Promise<Result<Group[]>> {
+      if (positions.length === 0) return { ok: true, value: state.groups };
+      if (positions.some((p) => !groupExists(p.id))) {
+        return { ok: false, error: "group-not-found" };
+      }
+      const byId = new Map(
+        positions.map((p) => {
+          const clamped = clampToCanvas({ x: p.x, y: p.y });
+          return [p.id, clamped] as const;
+        })
+      );
+      let changed = false;
+      const groups = state.groups.map((g) => {
+        const next = byId.get(g.id);
+        if (!next || (next.x === g.x && next.y === g.y)) return g;
+        changed = true;
+        return { ...g, x: next.x, y: next.y };
+      });
+      if (changed) {
+        state = { ...state, groups };
+        await adapter.save(state);
+      }
       return { ok: true, value: groups };
     },
 

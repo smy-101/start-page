@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   INBOX_GROUP_ID,
   SCHEMA_VERSION,
@@ -483,5 +483,111 @@ describe("statesEqual:boot 回声抑制的状态相等契约", () => {
     const [x, y] = doubled.bookmarks;
     expect(statesEqual(state(), doubled)).toBe(false);
     expect(statesEqual(doubled, { ...doubled, bookmarks: [y, x] })).toBe(false);
+  });
+});
+
+describe("白板落点写回(board-whiteboard/02)", () => {
+  /** 收集箱 + 两组已知坐标的库;适配器包 spy 观测落盘。 */
+  async function board() {
+    const base = createMemoryStorage({
+      schemaVersion: SCHEMA_VERSION,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        { id: "g-a", name: "A", color: "#e99695", order: 1, x: 405, y: 0 },
+        { id: "g-b", name: "B", color: "#81a2be", order: 2, x: 0, y: 144 },
+      ],
+      bookmarks: [],
+    });
+    const save = vi.fn(base.save.bind(base));
+    const adapter = Object.assign({}, base, { save });
+    const store = await createBookmarkStore(adapter);
+    return { store, adapter, save };
+  }
+
+  it("拖拽单卡写回:坐标更新,其余分组与 order 不动,落盘", async () => {
+    const { store, adapter, save } = await board();
+
+    const result = await store.setGroupPositions([{ id: "g-a", x: 64, y: 48 }]);
+
+    expect(result.ok).toBe(true);
+    expect(store.getState().groups.map((g) => [g.id, g.x, g.y])).toEqual([
+      [INBOX_GROUP_ID, 0, 0],
+      ["g-a", 64, 48],
+      ["g-b", 0, 144],
+    ]);
+    // order 不参与落点,组序原样
+    expect(store.getState().groups.map((g) => g.order)).toEqual([0, 1, 2]);
+    expect((await adapter.load())?.groups[1]).toMatchObject({ x: 64, y: 48 });
+    expect(save).toHaveBeenCalled();
+  });
+
+  it("整批写回:自动整理一次写多组", async () => {
+    const { store } = await board();
+
+    const result = await store.setGroupPositions([
+      { id: "g-a", x: 0, y: 0 },
+      { id: "g-b", x: 405, y: 0 },
+      { id: INBOX_GROUP_ID, x: 810, y: 0 },
+    ]);
+
+    expect(result.ok).toBe(true);
+    expect(store.getState().groups.map((g) => [g.x, g.y])).toEqual([
+      [810, 0],
+      [0, 0],
+      [405, 0],
+    ]);
+  });
+
+  it("坐标钳回:负值归零、x 不越右界、非有限值归原点", async () => {
+    const { store } = await board();
+
+    const result = await store.setGroupPositions([
+      { id: "g-a", x: -20, y: -1 },
+      { id: "g-b", x: Number.NaN, y: Number.POSITIVE_INFINITY },
+    ]);
+
+    expect(result.ok).toBe(true);
+    const groups = store.getState().groups;
+    expect(groups[1]).toMatchObject({ x: 0, y: 0 });
+    expect(groups[2]).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it("未知 id 整批拒绝,无部分写入", async () => {
+    const { store, save } = await board();
+    const before = store.getState();
+
+    const result = await store.setGroupPositions([
+      { id: "g-a", x: 16, y: 16 },
+      { id: "nope", x: 0, y: 0 },
+    ]);
+
+    expect(result).toEqual({ ok: false, error: "group-not-found" });
+    expect(store.getState()).toBe(before);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("坐标无变化不落盘(吸附回原位的拖拽不写存储)", async () => {
+    const { store, save } = await board();
+
+    const result = await store.setGroupPositions([{ id: "g-a", x: 405, y: 0 }]);
+
+    expect(result.ok).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("空批无操作成功", async () => {
+    const { store, save } = await board();
+
+    const result = await store.setGroupPositions([]);
+
+    expect(result.ok).toBe(true);
+    expect(save).not.toHaveBeenCalled();
   });
 });

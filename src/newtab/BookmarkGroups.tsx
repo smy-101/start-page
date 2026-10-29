@@ -20,6 +20,7 @@ import type { BookmarkPatch } from "../domain/store";
 import { GroupSection } from "./GroupSection";
 import { planWall, wallColumnCount } from "./wallLayout";
 import type { WallPlan } from "./wallLayout";
+import { useGroupedBookmarks } from "./useGroupedBookmarks";
 
 /** 拖拽回调束:表头拖拽换位 + 收藏卡片拖拽(组内排序/跨组移动)。
  * 事件对象先行传入:App 需设置 effectAllowed/dropEffect 并读取坐标。 */
@@ -44,7 +45,8 @@ export type DragHandlers = {
 /** 拖收藏时的插入指示:组内渲染坐标的插入槽位(0=最前)。 */
 export type DropHint = { groupId: GroupId; index: number } | null;
 
-type BookmarkGroupsProps = {
+/** 看板视图 props(App 注入缝 boardView 的基底;白板在其上扩 onSetGroupPositions)。 */
+export type BookmarkGroupsProps = {
   state: BookmarkState;
   /** 全部分组(按 order 排序,含收集箱;搜索过滤时也不缩水):选分组候选 */
   groups: Group[];
@@ -66,33 +68,6 @@ type BookmarkGroupsProps = {
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
 } & DragHandlers;
-
-function sameItems<T>(a: T[], b: T[]): boolean {
-  return a.length === b.length && a.every((x, i) => x === b[i]);
-}
-
-/**
- * 组内收藏列表:内容未变(逐项同引用)时复用上一次的数组实例,
- * 使无关变更不打破下游 GroupSection/BookmarkCard 的 memo。
- */
-function useGroupedBookmarks(
-  bookmarks: Bookmark[],
-  groups: Group[]
-): Map<GroupId, Bookmark[]> {
-  const cacheRef = useRef(new Map<GroupId, Bookmark[]>());
-  return useMemo(() => {
-    const next = new Map<GroupId, Bookmark[]>();
-    for (const group of groups) {
-      const fresh = bookmarks
-        .filter((bookmark) => bookmark.groupId === group.id)
-        .sort(byOrder);
-      const prev = cacheRef.current.get(group.id);
-      next.set(group.id, prev && sameItems(prev, fresh) ? prev : fresh);
-    }
-    cacheRef.current = next;
-    return next;
-  }, [bookmarks, groups]);
-}
 
 /** 看板墙常量:与原 grid `minmax(300px, 1fr)` / gap 一致。 */
 const WALL_MIN_COLUMN = 300;

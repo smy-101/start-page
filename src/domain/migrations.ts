@@ -8,16 +8,14 @@
  */
 import type { BookmarkState } from "./types";
 import { byOrder, SCHEMA_VERSION } from "./types";
-import { CANVAS_COLUMNS, CARD_W, GAP, STACK_STEP } from "./canvas";
+import { spreadPositions } from "./canvas";
 
 export function migrateState(state: BookmarkState): BookmarkState {
   if (state.schemaVersion >= SCHEMA_VERSION) return state;
+  const positions = spreadPositions(state.groups.length);
   const groups = [...state.groups].sort(byOrder).map((group, i) => ({
     ...group,
-    // 列序 ×(卡宽+间距)向下取整:坐标约定 int px,且不越过钳回右界
-    // (CANVAS_W − CARD_W = 810.67…,round 会得出 811 导致往返被改写)
-    x: Math.floor((i % CANVAS_COLUMNS) * (CARD_W + GAP)),
-    y: Math.floor(i / CANVAS_COLUMNS) * STACK_STEP,
+    ...positions[i],
   }));
   return { ...state, schemaVersion: SCHEMA_VERSION, groups };
 }

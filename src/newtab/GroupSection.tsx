@@ -25,6 +25,8 @@ type GroupSectionProps = {
   collapsed: boolean;
   /** 编辑模式:列头出分组操作、行出编辑删除,均可拖拽(ui-refresh/04) */
   editMode: boolean;
+  /** 白板 Pointer 拖拽中且本卡是被拖卡(whiteboard):拖中关位移过渡、提升浮起 */
+  dragActive?: boolean;
   /** 拖收藏中的插入槽位(本组渲染坐标);null = 指针不在本组 */
   dropIndex: number | null;
   /** 墙布局测量登记(BookmarkGroups 供给,按 id 缓存的稳定回调) */
@@ -51,6 +53,7 @@ export const GroupSection = memo(function GroupSection({
   placement,
   collapsed,
   editMode,
+  dragActive,
   dropIndex,
   elementRef,
   onToggleCollapse,
@@ -80,6 +83,7 @@ export const GroupSection = memo(function GroupSection({
       aria-label={group.name}
       data-collapsed={collapsed ? "true" : undefined}
       data-group-dragging={groupDragging ? "true" : undefined}
+      data-drag-active={dragActive ? "true" : undefined}
       data-drop-hint={dropIndex !== null ? "true" : undefined}
       ref={elementRef}
       // 分组色注入为 CSS 变量:左脊/悬停边框/指示线等着色用(纯表现,不影响语义)
