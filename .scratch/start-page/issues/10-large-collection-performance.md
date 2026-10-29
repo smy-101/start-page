@@ -1,8 +1,12 @@
 # 10: 大数据量性能(数千条收藏流畅度)
 
 **Type:** task
-**Status:** needs-triage
+**Status:** ready-for-decision(实测已完成,待 /grill-with-docs 敲定预算与方案)
 **Blocked by:** None
+
+## 实测基线(2026-10-29,详见 `docs/perf-5000-2026-10-29.md`)
+
+5000 条实测:首屏 592ms(线性 ~0.12ms/条);最差交互 0.6–1s(清空搜索/展开分组/增删改/视图切换);全量 storage 写 60–287ms/次且每次变更双重全树重渲染。主要矛盾 = 重挂/重渲染,次要矛盾 = 全量写。
 
 ## What
 
