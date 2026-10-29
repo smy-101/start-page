@@ -22,7 +22,14 @@ vi.mock("./Favicon", async () => {
   return { Favicon: Counted };
 });
 
-const group: Group = { id: "g1", name: "工作", color: "#0ea5e9", order: 1 };
+const group: Group = {
+  id: "g1",
+  name: "工作",
+  color: "#0ea5e9",
+  order: 1,
+  x: 0,
+  y: 0,
+};
 const groups: Group[] = [group];
 const bookmark: Bookmark = {
   id: "b1",

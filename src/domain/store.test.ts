@@ -33,8 +33,15 @@ describe("收藏库初始化", () => {
     const existing: BookmarkState = {
       schemaVersion: SCHEMA_VERSION,
       groups: [
-        { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-        { id: "g-news", name: "资讯", color: "#e99695", order: 1 },
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        { id: "g-news", name: "资讯", color: "#e99695", order: 1, x: 0, y: 0 },
       ],
       bookmarks: [],
     };
@@ -55,8 +62,22 @@ describe("isFreshInstallState:全新安装初始态判定(懒挂载折叠缺省�
       isFreshInstallState({
         schemaVersion: SCHEMA_VERSION,
         groups: [
-          { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-          { id: "g-news", name: "资讯", color: "#e99695", order: 1 },
+          {
+            id: INBOX_GROUP_ID,
+            name: "收集箱",
+            color: "#3b82f6",
+            order: 0,
+            x: 0,
+            y: 0,
+          },
+          {
+            id: "g-news",
+            name: "资讯",
+            color: "#e99695",
+            order: 1,
+            x: 0,
+            y: 0,
+          },
         ],
         bookmarks: [],
       })
@@ -65,7 +86,14 @@ describe("isFreshInstallState:全新安装初始态判定(懒挂载折叠缺省�
       isFreshInstallState({
         schemaVersion: SCHEMA_VERSION,
         groups: [
-          { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
+          {
+            id: INBOX_GROUP_ID,
+            name: "收集箱",
+            color: "#3b82f6",
+            order: 0,
+            x: 0,
+            y: 0,
+          },
         ],
         bookmarks: [
           {
@@ -282,8 +310,22 @@ describe("按 URL 查收藏(工具栏图标状态判定)", () => {
       createMemoryStorage({
         schemaVersion: SCHEMA_VERSION,
         groups: [
-          { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-          { id: "g-news", name: "资讯", color: "#e99695", order: 1 },
+          {
+            id: INBOX_GROUP_ID,
+            name: "收集箱",
+            color: "#3b82f6",
+            order: 0,
+            x: 0,
+            y: 0,
+          },
+          {
+            id: "g-news",
+            name: "资讯",
+            color: "#e99695",
+            order: 1,
+            x: 0,
+            y: 0,
+          },
         ],
         bookmarks: [
           {
@@ -357,7 +399,9 @@ describe("编辑收藏的标题回退", () => {
 describe("statesEqual:boot 回声抑制的状态相等契约", () => {
   const state = (over: Partial<BookmarkState> = {}): BookmarkState => ({
     schemaVersion: 1,
-    groups: [{ id: "inbox", name: "收集箱", color: "#3b82f6", order: 0 }],
+    groups: [
+      { id: "inbox", name: "收集箱", color: "#3b82f6", order: 0, x: 0, y: 0 },
+    ],
     bookmarks: [
       {
         id: "b1",
@@ -382,7 +426,16 @@ describe("statesEqual:boot 回声抑制的状态相等契约", () => {
       statesEqual(
         state(),
         state({
-          groups: [{ id: "inbox", name: "收件", color: "#3b82f6", order: 0 }],
+          groups: [
+            {
+              id: "inbox",
+              name: "收件",
+              color: "#3b82f6",
+              order: 0,
+              x: 0,
+              y: 0,
+            },
+          ],
         })
       )
     ).toBe(false);

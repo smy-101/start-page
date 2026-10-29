@@ -15,6 +15,8 @@ import {
   SCHEMA_VERSION,
 } from "./types";
 import { normalizeUrl } from "./url";
+import { appendPositions, clampToCanvas } from "./canvas";
+import { migrateState } from "./migrations";
 
 /**
  * 导入导出:双格式(JSON 完整备份 / Netscape HTML 通用迁移)双向。
@@ -183,6 +185,12 @@ function ingestInto(
   const groups = base.groups.map((g) => ({ ...g }));
   const bookmarks = base.bookmarks.map((b) => ({ ...b }));
   const byName = new Map(groups.map((g) => [g.name, g]));
+  // 本批新建组的落位:画布底部左侧追加,连续新组按堆叠步长排开(同原型)
+  const pendingPositions = appendPositions(
+    groups,
+    incoming.filter((inc) => !byName.has(inc.name)).length
+  );
+  let nextPosition = 0;
   const seen = new Set(bookmarks.map((b) => b.url));
   let added = 0;
   let skipped = 0;
@@ -195,6 +203,7 @@ function ingestInto(
         name: inc.name,
         color: inc.color,
         order: nextOrder(groups.map((g) => g.order)),
+        ...pendingPositions[nextPosition++],
       };
       groups.push(target);
       byName.set(target.name, target);
@@ -267,14 +276,16 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.length > 0;
 }
 
-function isGroupShape(v: unknown): v is Group {
+function isGroupShape(v: unknown, requireCoords: boolean): v is Group {
   if (typeof v !== "object" || v === null) return false;
   const g = v as Record<string, unknown>;
   return (
     isNonEmptyString(g.id) &&
     isNonEmptyString(g.name) &&
     isNonEmptyString(g.color) &&
-    typeof g.order === "number"
+    typeof g.order === "number" &&
+    // 画布坐标(schema v3 起):v3 备份必携带且为数字;更早版本无此字段
+    (!requireCoords || (typeof g.x === "number" && typeof g.y === "number"))
   );
 }
 
@@ -314,23 +325,30 @@ function parseStateJson(raw: string): Result<BookmarkState> {
   if (!Array.isArray(s.groups) || !Array.isArray(s.bookmarks)) {
     return { ok: false, error: "invalid-import" };
   }
-  if (!s.groups.every(isGroupShape) || !s.bookmarks.every(isBookmarkShape)) {
+  const coordsRequired = s.schemaVersion >= 3;
+  if (
+    !s.groups.every((g) => isGroupShape(g, coordsRequired)) ||
+    !s.bookmarks.every(isBookmarkShape)
+  ) {
     return { ok: false, error: "invalid-import" };
   }
   return { ok: true, value: s as unknown as BookmarkState };
 }
 
 /**
- * 替换全部:清空后恢复备份(id/顺序/颜色/备注逐字保留),
+ * 替换全部:清空后恢复备份(id/顺序/颜色/备注/坐标逐字保留,坐标钳回画布),
  * 同时修复损坏备份:补回缺失收集箱、孤儿收藏收回收集箱、备份内重复 URL 只留首条。
  */
 function restoreFrom(backup: BookmarkState): {
   state: BookmarkState;
   report: ImportReport;
 } {
-  const groups = backup.groups.map((g) => ({ ...g }));
+  const groups = backup.groups.map((g) => ({ ...g, ...clampToCanvas(g) }));
   if (!groups.some((g) => g.id === INBOX_GROUP_ID)) {
-    groups.unshift(createInboxGroup(-1));
+    groups.unshift(
+      // 补缺落画布底部追加位(同 store.ensureInbox),不与既有分组重叠
+      createInboxGroup(-1, appendPositions(groups)[0])
+    );
   }
   const groupIds = new Set(groups.map((g) => g.id));
   const seen = new Set<string>();
@@ -365,21 +383,26 @@ export async function importStateFromJson(
 ): Promise<Result<ImportReport>> {
   const parsed = parseStateJson(raw);
   if (!parsed.ok) return parsed;
+  // v2 及更早的备份先走同一迁移链(分组装箱出画布坐标),后续两分支只需面对 v3
+  const backup =
+    parsed.value.schemaVersion < SCHEMA_VERSION
+      ? migrateState(parsed.value)
+      : parsed.value;
 
   if (mode === "replace") {
-    const { state, report } = restoreFrom(parsed.value);
+    const { state, report } = restoreFrom(backup);
     await adapter.save(state);
     return { ok: true, value: report };
   }
 
   const current = (await adapter.load()) ?? emptyState();
   const byGroup = new Map<string, Bookmark[]>();
-  for (const bookmark of parsed.value.bookmarks) {
+  for (const bookmark of backup.bookmarks) {
     const list = byGroup.get(bookmark.groupId) ?? [];
     list.push(bookmark);
     byGroup.set(bookmark.groupId, list);
   }
-  const incoming: IncomingGroup[] = [...parsed.value.groups]
+  const incoming: IncomingGroup[] = [...backup.groups]
     .sort((a, b) => a.order - b.order)
     .map((g) => ({
       name: g.name,

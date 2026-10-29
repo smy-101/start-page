@@ -15,6 +15,8 @@ import {
   SCHEMA_VERSION,
 } from "./types";
 import { normalizeUrl } from "./url";
+import { migrateState } from "./migrations";
+import { appendPositions } from "./canvas";
 
 export { INBOX_GROUP_COLOR, INBOX_GROUP_ID, SCHEMA_VERSION } from "./types";
 
@@ -82,12 +84,15 @@ function initialState(): BookmarkState {
   };
 }
 
-/** 收集箱永远存在:加载到缺失收集箱的状态(损坏数据)时补回最前。 */
+/** 收集箱永远存在:加载到缺失收集箱的状态(损坏数据)时补回最前,落画布底部追加位。 */
 function ensureInbox(state: BookmarkState): BookmarkState {
   if (state.groups.some((g) => g.id === INBOX_GROUP_ID)) return state;
   return {
     ...state,
-    groups: [createInboxGroup(-1), ...state.groups],
+    groups: [
+      createInboxGroup(-1, appendPositions(state.groups)[0]),
+      ...state.groups,
+    ],
   };
 }
 
@@ -112,7 +117,9 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
       x.id !== y.id ||
       x.name !== y.name ||
       x.color !== y.color ||
-      x.order !== y.order
+      x.order !== y.order ||
+      x.x !== y.x ||
+      x.y !== y.y
     ) {
       return false;
     }
@@ -155,10 +162,11 @@ export async function createBookmarkStore(
     loaded = initialState();
     await adapter.save(loaded);
   } else {
-    const repaired = ensureInbox(loaded);
-    // 旧版本状态(v1 无 icon)读入时在内存升级到当前版本,下次写入自然落盘
-    if (repaired !== loaded || repaired.schemaVersion !== SCHEMA_VERSION) {
-      loaded = { ...repaired, schemaVersion: SCHEMA_VERSION };
+    // 迁移链先行(v2 及更早 → v3:分组装箱出画布坐标),损坏修复(补收集箱)在其后
+    const migrated = migrateState(loaded);
+    const repaired = ensureInbox(migrated);
+    if (repaired !== loaded) {
+      loaded = repaired;
       await adapter.save(loaded);
     }
   }
@@ -273,6 +281,8 @@ export async function createBookmarkStore(
         name: trimmedName,
         color: trimmedColor,
         order: nextGroupOrder(),
+        // 默认落位:画布底部左侧追加(第一个空位的简单实现,同原型)
+        ...appendPositions(state.groups)[0],
       };
       state = { ...state, groups: [...state.groups, group] };
       await adapter.save(state);

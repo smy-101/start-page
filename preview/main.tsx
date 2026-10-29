@@ -18,11 +18,39 @@ import type { BookmarkState } from "../src/domain/types";
 const seed: BookmarkState = {
   schemaVersion: SCHEMA_VERSION,
   groups: [
-    { id: INBOX_GROUP_ID, name: "收集箱", color: INBOX_GROUP_COLOR, order: 0 },
-    { id: "g-dev", name: "前端开发", color: "#81a2be", order: 1 },
-    { id: "g-news", name: "资讯阅读", color: "#f0c674", order: 2 },
-    { id: "g-design", name: "设计灵感", color: "#b294bb", order: 3 },
-    { id: "g-video", name: "影视娱乐", color: "#cc6666", order: 4 },
+    {
+      id: INBOX_GROUP_ID,
+      name: "收集箱",
+      color: INBOX_GROUP_COLOR,
+      order: 0,
+      x: 0,
+      y: 0,
+    },
+    { id: "g-dev", name: "前端开发", color: "#81a2be", order: 1, x: 405, y: 0 },
+    {
+      id: "g-news",
+      name: "资讯阅读",
+      color: "#f0c674",
+      order: 2,
+      x: 810,
+      y: 0,
+    },
+    {
+      id: "g-design",
+      name: "设计灵感",
+      color: "#b294bb",
+      order: 3,
+      x: 0,
+      y: 72,
+    },
+    {
+      id: "g-video",
+      name: "影视娱乐",
+      color: "#cc6666",
+      order: 4,
+      x: 405,
+      y: 72,
+    },
   ],
   bookmarks: [
     // 收集箱:随手收藏、还没归类的

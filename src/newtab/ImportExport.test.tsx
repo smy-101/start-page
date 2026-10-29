@@ -12,8 +12,15 @@ import { createMemorySettingsStorage } from "./settings";
 const backup: BookmarkState = {
   schemaVersion: 1,
   groups: [
-    { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-    { id: "bk-design", name: "设计", color: "#ec4899", order: 1 },
+    {
+      id: INBOX_GROUP_ID,
+      name: "收集箱",
+      color: "#3b82f6",
+      order: 0,
+      x: 0,
+      y: 0,
+    },
+    { id: "bk-design", name: "设计", color: "#ec4899", order: 1, x: 0, y: 0 },
   ],
   bookmarks: [
     {

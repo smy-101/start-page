@@ -56,8 +56,15 @@ function seededState(): BookmarkState {
   return {
     schemaVersion: SCHEMA_VERSION,
     groups: [
-      { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-      { id: "g-work", name: "工作", color: "#e99695", order: 1 },
+      {
+        id: INBOX_GROUP_ID,
+        name: "收集箱",
+        color: "#3b82f6",
+        order: 0,
+        x: 0,
+        y: 0,
+      },
+      { id: "g-work", name: "工作", color: "#e99695", order: 1, x: 0, y: 0 },
     ],
     bookmarks: [
       {

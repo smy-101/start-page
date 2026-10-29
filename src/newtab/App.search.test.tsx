@@ -15,8 +15,10 @@ function seededState(): BookmarkState {
         name: "收集箱",
         color: INBOX_GROUP_COLOR,
         order: 0,
+        x: 0,
+        y: 0,
       },
-      { id: "dev", name: "开发", color: "#8b5cf6", order: 1 },
+      { id: "dev", name: "开发", color: "#8b5cf6", order: 1, x: 0, y: 0 },
     ],
     bookmarks: [
       {

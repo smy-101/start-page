@@ -40,9 +40,16 @@ function threeGroupsState(): BookmarkState {
   return {
     schemaVersion: 1,
     groups: [
-      { id: "inbox", name: INBOX_GROUP_NAME, color: "#3b82f6", order: 0 },
-      { id: "g1", name: "工作", color: "#0ea5e9", order: 1 },
-      { id: "g2", name: "学习", color: "#22c55e", order: 2 },
+      {
+        id: "inbox",
+        name: INBOX_GROUP_NAME,
+        color: "#3b82f6",
+        order: 0,
+        x: 0,
+        y: 0,
+      },
+      { id: "g1", name: "工作", color: "#0ea5e9", order: 1, x: 0, y: 0 },
+      { id: "g2", name: "学习", color: "#22c55e", order: 2, x: 0, y: 0 },
     ],
     bookmarks: [
       {
@@ -76,7 +83,14 @@ function makeState(titles: string[]): BookmarkState {
   return {
     schemaVersion: 1,
     groups: [
-      { id: "inbox", name: INBOX_GROUP_NAME, color: "#3b82f6", order: 0 },
+      {
+        id: "inbox",
+        name: INBOX_GROUP_NAME,
+        color: "#3b82f6",
+        order: 0,
+        x: 0,
+        y: 0,
+      },
     ],
     bookmarks: titles.map((title, i) => ({
       id: "b" + i,

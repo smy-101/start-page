@@ -17,9 +17,16 @@ export function literalState(): BookmarkState {
   return {
     schemaVersion: SCHEMA_VERSION,
     groups: [
-      { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-      { id: "g-work", name: "工作", color: "#f97316", order: 1 },
-      { id: "g-dev", name: "开发", color: "#22c55e", order: 2 },
+      {
+        id: INBOX_GROUP_ID,
+        name: "收集箱",
+        color: "#3b82f6",
+        order: 0,
+        x: 0,
+        y: 0,
+      },
+      { id: "g-work", name: "工作", color: "#f97316", order: 1, x: 0, y: 0 },
+      { id: "g-dev", name: "开发", color: "#22c55e", order: 2, x: 0, y: 0 },
     ],
     bookmarks: [
       {
@@ -335,8 +342,22 @@ describe("导入 JSON:合并模式", () => {
     const incoming: BookmarkState = {
       schemaVersion: 1,
       groups: [
-        { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-        { id: "other-install-work", name: "工作", color: "#111111", order: 1 },
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        {
+          id: "other-install-work",
+          name: "工作",
+          color: "#111111",
+          order: 1,
+          x: 0,
+          y: 0,
+        },
       ],
       bookmarks: [
         {
@@ -387,8 +408,15 @@ describe("导入 JSON:合并模式", () => {
     const incoming: BookmarkState = {
       schemaVersion: 1,
       groups: [
-        { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-        { id: "src-1", name: "设计", color: "#ec4899", order: 1 },
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        { id: "src-1", name: "设计", color: "#ec4899", order: 1, x: 0, y: 0 },
       ],
       bookmarks: [
         {
@@ -473,7 +501,16 @@ describe("导入 JSON:替换全部模式", () => {
     const adapter = createMemoryStorage();
     const corrupt: BookmarkState = {
       schemaVersion: 1,
-      groups: [{ id: "g-only", name: "仅有的组", color: "#123456", order: 0 }],
+      groups: [
+        {
+          id: "g-only",
+          name: "仅有的组",
+          color: "#123456",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
       bookmarks: [
         {
           id: "c-1",
@@ -588,8 +625,15 @@ describe("导入后的不变量(与工单 02 锁定的一致)", () => {
     const incoming: BookmarkState = {
       schemaVersion: 1,
       groups: [
-        { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
-        { id: "bk-1", name: "备份组", color: "#111111", order: 1 },
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        { id: "bk-1", name: "备份组", color: "#111111", order: 1, x: 0, y: 0 },
       ],
       bookmarks: [
         {
@@ -614,5 +658,235 @@ describe("导入后的不变量(与工单 02 锁定的一致)", () => {
     expect(new Set(state.bookmarks.map((b) => b.id)).size).toBe(
       state.bookmarks.length
     );
+  });
+});
+
+describe("V3 画布坐标兼容(board-whiteboard/01)", () => {
+  /** v2 备份形状:分组无画布坐标。 */
+  const v2Backup = JSON.stringify({
+    schemaVersion: 2,
+    groups: [
+      { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
+      { id: "g-work", name: "工作", color: "#e99695", order: 1 },
+    ],
+    bookmarks: [
+      {
+        id: "b1",
+        url: "https://example.com",
+        title: "示例",
+        note: "",
+        groupId: "g-work",
+        order: 0,
+      },
+    ],
+  });
+
+  function v3Base(): BookmarkState {
+    return {
+      schemaVersion: 3,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    };
+  }
+
+  it("v2 备份 replace 导入走同一迁移:分组装箱出坐标、版本升 v3", async () => {
+    const adapter = createMemoryStorage(v3Base());
+
+    const result = await importStateFromJson(adapter, v2Backup, "replace");
+    expect(result.ok).toBe(true);
+
+    const state = (await adapter.load())!;
+    expect(state.schemaVersion).toBe(3);
+    expect(state.groups.map((g) => [g.id, g.x, g.y])).toEqual([
+      [INBOX_GROUP_ID, 0, 0],
+      ["g-work", 405, 0],
+    ]);
+  });
+
+  it("v3 备份 replace 往返:自定义坐标逐字保留", async () => {
+    const state = v3Base();
+    state.groups.push(
+      {
+        id: "g-moved",
+        name: "搬过的组",
+        color: "#e99695",
+        order: 1,
+        x: 123,
+        y: 456,
+      },
+      {
+        id: "g-edge",
+        name: "边缘组",
+        color: "#22c55e",
+        order: 2,
+        x: 805.5,
+        y: 0,
+      }
+    );
+    const adapter = createMemoryStorage(v3Base());
+
+    const result = await importStateFromJson(
+      adapter,
+      exportStateAsJson(state),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    const restored = (await adapter.load())!;
+    expect(restored.groups.map((g) => [g.x, g.y])).toEqual([
+      [0, 0],
+      [123, 456],
+      [805.5, 0],
+    ]);
+  });
+
+  it("v3 校验:负坐标压回 0,越界 x 钳回画布右界", async () => {
+    const backup = {
+      schemaVersion: 3,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: -50,
+          y: -3,
+        },
+        {
+          id: "g-far",
+          name: "出界组",
+          color: "#e99695",
+          order: 1,
+          x: 9999,
+          y: 7,
+        },
+      ],
+      bookmarks: [],
+    };
+    const adapter = createMemoryStorage(v3Base());
+
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(backup),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    const state = (await adapter.load())!;
+    // 右界 = 画布宽 − 卡宽 = 1200 − 1168/3
+    expect(state.groups[0].x).toBe(0);
+    expect(state.groups[0].y).toBe(0);
+    expect(state.groups[1].x).toBeCloseTo(1200 - 1168 / 3, 10);
+    expect(state.groups[1].y).toBe(7);
+  });
+
+  it("v3 备份缺坐标或坐标非数字拒收", async () => {
+    const missing = JSON.stringify({
+      schemaVersion: 3,
+      groups: [
+        { id: INBOX_GROUP_ID, name: "收集箱", color: "#3b82f6", order: 0 },
+      ],
+      bookmarks: [],
+    });
+    expect(
+      (await importStateFromJson(createMemoryStorage(null), missing, "replace"))
+        .ok
+    ).toBe(false);
+
+    const badType = JSON.stringify({
+      schemaVersion: 3,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: "12",
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    });
+    expect(
+      (await importStateFromJson(createMemoryStorage(null), badType, "replace"))
+        .ok
+    ).toBe(false);
+  });
+
+  it("merge 建新组:落画布底部追加位,连续新组按堆叠步长排开", async () => {
+    const adapter = createMemoryStorage(v3Base());
+    const backup = {
+      schemaVersion: 3,
+      groups: [
+        {
+          id: "x1",
+          name: "新组甲",
+          color: "#e99695",
+          order: 0,
+          x: 999,
+          y: 999,
+        },
+        { id: "x2", name: "新组乙", color: "#22c55e", order: 1, x: 5, y: 5 },
+      ],
+      bookmarks: [],
+    };
+
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(backup),
+      "merge"
+    );
+    expect(result.ok).toBe(true);
+
+    const state = (await adapter.load())!;
+    // 本地收集箱 (0,0) 不动;新组按追加位落下(merge 不携带备份坐标)
+    expect(state.groups.map((g) => [g.name, g.x, g.y])).toEqual([
+      ["收集箱", 0, 0],
+      ["新组甲", 0, 48],
+      ["新组乙", 0, 120],
+    ]);
+  });
+
+  it("HTML 导入建新组同样落画布底部追加位", async () => {
+    const adapter = createMemoryStorage(v3Base());
+    const html = `<!DOCTYPE NETSCAPE-Bookmark-file-1><DL><p>
+        <DT><H3>工具</H3><DL><p>
+            <DT><A HREF="https://tool.example.com">工具站</A>
+        </DL><p>
+    </DL><p>`;
+
+    const result = await importBookmarksFromHtml(adapter, html);
+    expect(result.ok).toBe(true);
+
+    const state = (await adapter.load())!;
+    const created = state.groups.find((g) => g.name === "工具");
+    expect([created?.x, created?.y]).toEqual([0, 48]);
+  });
+});
+
+describe("restoreFrom 补缺收集箱的落位(board-whiteboard/01 spec 评审)", () => {
+  it("备份缺失收集箱:补回时落画布底部追加位,不与首组重叠", async () => {
+    const backup = JSON.stringify({
+      schemaVersion: 3,
+      groups: [
+        { id: "g-a", name: "甲组", color: "#e99695", order: 0, x: 0, y: 0 },
+      ],
+      bookmarks: [],
+    });
+    const adapter = createMemoryStorage(null);
+
+    const result = await importStateFromJson(adapter, backup, "replace");
+    expect(result.ok).toBe(true);
+
+    const state = (await adapter.load())!;
+    const inbox = state.groups.find((g) => g.id === INBOX_GROUP_ID)!;
+    expect([inbox.x, inbox.y]).toEqual([0, 48]);
   });
 });

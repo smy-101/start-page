@@ -25,6 +25,10 @@ export interface Group {
   /** 十六进制颜色,如 #3b82f6 */
   color: string;
   order: number;
+  /** 画布横坐标(px,schema v3,board-whiteboard/01):白板自由定位,松手吸附 16px 网格取整 */
+  x: number;
+  /** 画布纵坐标(px,schema v3):画布向下无界 */
+  y: number;
 }
 
 /** 单一状态对象,整体持久化到 chrome.storage.local。 */
@@ -65,9 +69,16 @@ export type Result<T> =
 
 /**
  * 持久化数据结构版本,随结构演进递增(导入导出的 JSON 备份依赖它)。
+ * v3:分组新增画布坐标 x/y(ADR-0004 白板自由定位);v2 及更早备份仍可导入。
  * v2:收藏新增可选 icon(data URL);v1 备份仍可导入。
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+
+/** 画布上的落点(px,见 canvas.ts 与 GLOSSARY「画布」)。 */
+export interface CanvasPos {
+  x: number;
+  y: number;
+}
 
 /** 可导入的备份 schemaVersion 下限(v1 起有 JSON 备份)。 */
 export const MIN_IMPORT_SCHEMA_VERSION = 1;
@@ -84,13 +95,19 @@ export const INBOX_GROUP_COLOR = "#3b82f6";
 /**
  * 收集箱分组唯一构造:初始状态、损坏修复(补缺,order -1 排最前)、
  * 导入空态等全部引导处共用同一形状,不再各自手写字面量。
+ * 落点缺省画布原点;补缺修复时由调用方传画布底部追加位。
  */
-export function createInboxGroup(order: number): Group {
+export function createInboxGroup(
+  order: number,
+  pos: CanvasPos = { x: 0, y: 0 }
+): Group {
   return {
     id: INBOX_GROUP_ID,
     name: INBOX_GROUP_NAME,
     color: INBOX_GROUP_COLOR,
     order,
+    x: pos.x,
+    y: pos.y,
   };
 }
 
