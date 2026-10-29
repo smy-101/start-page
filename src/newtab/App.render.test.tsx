@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, act, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  act,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { Profiler, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -155,22 +162,57 @@ describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
     expect(screen.getByText("学件")).toBeInTheDocument();
   });
 
-  it("编辑收藏时,仅所在分组的卡片重渲染", async () => {
-    render(<App adapter={createMemoryStorage(threeGroupsState())} />);
+  it("删除收藏只产生一次提交", async () => {
+    let commits = 0;
+    render(
+      <Profiler
+        id="app"
+        onRender={(_id, phase) => {
+          if (phase === "update") commits++;
+        }}
+      >
+        <App adapter={createMemoryStorage(threeGroupsState())} />
+      </Profiler>
+    );
+    await screen.findByRole("heading", { name: "工作" });
+    const learnCard = screen.getByText("学件").closest(".card") as HTMLElement;
+    commits = 0;
+
+    fireEvent.click(within(learnCard).getByRole("button", { name: "删除" }));
+    await waitFor(() => expect(screen.queryByText("学件")).toBeNull());
+
+    expect(commits).toBe(1);
+  });
+
+  it("编辑收藏时,仅所在分组的卡片重渲染且恰好一次提交", async () => {
+    let commits = 0;
+    render(
+      <Profiler
+        id="app"
+        onRender={(_id, phase) => {
+          if (phase === "update") commits++;
+        }}
+      >
+        <App adapter={createMemoryStorage(threeGroupsState())} />
+      </Profiler>
+    );
     await screen.findByRole("heading", { name: "工作" });
     mockCardRenders.titles = [];
 
-    // 通过卡片自身编辑按钮改备注(触发全状态替换 + 单提交)
+    // 通过卡片自身编辑按钮改备注(触发全状态替换)
     const workCard = screen.getByText("工件").closest(".card") as HTMLElement;
     fireEvent.click(within(workCard).getByRole("button", { name: "编辑" }));
     fireEvent.change(within(workCard).getByLabelText("备注"), {
       target: { value: "新备注" },
     });
+    // 编辑态切换与备注输入是子组件自身状态(与被测契约无关),保存前归零再计数
+    commits = 0;
     fireEvent.click(within(workCard).getByRole("button", { name: "保存" }));
     await screen.findByText("新备注");
 
-    // 被编辑卡片自身的内部状态(编辑态/输入)重渲染属正常;
-    // 其余分组的卡片不得重渲染
+    // 被编辑卡片自身的内部状态重渲染属正常;其余分组的卡片不得重渲染
     expect(mockCardRenders.titles.filter((t) => t !== "工件")).toEqual([]);
+    // 卡片退出编辑态与全状态刷新同批提交
+    expect(commits).toBe(1);
   });
 });

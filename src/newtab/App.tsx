@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { byOrder } from "../domain/types";
 import type {
   BookmarkId,
   BookmarkState,
@@ -217,7 +218,7 @@ export function App({
       if (current.kind === "group") {
         if (current.id === targetGroupId) return;
         const without = [...(stateRef.current?.groups ?? [])]
-          .sort((a, b) => a.order - b.order)
+          .sort(byOrder)
           .map((g) => g.id)
           .filter((id) => id !== current.id);
         without.splice(without.indexOf(targetGroupId), 0, current.id);
@@ -252,7 +253,7 @@ export function App({
         .current!.bookmarks.filter(
           (b) => b.groupId === target.groupId && b.id !== current.id
         )
-        .sort((a, b) => a.order - b.order)
+        .sort(byOrder)
         .findIndex((b) => b.id === targetBookmarkId);
       void run(() =>
         storeRef.current!.moveBookmark(current.id, target.groupId, index)
@@ -317,7 +318,7 @@ export function App({
   // 选分组候选用全量分组(搜索过滤视图下也不缩水),按 order 排序、含收集箱
   // 依赖 groups 引用:收藏增删改不重建此数组,保住下游 memo 链
   const groupsInOrder = useMemo(
-    () => (state ? [...state.groups].sort((a, b) => a.order - b.order) : []),
+    () => (state ? [...state.groups].sort(byOrder) : []),
     [state?.groups]
   );
 
@@ -343,7 +344,7 @@ export function App({
   }
 
   // 查询为空时原样返回(完整分组视图);有查询时隐藏无命中的收藏与分组;
-  // 用延迟值过濛:过滛重活不阻塞输入本身
+  // 用延迟值过滤:过滤重活不阻塞输入本身
   const visible = filterState(state, deferredQuery);
 
   if (view === "settings") {

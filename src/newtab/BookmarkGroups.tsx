@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { byOrder } from "../domain/types";
 import type {
   Bookmark,
   BookmarkId,
@@ -59,7 +60,7 @@ function useGroupedBookmarks(
     for (const group of groups) {
       const fresh = bookmarks
         .filter((bookmark) => bookmark.groupId === group.id)
-        .sort((a, b) => a.order - b.order);
+        .sort(byOrder);
       const prev = cacheRef.current.get(group.id);
       next.set(group.id, prev && sameItems(prev, fresh) ? prev : fresh);
     }
@@ -89,7 +90,7 @@ export function BookmarkGroups({
   onDelete,
 }: BookmarkGroupsProps) {
   const groupsByOrder = useMemo(
-    () => [...state.groups].sort((a, b) => a.order - b.order),
+    () => [...state.groups].sort(byOrder),
     [state.groups]
   );
   const grouped = useGroupedBookmarks(state.bookmarks, groupsByOrder);
