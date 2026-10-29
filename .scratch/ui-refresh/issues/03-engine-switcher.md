@@ -1,7 +1,7 @@
 # 03: 搜索胶囊内引擎切换
 
 **Type:** task
-**Status:** ready-for-agent
+**Status:** done
 
 ## What
 
@@ -18,3 +18,7 @@
 - [ ] 回车搜索用当前所选引擎
 - [ ] 设置页无引擎区块;引擎相关既有测试迁移/改写后全绿
 - [ ] `npm test` / `npm run typecheck` 全绿
+
+## Comments
+
+- 2026-10-30: 胶囊结构 = .search-capsule(圆角/描边/阴影上移至容器)+ 无边框输入 + 引擎按钮;菜单 160ms ease-out 从锚点释出。Esc 监听放胶囊根(冒泡覆盖输入与菜单)。200 测试全绿;Windows Chrome 实机过目(菜单选中态/布局)。
