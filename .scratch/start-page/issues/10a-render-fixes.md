@@ -1,7 +1,7 @@
 # 10a: 渲染修复(memo 化 + 消除双重提交)
 
 **Type:** task
-**Status:** ready-for-agent
+**Status:** resolved
 **Blocked by:** None
 
 ## What
@@ -14,12 +14,17 @@
 
 ## DoD
 
-- [ ] vitest 行为断言:相同 props 的分组/卡片不因无关状态变化重渲染
-- [ ] vitest 行为断言:单次收藏变更(添加/删除/编辑)恰好一次提交;外部上下文写入仍触发同步
-- [ ] `npm test` / `npm run typecheck` / `npm run build` 全绿
-- [ ] `scripts/perf-probe.mjs` 入库,README 或脚本头部注明用法(需 Windows 侧 Chrome + CDP 9222)
-- [ ] perf-probe 复测记录进 Comments:清空搜索 ≤100ms、添加/删除 ≤300ms、进出设置页 ≤100ms
+- [x] vitest 行为断言:相同 props 的分组/卡片不因无关状态变化重渲染
+- [x] vitest 行为断言:单次收藏变更(添加/删除/编辑)恰好一次提交;外部上下文写入仍触发同步
+- [x] `npm test` / `npm run typecheck` / `npm run build` 全绿(173 测试)
+- [x] `scripts/perf-probe.mjs` 入库,头部注明用法(需 Windows 侧 Chrome + CDP 9222 + 防节流旗标)
+- [x] perf-probe 复测记录进 Comments:清空搜索 ≤100ms、添加/删除 ≤300ms、进出设置页 ≤100ms
 
 ## Comments
 
 - 2026-10-29: 由工单 10 grilling 拆出(Round 1 Q4 / Round 2 Q8)。
+- 2026-10-29: 实现 = statesEqual 回声抑制(boot 置诺退避)+ GroupSection/BookmarkCard memo + 回调去闭包化(子组件自带 id)+ useGroupedBookmarks 缓存派生 + useDeferredValue(query) + startTransition(setView)。
+- 2026-10-29: 复测(5000 条,Chrome 156,防节流旗标,最终跑):冷加载 cardsDone **475ms**;交互同步阻塞:搜索 1 / 清空 2 / 折叠 0 / 展开 0 / **添加 84** / **删除 178** / 进设置 0 / 返回 0 ms;storage.set 28-29ms。**全部落预算**。删除另观测过一次 374ms(< 1.5×=450 升级线)。
+- 2026-10-29: 环境教训(已写进探针头部):窗口遮挡时 Chrome 暂停渲染管线——冷加载虚高 2-3 倍、rAF 停摆、longtask 计不到;定时器轮询在隐藏页被对齐到 1s。必须 --disable-backgrounding-occluded-windows 等旗标 + MutationObserver 判完成。
+- 2026-10-29: A/B 对照:useDeferredValue 使全量挂载路径 ~2×(565→1319ms,run 间方差大);冷加载预算由 10b 懒挂载收敛,交互预算由本票交付,故保留 defer。
+- 2026-10-29: code-review(Standards+Spec 双轴)处置完毕:①P1 补删除/编辑单提交断言;②P2 新增 memo.contract.test.tsx(孙组件 Favicon 计数钉住卡片自身 memo,变异验证:去 memo 即红);③P2 byOrder 聚拢 5 处排序形状;④P2 注释错字。未采纳项:「useDeferredValue/transition 超出 What 三条」——范围蔓延属预算驱动且已在 Comments 披露,ADR-0002 路线内。分叉 ticket/10a-render-fixes(两提交),合入 main。最终 175 测试全绿。
