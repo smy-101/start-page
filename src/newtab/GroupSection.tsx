@@ -11,6 +11,7 @@ import type {
 import type { BookmarkPatch } from "../domain/store";
 import { BookmarkCard } from "./BookmarkCard";
 import { GroupHeader } from "./GroupHeader";
+import type { DragHandlers } from "./BookmarkGroups";
 
 type GroupSectionProps = {
   group: Group;
@@ -23,16 +24,9 @@ type GroupSectionProps = {
   onRename(id: GroupId, name: string): Promise<Result<Group>>;
   onRecolor(id: GroupId, color: string): Promise<Result<Group>>;
   onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
-  onGroupDragStart(groupId: GroupId): void;
-  onCardDragStart(bookmarkId: BookmarkId, groupId: GroupId): void;
-  onDragEnd(): void;
-  onSectionDragOver(event: React.DragEvent): void;
-  onSectionDrop(event: React.DragEvent, targetGroupId: GroupId): void;
-  onCardDragOver(event: React.DragEvent): void;
-  onCardDrop(event: React.DragEvent, targetBookmarkId: BookmarkId): void;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
-};
+} & DragHandlers;
 
 /**
  * 看板列(ui-refresh/04):分组的列容器,常显不折叠。收集箱是保留分组,列头只读。

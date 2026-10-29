@@ -5,23 +5,15 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { App } from "./App";
+import { enterEditMode } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { createBookmarkStore } from "../domain/store";
-
-beforeEach(() => {
-  localStorage.clear();
-});
 
 async function renderApp() {
   render(<App adapter={createMemoryStorage()} />);
   await screen.findByRole("heading", { name: "收集箱" });
-}
-
-/** 进入编辑模式(ui-refresh/04):行的编辑/删除与拖拽仅在此模式出现。 */
-function enterEditMode() {
-  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 }
 
 async function addBookmark(url: string, title: string, note = "") {

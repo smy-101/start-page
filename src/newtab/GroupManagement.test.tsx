@@ -5,25 +5,16 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { App } from "./App";
+import { enterEditMode } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/store";
 import type { BookmarkState } from "../domain/types";
 
-// 折叠状态走 localStorage 侧通道,测试间清空避免串扰
-beforeEach(() => {
-  localStorage.clear();
-});
-
 async function renderApp() {
   render(<App adapter={createMemoryStorage()} />);
   await screen.findByRole("heading", { name: "收集箱" });
-}
-
-/** 进入编辑模式(ui-refresh/04):分组操作仅在此模式出现。 */
-function enterEditMode() {
-  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 }
 
 describe("分组管理:新建分组", () => {

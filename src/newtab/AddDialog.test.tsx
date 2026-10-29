@@ -1,23 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import { createMemoryStorage } from "../storage/memoryStorage";
-
-// 折叠状态走 localStorage 侧通道,测试间清空避免串扰
-beforeEach(() => {
-  localStorage.clear();
-});
 
 async function renderApp() {
   render(<App adapter={createMemoryStorage()} />);
   await screen.findByRole("heading", { name: "收集箱" });
-  // 全新安装首屏分组默认折叠(工单 10b);本文件流程以展开收集箱为前提,
-  // 工单 ui-refresh/04 移除折叠后此前置删除
-  const toggle = screen.queryByRole("button", { name: "展开分组 收集箱" });
-  if (toggle) {
-    fireEvent.click(toggle);
-    await screen.findByRole("button", { name: "折叠分组 收集箱" });
-  }
 }
 
 /** 打开添加弹窗(默认「添加收藏」页签)。 */
@@ -100,6 +88,17 @@ describe("添加弹窗:添加收藏", () => {
 });
 
 describe("添加弹窗:新建分组", () => {
+  it("切页签后焦点落在表单内(Esc 仍可关弹窗)", async () => {
+    await renderApp();
+    const dialog = await openDialog();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "新建分组" }));
+
+    expect(within(dialog).getByLabelText("分组名")).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("切页签建组:成功后弹窗关闭,新分组分区出现", async () => {
     await renderApp();
     const dialog = await openDialog();

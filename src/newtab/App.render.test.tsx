@@ -7,8 +7,9 @@ import {
   within,
 } from "@testing-library/react";
 import { Profiler, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { enterEditMode } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import type { BookmarkState } from "../domain/types";
 import { INBOX_GROUP_NAME } from "../domain/types";
@@ -88,16 +89,7 @@ function makeState(titles: string[]): BookmarkState {
   };
 }
 
-/** 进入编辑模式(ui-refresh/04):行的编辑/删除与拖拽仅在此模式出现 */
-function enterEditMode() {
-  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-}
-
 describe("渲染契约:单次变更单提交", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
   it("添加一条收藏只产生一次提交", async () => {
     let commits = 0;
     render(
@@ -155,11 +147,6 @@ describe("渲染契约:单次变更单提交", () => {
 });
 
 describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
-  beforeEach(() => {
-    // 折叠状态经 localStorage 持久化,避免跨测试泄漏
-    localStorage.clear();
-  });
-
   it("删除收藏只产生一次提交", async () => {
     let commits = 0;
     render(

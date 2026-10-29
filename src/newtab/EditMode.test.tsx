@@ -1,13 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/store";
 import type { BookmarkState } from "../domain/types";
-
-beforeEach(() => {
-  localStorage.clear();
-});
 
 function seededState(): BookmarkState {
   return {
