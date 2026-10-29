@@ -21,6 +21,11 @@ async function renderApp() {
   await screen.findByRole("heading", { name: "收集箱" });
 }
 
+/** 进入编辑模式(ui-refresh/04):分组操作仅在此模式出现。 */
+function enterEditMode() {
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+}
+
 describe("分组管理:新建分组", () => {
   it("填名字选颜色提交后,新分组分区出现;空名被拒并给出中文提示", async () => {
     await renderApp();
@@ -104,8 +109,11 @@ async function renderSeeded() {
 describe("分组管理:重命名与换色", () => {
   it("内联编辑:改名与换色保存后即时生效", async () => {
     const { work } = await renderSeeded();
+    enterEditMode();
 
-    fireEvent.click(within(work).getByRole("button", { name: "编辑分组" }));
+    fireEvent.click(
+      within(work).getByRole("button", { name: "编辑分组 工作" })
+    );
     fireEvent.change(within(work).getByLabelText("分组名"), {
       target: { value: "办公" },
     });
@@ -118,62 +126,27 @@ describe("分组管理:重命名与换色", () => {
     expect(dot).toHaveStyle({ backgroundColor: "#9fe295" });
   });
 
-  it("收集箱表头不提供改名/换色/删除入口,但可折叠", async () => {
+  it("收集箱列头始终只读:编辑模式下也不提供改名/换色/删除入口", async () => {
     const { inbox } = await renderSeeded();
+    enterEditMode();
 
     expect(
-      within(inbox).queryByRole("button", { name: "编辑分组" })
+      within(inbox).queryByRole("button", { name: /^编辑分组/ })
     ).toBeNull();
     expect(
-      within(inbox).queryByRole("button", { name: "删除分组" })
+      within(inbox).queryByRole("button", { name: /^删除分组/ })
     ).toBeNull();
-    expect(
-      within(inbox).getByRole("button", { name: "折叠分组 收集箱" })
-    ).toBeInTheDocument();
-  });
-});
-
-describe("分组管理:折叠/展开", () => {
-  it("折叠后组内收藏隐藏,展开恢复", async () => {
-    const { work } = await renderSeeded();
-    expect(within(work).getAllByRole("listitem")).toHaveLength(2);
-
-    fireEvent.click(
-      within(work).getByRole("button", { name: "折叠分组 工作" })
-    );
-
-    expect(within(work).queryByRole("listitem")).toBeNull();
-    expect(screen.getByRole("heading", { name: "工作" })).toBeInTheDocument();
-
-    fireEvent.click(
-      within(work).getByRole("button", { name: "展开分组 工作" })
-    );
-    expect(within(work).getAllByRole("listitem")).toHaveLength(2);
-  });
-
-  it("折叠状态刷新后保持(localStorage 侧通道)", async () => {
-    const storage = createMemoryStorage(seededState());
-    const { unmount } = render(<App adapter={storage} />);
-    const first = await screen.findByRole("region", { name: "工作" });
-    fireEvent.click(
-      within(first).getByRole("button", { name: "折叠分组 工作" })
-    );
-    unmount();
-
-    render(<App adapter={storage} />);
-    const second = await screen.findByRole("region", { name: "工作" });
-    expect(within(second).queryByRole("listitem")).toBeNull();
-    expect(
-      within(second).getByRole("button", { name: "展开分组 工作" })
-    ).toBeInTheDocument();
   });
 });
 
 describe("分组管理:删除分组回收", () => {
   it("删除前给出回收警告,确认后组内收藏全部回到收集箱", async () => {
     const { work } = await renderSeeded();
+    enterEditMode();
 
-    fireEvent.click(within(work).getByRole("button", { name: "删除分组" }));
+    fireEvent.click(
+      within(work).getByRole("button", { name: "删除分组 工作" })
+    );
 
     expect(
       screen.getByText(
@@ -192,8 +165,11 @@ describe("分组管理:删除分组回收", () => {
 
   it("取消删除则分组与收藏原封不动", async () => {
     const { work } = await renderSeeded();
+    enterEditMode();
 
-    fireEvent.click(within(work).getByRole("button", { name: "删除分组" }));
+    fireEvent.click(
+      within(work).getByRole("button", { name: "删除分组 工作" })
+    );
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
     expect(screen.getByRole("region", { name: "工作" })).toBeInTheDocument();

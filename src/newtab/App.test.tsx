@@ -17,18 +17,11 @@ beforeEach(() => {
 async function renderApp() {
   render(<App adapter={createMemoryStorage()} />);
   await screen.findByRole("heading", { name: "收集箱" });
-  // 工单 10b:全新安装首屏所有分组默认折叠;本文件的增删改流程以展开收集箱为前提
-  // (折叠/展开行为本身由 App.lazyMount.test.tsx 钉住)
-  await expandGroup("收集箱");
 }
 
-/** 展开指定分组(若折叠):流程测试的前置动作。 */
-async function expandGroup(name: string) {
-  const toggle = screen.queryByRole("button", { name: `展开分组 ${name}` });
-  if (toggle) {
-    fireEvent.click(toggle);
-    await screen.findByRole("button", { name: `折叠分组 ${name}` });
-  }
+/** 进入编辑模式(ui-refresh/04):行的编辑/删除与拖拽仅在此模式出现。 */
+function enterEditMode() {
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 }
 
 async function addBookmark(url: string, title: string, note = "") {
@@ -64,8 +57,11 @@ describe("初始页:添加收藏到收集箱", () => {
 
     const card = await screen.findByRole("listitem");
     expect(within(card).getByText("示例站")).toBeInTheDocument();
-    expect(within(card).getByText("https://example.com")).toBeInTheDocument();
-    expect(within(card).getByText("第一条")).toBeInTheDocument();
+    // ui-refresh/04:网址与备注进 title 提示,不再占行宽
+    expect(within(card).getByRole("link")).toHaveAttribute(
+      "title",
+      "https://example.com\n第一条"
+    );
     // ui-refresh/02:提交成功即关弹窗(表单状态随弹窗销毁,重开为空)
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -105,8 +101,6 @@ describe("初始页:添加与编辑选分组(spec 故事 17/24)", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "新建分组" }));
     await screen.findByRole("region", { name });
-    // 工单 10b:新建分组默认折叠;后续流程需要组内卡片可见
-    await expandGroup(name);
     return screen.getByRole("region", { name });
   }
 
@@ -145,6 +139,7 @@ describe("初始页:添加与编辑选分组(spec 故事 17/24)", () => {
     await renderApp();
     const work = await createGroup("工作");
     await addBookmark("https://move.example.com", "待移动");
+    enterEditMode();
 
     const card = await screen.findByRole("listitem");
     fireEvent.click(within(card).getByRole("button", { name: "编辑" }));
@@ -164,8 +159,6 @@ describe("初始页:跨上下文同步", () => {
     const storage = createMemoryStorage();
     render(<App adapter={storage} />);
     await screen.findByRole("heading", { name: "收集箱" });
-    // 全新安装默认折叠(工单 10b);跨上下文同步观察卡片需要展开态
-    await expandGroup("收集箱");
     expect(screen.getByText("还没有收藏")).toBeInTheDocument();
 
     const toolbarContext = await createBookmarkStore(storage);
@@ -199,6 +192,7 @@ describe("初始页:收藏卡片", () => {
   it("编辑标题/备注保存后卡片更新", async () => {
     await renderApp();
     await addBookmark("https://example.com", "旧标题");
+    enterEditMode();
     fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
     const card = screen.getByRole("listitem");
 
@@ -219,6 +213,7 @@ describe("初始页:收藏卡片", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(2)
     );
+    enterEditMode();
 
     const card = screen.getAllByRole("listitem")[0];
     fireEvent.click(within(card).getByRole("button", { name: "编辑" }));
@@ -230,15 +225,19 @@ describe("初始页:收藏卡片", () => {
     expect(
       await within(card).findByText("该网址已在收藏中")
     ).toBeInTheDocument();
-    // 被拒后留在编辑表单;取消可见原收藏未被改动
+    // 被拒后留在编辑表单;取消可见原收藏未被改动(网址在 title 提示里)
     fireEvent.click(within(card).getByRole("button", { name: "取消" }));
     expect(within(card).getByText("A")).toBeInTheDocument();
-    expect(within(card).getByText("https://a.example.com")).toBeInTheDocument();
+    expect(within(card).getByRole("link")).toHaveAttribute(
+      "title",
+      "https://a.example.com"
+    );
   });
 
   it("删除收藏后卡片消失,空状态恢复", async () => {
     await renderApp();
     await addBookmark("https://example.com", "示例站");
+    enterEditMode();
 
     fireEvent.click(await screen.findByRole("button", { name: "删除" }));
 

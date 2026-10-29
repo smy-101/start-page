@@ -15,6 +15,8 @@ type BookmarkCardProps = {
   group: Group;
   /** 分组候选(按 order 排序,含收集箱):spec 故事 24 编辑需可换组 */
   groups: Group[];
+  /** 编辑模式(ui-refresh/04):行尾出编辑/删除、行可拖拽;平时纯浏览行 */
+  editMode: boolean;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
   /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(拖到某卡片之前)。
@@ -26,13 +28,15 @@ type BookmarkCardProps = {
 };
 
 /**
- * 收藏卡片:点击主体区域在新标签页打开网页;支持编辑(标题/URL/备注/所属分组)与删除、拖拽移动。
- * memo:卡片数据与回调未变时跳过重渲染(工单 10a)。
+ * 收藏行(ui-refresh/04):favicon + 标题的长条行,点击新标签页打开;
+ * 网址与备注进 title 提示不占行宽;编辑/删除与拖拽仅在编辑模式。
+ * memo:行数据与回调未变时跳过重渲染(工单 10a)。
  */
 export const BookmarkCard = memo(function BookmarkCard({
   bookmark,
   group,
   groups,
+  editMode,
   onEdit,
   onDelete,
   onDragStart,
@@ -125,10 +129,15 @@ export const BookmarkCard = memo(function BookmarkCard({
     );
   }
 
+  // 行提示:网址 + 备注(不占行宽,悬停可见)
+  const tooltip = bookmark.note
+    ? `${bookmark.url}\n${bookmark.note}`
+    : bookmark.url;
+
   return (
     <li
       className="card"
-      draggable={!editing}
+      draggable={editMode}
       onDragStart={() => onDragStart(bookmark.id, bookmark.groupId)}
       onDragEnd={onDragEnd}
       onDragOver={(event) => onDragOver(event)}
@@ -139,6 +148,7 @@ export const BookmarkCard = memo(function BookmarkCard({
         href={bookmark.url}
         target="_blank"
         rel="noreferrer"
+        title={tooltip}
       >
         <Favicon
           pageUrl={bookmark.url}
@@ -146,17 +156,17 @@ export const BookmarkCard = memo(function BookmarkCard({
           fallbackColor={group.color}
         />
         <span className="card-title">{bookmark.title}</span>
-        <span className="card-url">{bookmark.url}</span>
-        {bookmark.note && <span className="card-note">{bookmark.note}</span>}
       </a>
-      <div className="card-actions">
-        <button type="button" onClick={startEdit}>
-          编辑
-        </button>
-        <button type="button" onClick={handleDelete}>
-          删除
-        </button>
-      </div>
+      {editMode && (
+        <div className="card-actions">
+          <button type="button" onClick={startEdit}>
+            编辑
+          </button>
+          <button type="button" onClick={handleDelete}>
+            删除
+          </button>
+        </div>
+      )}
       {error && (
         <p className="form-error" role="alert">
           {error}

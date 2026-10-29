@@ -48,6 +48,7 @@ describe("memo 契约:BookmarkCard(真实组件)", () => {
             触发无关重渲染
           </button>
           <BookmarkCard
+            editMode
             bookmark={bookmark}
             group={group}
             groups={groups}

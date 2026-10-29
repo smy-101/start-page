@@ -31,10 +31,9 @@ type BookmarkGroupsProps = {
   groups: Group[];
   /** true = 正在搜索过滤(查询非空):全部无命中时显示空状态,而非全部分组 */
   searching: boolean;
-  /** 折叠分组 id 集合(UI 状态,localStorage 侧通道) */
-  collapsedGroups: Set<GroupId>;
+  /** 编辑模式:操作与拖拽仅在此模式出现(ui-refresh/04) */
+  editMode: boolean;
   /** 以下回调均为稳定身份(分组/卡片 memo 的前提);子组件以自身数据供给 id。 */
-  onToggleCollapse(groupId: GroupId): void;
   onRenameGroup(id: GroupId, name: string): Promise<Result<Group>>;
   onRecolorGroup(id: GroupId, color: string): Promise<Result<Group>>;
   onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
@@ -69,13 +68,12 @@ function useGroupedBookmarks(
   }, [bookmarks, groups]);
 }
 
-/** 分组视图:按分组 order 渲染各分区;搜索中无命中时给出中文空状态提示。 */
+/** 看板(ui-refresh/04):分组按 order 排列成横向列;搜索中无命中时给出中文空状态提示。 */
 export function BookmarkGroups({
   state,
   groups,
   searching,
-  collapsedGroups,
-  onToggleCollapse,
+  editMode,
   onRenameGroup,
   onRecolorGroup,
   onDeleteGroup,
@@ -107,9 +105,7 @@ export function BookmarkGroups({
           group={group}
           bookmarks={grouped.get(group.id) ?? []}
           groups={groups}
-          // 搜索过滤时强制展开:折叠不应藏起命中(折叠状态本身不动,清空查询即恢复)
-          collapsed={searching ? false : collapsedGroups.has(group.id)}
-          onToggleCollapse={onToggleCollapse}
+          editMode={editMode}
           onRename={onRenameGroup}
           onRecolor={onRecolorGroup}
           onDeleteGroup={onDeleteGroup}

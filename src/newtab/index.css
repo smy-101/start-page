@@ -505,23 +505,41 @@ button[type="submit"]:hover {
   grid-column: 1 / -1;
 }
 
+/* 页头动作区 */
+.header-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* 编辑模式开关:开启态收墨(aria-pressed) */
+.edit-toggle[aria-pressed="true"] {
+  background: var(--fg);
+  border-color: transparent;
+  color: var(--bg);
+  font-weight: 550;
+}
+
 /* ============================================================
-   分组书墙:宽屏双栏,窄屏单栏;分组颜色成为左脊
+   看板:分组横向成列,分组多时横向滚动;分组颜色成为左脊
+   (ui-refresh/04:折叠已移除,列常显)
    ============================================================ */
 .groups-wall {
-  columns: 2 380px;
-  column-gap: 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 2px 2px 16px;
 }
 
 .group {
   position: relative;
   overflow: hidden;
+  flex: 0 0 264px;
+  width: 264px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 16px 20px 20px;
-  margin-bottom: 18px;
-  break-inside: avoid;
+  padding: 10px 8px 12px;
   transition: border-color 120ms var(--ease-out);
 }
 
@@ -545,42 +563,25 @@ button[type="submit"]:hover {
 .group-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-bottom: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  padding: 4px 8px 8px;
+  margin-bottom: 6px;
   border-bottom: 1px solid var(--border);
+}
+
+/* 拖拽换位仅编辑模式:grab 光标随 draggable 出现 */
+.group-header[draggable="true"] {
   cursor: grab;
 }
 
-.group-header:active {
+.group-header[draggable="true"]:active {
   cursor: grabbing;
-}
-
-.collapse-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  min-height: 0;
-  padding: 0;
-  border: none;
-  border-radius: var(--r-sm);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-}
-
-.collapse-toggle:hover {
-  border: none;
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-  color: var(--fg);
 }
 
 .group-color-dot {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 3px;
   flex: none;
   background: var(--group-color, var(--border-strong));
@@ -588,41 +589,47 @@ button[type="submit"]:hover {
 
 .group-name {
   margin: 0;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 计数徽章:等宽数字 */
+/* 计数徽章:等宽数字,安静地缀在列尾 */
 .group-count {
+  margin-left: auto;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
 }
 
 .group-actions {
   display: inline-flex;
-  gap: 4px;
-  margin-left: auto;
+  gap: 2px;
 }
 
-/* 表头操作:默认极静音,悬停浮出 */
 .group-actions button {
   border-color: transparent;
   color: var(--muted);
+  min-height: 0;
+  padding: 2px 6px;
+  font-size: 12px;
 }
 
 .group-actions button:hover {
-  border-color: var(--border);
+  border-color: transparent;
   color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
 
 .group-delete-confirm {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 10px;
+  gap: 8px 6px;
   align-items: center;
   width: 100%;
 }
@@ -630,27 +637,26 @@ button[type="submit"]:hover {
 .group-delete-warning {
   margin: 0;
   color: var(--danger);
-  font-size: 13px;
+  font-size: 12px;
   flex: 1 1 100%;
 }
 
 .group-empty {
   margin: 0;
-  padding: 18px 0;
+  padding: 14px 0;
   text-align: center;
   color: var(--muted);
-  font-size: 13px;
-  border: 1px dashed var(--border);
-  border-radius: var(--r-md);
+  font-size: 12px;
 }
 
 /* ============================================================
-   收藏卡片
+   收藏行:favicon + 标题的长条行(网址/备注进 title 提示)
+   编辑模式下行尾出现操作、行可拖拽(ui-refresh/04)
    ============================================================ */
 .group-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -658,43 +664,46 @@ button[type="submit"]:hover {
 
 .card {
   display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--card);
-  overflow: hidden;
-  transition: border-color 120ms var(--ease-out);
-}
-
-.card:hover {
-  border-color: var(--border-strong);
-}
-
-.card:dragover {
-  border-color: color-mix(in srgb, var(--fg) 45%, var(--border));
-}
-
-.card-link {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  color: inherit;
-  text-decoration: none;
+  align-items: center;
+  border-radius: var(--r-sm);
   transition: background-color 120ms var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .card-link:hover {
-    background: color-mix(in srgb, var(--fg) 4%, transparent);
+  .card:hover {
+    background: color-mix(in srgb, var(--fg) 5%, transparent);
   }
+}
+
+.card[draggable="true"] {
+  cursor: grab;
+}
+
+.card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.card:dragover {
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
+}
+
+.card-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  color: inherit;
+  text-decoration: none;
 }
 
 .favicon,
 .favicon-tile {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
   flex: none;
 }
 
@@ -703,24 +712,16 @@ button[type="submit"]:hover {
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 15px;
+  font-size: 10px;
   font-weight: 600;
   /* 粉彩色加深到白字可读 */
   background: color-mix(in srgb, var(--tile-color, #3b82f6) 62%, #10131a);
 }
 
 .card-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-url,
-.card-note {
-  color: var(--muted);
-  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -728,14 +729,13 @@ button[type="submit"]:hover {
 
 .card-actions {
   display: flex;
-  gap: 4px;
-  padding: 0 10px 10px;
-  margin-top: auto;
+  gap: 2px;
+  padding-right: 4px;
 }
 
 .card-actions button {
   min-height: 0;
-  padding: 3px 8px;
+  padding: 2px 6px;
   border-color: transparent;
   color: var(--muted);
   font-size: 12px;
@@ -744,20 +744,69 @@ button[type="submit"]:hover {
 .card-actions button:hover {
   border-color: transparent;
   color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+/* 行内编辑表单:占满列宽 */
+.card-editing {
+  padding: 4px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
 }
 
 .edit-form {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 8px;
-  padding: 12px;
+  gap: 6px 8px;
+  padding: 8px;
   width: 100%;
+}
+
+.edit-form label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.edit-form input,
+.edit-form select {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 13px;
 }
 
 .edit-form .card-actions {
   grid-column: 1 / -1;
   padding: 4px 0 0;
+}
+
+/* 列头内联编辑表单(改名/换色) */
+.group-edit-form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 8px;
+  width: 100%;
+}
+
+.group-edit-form label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.group-edit-form input {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.group-edit-form .color-swatches {
+  grid-column: 1 / -1;
 }
 
 /* ============================================================

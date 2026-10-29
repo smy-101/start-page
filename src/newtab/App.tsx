@@ -15,11 +15,7 @@ import type {
   Result,
   StorageAdapter,
 } from "../domain/types";
-import {
-  createBookmarkStore,
-  isFreshInstallState,
-  statesEqual,
-} from "../domain/store";
+import { createBookmarkStore, statesEqual } from "../domain/store";
 import type {
   BookmarkStore,
   BookmarkPatch,
@@ -42,7 +38,6 @@ import {
 } from "./settings";
 import type { SettingsAdapter } from "./settings";
 import { getNativeBookmarkTree } from "./nativeBookmarks";
-import { loadCollapsedGroups, saveCollapsedGroups } from "./collapsedGroups";
 import { domainErrorText } from "./messages";
 import type { DragHandlers } from "./BookmarkGroups";
 
@@ -81,24 +76,18 @@ export function App({
   const deferredQuery = useDeferredValue(query);
   const [view, setView] = useState<"start" | "settings">("start");
   const [addOpen, setAddOpen] = useState(false);
+  // 编辑模式(ui-refresh/04):开启后收藏行/分组列头才出现编辑删除与拖拽
+  const [editMode, setEditMode] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  // 折叠是 UI 状态:localStorage 侧通道持久化,刷新后保持
-  const [collapsed, setCollapsed] = useState<Set<GroupId>>(
-    () => loadCollapsedGroups().ids
-  );
   const [drag, setDrag] = useState<Drag>(null);
 
   // 最新值引用:下方稳定回调读取,使回调身份不随状态变化(分组/卡片 memo 的前提)
   const storeRef = useRef<BookmarkStore | null>(null);
   const stateRef = useRef<BookmarkState | null>(null);
-  const collapsedRef = useRef(collapsed);
-  // 首启折叠缺省只判定一次(工单 10b):后续 boot(跨上下文同步/epoch)不再进入
-  const collapseDefaultRef = useRef(false);
   const settingsRef = useRef(settings);
   const dragRef = useRef<Drag>(drag);
   storeRef.current = store;
   stateRef.current = state;
-  collapsedRef.current = collapsed;
   settingsRef.current = settings;
   dragRef.current = drag;
 
@@ -117,16 +106,6 @@ export function App({
         prev && statesEqual(prev.getState(), next) ? prev : created
       );
       setState((prev) => (prev && statesEqual(prev, next) ? prev : next));
-      // 折叠缺省(工单 10b):偏好未记录时,全新安装(仍是初始态)首屏全部折叠
-      // 并落盘;老用户不命中也不写键,视图维持展开 —— 升级不重置已持久化状态
-      if (!collapseDefaultRef.current) {
-        collapseDefaultRef.current = true;
-        if (!loadCollapsedGroups().recorded && isFreshInstallState(next)) {
-          const ids = new Set(next.groups.map((g) => g.id));
-          saveCollapsedGroups(ids);
-          setCollapsed(ids);
-        }
-      }
     }
     void boot();
     // 跨上下文同步:任何上下文写入状态(含本页自己)→ 重建收藏库重渲染
@@ -182,22 +161,6 @@ export function App({
   );
 
   // ---- 进入 BookmarkGroups 的回调:全部稳定身份(memo 契约) ----
-
-  const handleToggleCollapse = useCallback((groupId: GroupId) => {
-    const next = new Set(collapsedRef.current);
-    if (next.has(groupId)) next.delete(groupId);
-    else next.add(groupId);
-    saveCollapsedGroups(next);
-    setCollapsed(next);
-  }, []);
-
-  /** 折叠指定分组并持久化(新建分组默认折叠,工单 10b)。 */
-  const collapseGroup = useCallback((groupId: GroupId) => {
-    const next = new Set(collapsedRef.current);
-    next.add(groupId);
-    saveCollapsedGroups(next);
-    setCollapsed(next);
-  }, []);
 
   const handleRenameGroup = useCallback(
     (id: GroupId, name: string) =>
@@ -360,12 +323,11 @@ export function App({
     return refreshOnOk(() => storeRef.current!.addBookmark(input));
   }
 
-  /** 新建分组:成功即折叠(工单 10b 产品行为:新组首屏只挂表头),与刷新同批提交。 */
+  /** 新建分组(ui-refresh/04:看板列常显,不再默认折叠)。 */
   async function handleCreateGroup(input: NewGroupInput) {
     const result = await storeRef.current!.createGroup(input);
     if (result.ok) {
       refresh();
-      collapseGroup(result.value.id);
     }
     return result;
   }
@@ -394,15 +356,24 @@ export function App({
     <main className="page">
       <header className="page-header">
         <h1 className="page-title">初始页</h1>
-        {/* 工单 08:导入导出迁入设置页,头部只保留齿轮入口 */}
-        <button
-          type="button"
-          className="gear-button"
-          aria-label="设置"
-          onClick={() => startTransition(() => setView("settings"))}
-        >
-          ⚙ 设置
-        </button>
+        <span className="header-actions">
+          <button
+            type="button"
+            className="edit-toggle"
+            aria-pressed={editMode}
+            onClick={() => setEditMode((on) => !on)}
+          >
+            {editMode ? "完成" : "编辑"}
+          </button>
+          <button
+            type="button"
+            className="gear-button"
+            aria-label="设置"
+            onClick={() => startTransition(() => setView("settings"))}
+          >
+            ⚙ 设置
+          </button>
+        </span>
       </header>
       <div className="search-row">
         <SearchBox
@@ -444,8 +415,7 @@ export function App({
         state={visible}
         groups={groupsInOrder}
         searching={deferredQuery.trim() !== ""}
-        collapsedGroups={collapsed}
-        onToggleCollapse={handleToggleCollapse}
+        editMode={editMode}
         onRenameGroup={handleRenameGroup}
         onRecolorGroup={handleRecolorGroup}
         onDeleteGroup={handleDeleteGroup}

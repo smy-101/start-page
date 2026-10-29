@@ -131,8 +131,8 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
 }
 
 /**
- * 是否仍是全新安装的初始态(仅收集箱、零收藏):懒挂载的折叠缺省判定用
- * (工单 10b:未记录折叠偏好且状态初始 → 首屏全部折叠;老用户不命中,视图不变)。
+ * 是否仍是全新安装的初始态(仅收集箱、零收藏)。导出供预览种子等外部使用;
+ * 懒挂载折叠缺省(工单 10b)已随 ui-refresh/04 移除折叠而下线。
  */
 export function isFreshInstallState(state: BookmarkState): boolean {
   return (

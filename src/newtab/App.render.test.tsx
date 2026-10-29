@@ -88,6 +88,11 @@ function makeState(titles: string[]): BookmarkState {
   };
 }
 
+/** 进入编辑模式(ui-refresh/04):行的编辑/删除与拖拽仅在此模式出现 */
+function enterEditMode() {
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+}
+
 describe("渲染契约:单次变更单提交", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -106,9 +111,6 @@ describe("渲染契约:单次变更单提交", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "收集箱" });
-    // 工单 10b:全新安装收集箱默认折叠;单提交契约需观察卡片,先展开
-    fireEvent.click(screen.getByRole("button", { name: "展开分组 收集箱" }));
-    await screen.findByRole("button", { name: "折叠分组 收集箱" });
     commits = 0;
 
     fireEvent.click(screen.getByRole("button", { name: "添加收藏或分组" }));
@@ -142,9 +144,6 @@ describe("渲染契约:单次变更单提交", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "收集箱" });
-    // 全新安装收集箱默认折叠(工单 10b);跨上下文同步观察卡片需展开态
-    fireEvent.click(screen.getByRole("button", { name: "展开分组 收集箱" }));
-    await screen.findByRole("button", { name: "折叠分组 收集箱" });
     commits = 0;
 
     // 模拟 service worker 等其他上下文的写入
@@ -161,19 +160,6 @@ describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
     localStorage.clear();
   });
 
-  it("折叠分组时,其他分组的卡片不重渲染", async () => {
-    render(<App adapter={createMemoryStorage(threeGroupsState())} />);
-    await screen.findByRole("heading", { name: "工作" });
-    mockCardRenders.titles = [];
-
-    fireEvent.click(screen.getByRole("button", { name: "折叠分组 工作" }));
-    await screen.findByRole("button", { name: "展开分组 工作" });
-
-    // 折叠卸载目标组卡片(卸载不计函数调用);未变分组的卡片因 memo 不重渲染
-    expect(mockCardRenders.titles).toEqual([]);
-    expect(screen.getByText("学件")).toBeInTheDocument();
-  });
-
   it("删除收藏只产生一次提交", async () => {
     let commits = 0;
     render(
@@ -187,6 +173,7 @@ describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "工作" });
+    enterEditMode();
     const learnCard = screen.getByText("学件").closest(".card") as HTMLElement;
     commits = 0;
 
@@ -209,6 +196,7 @@ describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
       </Profiler>
     );
     await screen.findByRole("heading", { name: "工作" });
+    enterEditMode();
     mockCardRenders.titles = [];
 
     // 通过卡片自身编辑按钮改备注(触发全状态替换)
@@ -220,7 +208,13 @@ describe("渲染契约:无关变化不重渲染未变子树(memo)", () => {
     // 编辑态切换与备注输入是子组件自身状态(与被测契约无关),保存前归零再计数
     commits = 0;
     fireEvent.click(within(workCard).getByRole("button", { name: "保存" }));
-    await screen.findByText("新备注");
+    // ui-refresh/04:备注进 title 提示,不再占行宽 —— 以行链接的 title 断言保存生效
+    await waitFor(() =>
+      expect(within(workCard).getByRole("link")).toHaveAttribute(
+        "title",
+        "https://work.example.com\n新备注"
+      )
+    );
 
     // 被编辑卡片自身的内部状态重渲染属正常;其余分组的卡片不得重渲染
     expect(mockCardRenders.titles.filter((t) => t !== "工件")).toEqual([]);

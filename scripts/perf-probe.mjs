@@ -13,12 +13,10 @@
  *   3) Node ≥ 22(原生 WebSocket/fetch)。
  *
  * 用法:
- *   node scripts/perf-probe.mjs [收藏数=5000] [扩展初始页URL] [场景=both|expanded|collapsed]
+ *   node scripts/perf-probe.mjs [收藏数=5000] [扩展初始页URL]
  *
- * 场景(工单 10b 起双场景):
- *   expanded  —— 折叠键清除(老用户全展开基准,10a 的回归基线):首屏计到全部卡片就位。
- *   collapsed —— 全部分组折叠(全新安装/懒挂载语义,10b 验收):首屏只挂表头,
- *                计到全部分组表头就位(首屏定义见 GLOSSARY.md:应挂载内容就位)。
+ * 场景(ui-refresh/04 起单场景):看板全量挂载 —— 折叠/懒挂载已随工单移除,
+ * 首屏 = 全部分组的全部收藏行就位(首屏定义见 GLOSSARY.md:应挂载内容就位)。
  *
  * 输出:JSON —— 各场景冷加载时间线 + 六项交互的主线程同步阻塞时长(毫秒)。
  * 预算(ADR-0002):首屏 ≤500ms;纯 UI 交互 ≤100ms;存储链路交互 ≤300ms。
@@ -27,7 +25,6 @@ const EXT_URL_DEFAULT =
   "chrome-extension://iggapiegngibdfkcmibepdkajojdbbcp/src/newtab/index.html";
 const N = parseInt(process.argv[2] ?? "5000", 10);
 const EXT_URL = process.argv[3] ?? EXT_URL_DEFAULT;
-const SCENARIO = process.argv[4] ?? "both";
 
 // ---------- CDP 连接 ----------
 async function connectPage() {
@@ -128,18 +125,12 @@ const seeded = await evalJs(`(() => {
   for (let i=0;i<nInbox;i++,k++) bookmarks.push({id:'b'+k,url:'https://'+domains[k%domains.length]+'/p/'+k,title:topics[k%topics.length]+' #'+k,note:'',groupId:'inbox',order:i})
   for (let g=0;g<9;g++) for (let i=0;i<perGroup;i++,k++) bookmarks.push({id:'b'+k,url:'https://'+domains[(g*7+i)%domains.length]+'/g'+g+'/p/'+i,title:topics[i%topics.length]+' - '+groups[g+1].name+' #'+i,note:i%3===0?'稍后细读':'',groupId:'g'+g,order:i})
   const state = { schemaVersion:1, groups, bookmarks }
-  ${
-    SCENARIO === "collapsed" || SCENARIO === "both"
-      ? "localStorage.setItem('start-page:collapsed-groups', JSON.stringify(groups.map((g) => g.id)))"
-      : "localStorage.removeItem('start-page:collapsed-groups')"
-  }
   return chrome.storage.local.set({ state }).then(() => ({ count: bookmarks.length, bytes: JSON.stringify(state).length, groups: groups.length, nInbox }))
 })()`);
 console.error(`seeded: ${JSON.stringify(seeded)}`);
 
 // ---------- 2. 冷加载 ----------
-// expectedCards:全展开场景 = 收藏总数;折叠场景 = Infinity(应挂载卡片为 0)。
-// expectedGroups:两场景都计分组表头;doneOn 决定「首屏完成」以哪个标记为准。
+// expectedCards = 收藏总数(看板全量挂载);doneOn 决定「首屏完成」以哪个标记为准(恒 cardsDone)。
 async function coldLoad({ expectedCards, expectedGroups, doneOn }) {
   // 先预热一次导航:消除冷进程的首次解析/编译噪声
   await call("Page.navigate", { url: "about:blank" });
@@ -205,42 +196,42 @@ const measure = async (expr) => evalJs(expr);
 
 /** 添加/删除全链路(submit → storage 写 → 单提交;MutationObserver 判完成,不受定时器节流影响) */
 const addBookmarkScript = `(() => {
-  const setInput = (sel, value) => {
-    const input = document.querySelector(sel)
+  const setInput = (input, value) => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
     setter.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }
-  setInput('input[placeholder="example.com"]', 'example.com/perf-probe')
-  setInput('input[placeholder="留空自动取网站地址"]', '性能探针')
-  const form = document.querySelector('input[placeholder="example.com"]').closest('form')
+  // ui-refresh/02:表单在「+」弹窗内,先打开;挂载异步,轮询等输入框就位
+  document.querySelector('.add-button').click()
   const t0 = performance.now()
-  form.requestSubmit()
   return new Promise((resolve) => {
-    const mo = new MutationObserver(() => {
-      if ([...document.querySelectorAll('.card')].some((c) => c.textContent.includes('性能探针'))) { mo.disconnect(); resolve() }
-    })
-    mo.observe(document.documentElement, { childList: true, subtree: true })
-    setTimeout(resolve, 15000)
-  }).then(() => Math.round(performance.now() - t0))
-})()`;
-const deleteBookmarkScript = `(() => {
-  const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('性能探针'))
-  if (!card) return Promise.resolve(-1)
-  const del = [...card.querySelectorAll('button')].find((b) => b.textContent.trim() === '删除')
-  const t0 = performance.now()
-  del.click()
-  return new Promise((resolve) => {
-    const mo = new MutationObserver(() => {
-      if (![...document.querySelectorAll('.card')].some((c) => c.textContent.includes('性能探针'))) { mo.disconnect(); resolve() }
-    })
-    mo.observe(document.documentElement, { childList: true, subtree: true })
-    setTimeout(resolve, 15000)
-  }).then(() => Math.round(performance.now() - t0))
+    const iv = setInterval(() => {
+      const input = document.querySelector('input[placeholder="example.com"]')
+      if (!input) {
+        if (Date.now() - t0 > 5000) { clearInterval(iv); resolve(null) }
+        return
+      }
+      clearInterval(iv)
+      setInput(input, 'example.com/perf-probe')
+      const title = document.querySelector('input[placeholder="留空自动取网站地址"]')
+      if (title) setInput(title, '性能探针')
+      resolve(input.closest('form'))
+    }, 16)
+  }).then((form) => {
+    if (!form) return -1
+    form.requestSubmit()
+    return new Promise((resolve) => {
+      const mo = new MutationObserver(() => {
+        if ([...document.querySelectorAll('.card')].some((c) => c.textContent.includes('性能探针'))) { mo.disconnect(); resolve() }
+      })
+      mo.observe(document.documentElement, { childList: true, subtree: true })
+      setTimeout(resolve, 15000)
+    }).then(() => Math.round(performance.now() - t0))
+  })
 })()`;
 
-/** 全展开基准(10a 回归):全部卡片挂载,交互在展开态下测。 */
-async function expandedInteractions() {
+/** 看板场景(ui-refresh/04):全量挂载;交互含编辑模式开关与弹窗添加。 */
+async function boardInteractions() {
   const interactions = {};
   interactions["搜索过滤 github"] = await measure(
     `window.__setInput(document.querySelector('input[aria-label="搜索收藏"]'), 'github')`
@@ -251,62 +242,36 @@ async function expandedInteractions() {
   interactions["清空搜索"] = await measure(
     `window.__setInput(document.querySelector('input[aria-label="搜索收藏"]'), '')`
   );
-  await waitFor(
-    `document.querySelectorAll('.card').length >= ${seeded.count - seeded.nInbox}`
+  await waitFor(`document.querySelectorAll('.card').length >= ${seeded.count}`);
+  interactions["编辑模式开启"] = await measure(
+    `window.__clickBtn(document.querySelector('.edit-toggle'))`
   );
-  await waitFor(
-    `document.querySelector('.group button[aria-expanded="true"]') !== null`
+  await waitFor(`document.querySelector('.card button') !== null`);
+  interactions["编辑模式关闭"] = await measure(
+    `window.__clickBtn(document.querySelector('.edit-toggle'))`
   );
-  interactions["折叠分组"] = await measure(
-    `window.__clickBtn(document.querySelector('.group button[aria-expanded="true"]'))`
-  );
-  await waitFor(
-    `document.querySelector('.group button[aria-expanded="false"]') !== null`
-  );
-  interactions["展开分组"] = await measure(
-    `window.__clickBtn(document.querySelector('.group button[aria-expanded="false"]'))`
-  );
-  await waitFor(
-    `document.querySelectorAll('.card').length >= ${seeded.count - seeded.nInbox}`
-  );
+  await waitFor(`document.querySelector('.card button') === null`);
   interactions["添加收藏"] = await measure(addBookmarkScript);
-  interactions["删除收藏"] = await measure(deleteBookmarkScript);
-  return interactions;
-}
-
-/**
- * 折叠场景(10b 懒挂载验收):首屏全部折叠;搜索强制展开、清空恢复折叠、
- * 展开/折叠收集箱(300 条)、添加/删除走展开的收集箱。
- */
-async function collapsedInteractions() {
-  const interactions = {};
-  interactions["搜索过滤 github"] = await measure(
-    `window.__setInput(document.querySelector('input[aria-label="搜索收藏"]'), 'github')`
-  );
+  // 删除(ui-refresh/04:仅编辑模式有按钮)——Node 侧分步驱动 + waitFor 轮询,
+  // 不在页内自旋(该路径在本机 Chrome 的 untrusted click 下不稳定)
+  await measure(`document.querySelector('.edit-toggle').click(); 0`);
   await waitFor(
-    `document.querySelectorAll('.card').length < 500 && document.querySelectorAll('.card').length > 0`
+    `[...document.querySelectorAll('.card')].find((c) => c.textContent.includes('性能探针'))?.querySelectorAll('button').length > 0`
   );
-  interactions["清空搜索"] = await measure(
-    `window.__setInput(document.querySelector('input[aria-label="搜索收藏"]'), '')`
-  );
-  // 清空后全部恢复折叠:卡片归零、十个折叠表头
-  await waitFor(`document.querySelectorAll('.card').length === 0`);
+  interactions["删除收藏"] = await measure(`(() => {
+    const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('性能探针'))
+    const del = card && [...card.querySelectorAll('button')].find((b) => b.textContent.trim() === '删除')
+    if (!del) return -1
+    window.__delT0 = performance.now()
+    del.click()
+    return 0
+  })()`);
   await waitFor(
-    `document.querySelectorAll('.group button[aria-expanded="false"]').length >= ${seeded.groups}`
+    `![...document.querySelectorAll('.card')].some((c) => c.textContent.includes('性能探针'))`
   );
-  // 展开收集箱(第一个折叠表头,order 0):懒挂载的「重挂昂贵」路径
-  interactions["展开分组"] = await measure(
-    `window.__clickBtn(document.querySelector('.group button[aria-expanded="false"]'))`
+  interactions["删除收藏·落定"] = await measure(
+    `Math.round(performance.now() - window.__delT0)`
   );
-  await waitFor(
-    `document.querySelectorAll('.card').length >= ${seeded.nInbox}`
-  );
-  interactions["添加收藏"] = await measure(addBookmarkScript);
-  interactions["删除收藏"] = await measure(deleteBookmarkScript);
-  interactions["折叠分组"] = await measure(
-    `window.__clickBtn(document.querySelector('.group button[aria-expanded="true"]'))`
-  );
-  await waitFor(`document.querySelectorAll('.card').length === 0`);
   return interactions;
 }
 
@@ -316,7 +281,7 @@ async function appendixInteractions() {
   interactions["进入设置"] = await measure(
     `window.__clickBtn(document.querySelector('button[aria-label="设置"]'))`
   );
-  await waitFor(`document.body.textContent.includes('搜索引擎')`);
+  await waitFor(`document.body.textContent.includes('从浏览器书签导入')`);
   interactions["返回初始页"] = await measure(`(async () => {
   const back = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('返回') || b.textContent.includes('完成'))
   if (!back) return -1
@@ -338,22 +303,12 @@ async function appendixInteractions() {
   return interactions;
 }
 
-/** 按场景重灌数据(折叠键按场景写入)→ 冷加载 → 交互。 */
-async function runScenario(mode) {
-  const collapsed = mode === "collapsed";
-  await evalJs(`(() => {
-  const ids = ['inbox', ${Array.from({ length: 9 }, (_, i) => `'g${i}'`).join(", ")}]
-  ${
-    collapsed
-      ? "localStorage.setItem('start-page:collapsed-groups', JSON.stringify(ids))"
-      : "localStorage.removeItem('start-page:collapsed-groups')"
-  }
-  return Promise.resolve(null)
-})()`);
+/** 看板场景:冷加载(全量挂载)→ 交互。 */
+async function runScenario() {
   const cold = await coldLoad({
-    expectedCards: collapsed ? "Infinity" : `${seeded.count}`,
+    expectedCards: `${seeded.count}`,
     expectedGroups: `${seeded.groups}`,
-    doneOn: collapsed ? "groupsDone" : "cardsDone",
+    doneOn: "cardsDone",
   });
   // 交互辅助函数注入当前文档(冷加载导航会重建 document,必须在其后安装)
   await call("Page.bringToFront");
@@ -371,22 +326,14 @@ async function runScenario(mode) {
     return Math.round(performance.now() - t0)
   }
 })()`);
-  const interactions = collapsed
-    ? await collapsedInteractions()
-    : await expandedInteractions();
+  const interactions = await boardInteractions();
   Object.assign(interactions, await appendixInteractions());
   return { cold, interactions };
 }
 
 const out = { seeded };
-if (SCENARIO === "both" || SCENARIO === "expanded") {
-  console.error("---- 场景:expanded(全展开基准,10a 回归)----");
-  out.expanded = await runScenario("expanded");
-}
-if (SCENARIO === "both" || SCENARIO === "collapsed") {
-  console.error("---- 场景:collapsed(全新安装/懒挂载,10b 验收)----");
-  out.collapsed = await runScenario("collapsed");
-}
+console.error("---- 场景:board(看板全量挂载,ui-refresh/04)----");
+out.board = await runScenario();
 
 console.log(JSON.stringify(out, null, 1));
 ws.close();

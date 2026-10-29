@@ -15,11 +15,11 @@ import { GroupHeader } from "./GroupHeader";
 type GroupSectionProps = {
   group: Group;
   bookmarks: Bookmark[];
-  /** 全部分组(按 order 排序):卡片编辑换组的选择候选 */
+  /** 全部分组(按 order 排序):行编辑换组的选择候选 */
   groups: Group[];
-  collapsed: boolean;
+  /** 编辑模式:列头出分组操作、行出编辑删除,均可拖拽(ui-refresh/04) */
+  editMode: boolean;
   /** 共享回调(稳定身份):本组件以自身 group/bookmark 数据供给 id。 */
-  onToggleCollapse(groupId: GroupId): void;
   onRename(id: GroupId, name: string): Promise<Result<Group>>;
   onRecolor(id: GroupId, color: string): Promise<Result<Group>>;
   onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
@@ -35,15 +35,14 @@ type GroupSectionProps = {
 };
 
 /**
- * 分组分区:收藏网格的容器。收集箱是保留分组,表头只读;支持折叠与拖放。
+ * 看板列(ui-refresh/04):分组的列容器,常显不折叠。收集箱是保留分组,列头只读。
  * memo:props(分组对象、组内列表、共享回调)未变时跳过重渲染(工单 10a)。
  */
 export const GroupSection = memo(function GroupSection({
   group,
   bookmarks,
   groups,
-  collapsed,
-  onToggleCollapse,
+  editMode,
   onRename,
   onRecolor,
   onDeleteGroup,
@@ -69,35 +68,34 @@ export const GroupSection = memo(function GroupSection({
       <GroupHeader
         group={group}
         bookmarkCount={bookmarks.length}
-        collapsed={collapsed}
-        onToggleCollapse={() => onToggleCollapse(group.id)}
+        editMode={editMode}
         onRename={(name) => onRename(group.id, name)}
         onRecolor={(color) => onRecolor(group.id, color)}
         onDeleteGroup={() => onDeleteGroup(group.id)}
         onDragStart={() => onGroupDragStart(group.id)}
         onDragEnd={onDragEnd}
       />
-      {!collapsed &&
-        (bookmarks.length === 0 ? (
-          <p className="group-empty">还没有收藏</p>
-        ) : (
-          <ul className="group-grid">
-            {bookmarks.map((bookmark) => (
-              <BookmarkCard
-                key={bookmark.id}
-                bookmark={bookmark}
-                group={group}
-                groups={groups}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onDragStart={onCardDragStart}
-                onDragEnd={onDragEnd}
-                onDragOver={onCardDragOver}
-                onDrop={onCardDrop}
-              />
-            ))}
-          </ul>
-        ))}
+      {bookmarks.length === 0 ? (
+        <p className="group-empty">还没有收藏</p>
+      ) : (
+        <ul className="group-grid">
+          {bookmarks.map((bookmark) => (
+            <BookmarkCard
+              key={bookmark.id}
+              bookmark={bookmark}
+              group={group}
+              groups={groups}
+              editMode={editMode}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onDragStart={onCardDragStart}
+              onDragEnd={onDragEnd}
+              onDragOver={onCardDragOver}
+              onDrop={onCardDrop}
+            />
+          ))}
+        </ul>
+      )}
     </section>
   );
 });
