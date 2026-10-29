@@ -1,7 +1,7 @@
 # 01: 工具栏图标三态重制(大勾方块)
 
 **Type:** task
-**Status:** ready-for-agent
+**Status:** done
 
 ## What
 
@@ -19,3 +19,7 @@
 - [ ] `toolbar.ts` unbookmarkable 用 disabled 图标;title/徽标行为不变
 - [ ] 单测:toolbarStateFor 三态映射不变(现有测试护住);图标路径表断言 disabled 存在
 - [ ] `node scripts/generate-icons.mjs` 产出稳定;`npm test` / `npm run typecheck` / `npm run build` 全绿
+
+## Comments
+
+- 2026-10-30: 实现含一处既有 bug 修复——`insideRoundedRect` 把「到圆角圆心的距离」误算成「到角点的距离」,四角呈带凹缺的直角(图片查看器里表现为四角黑三角);修正后 icon-16~128 与 filled 全部真正圆角。像素级验证:四角透明、中心白勾、disabled 描边 #b3b9c2 vs outline #5f6368。徽标新增语义底色(× 红 / 已收藏绿 / 已取消灰)。192 测试全绿。
