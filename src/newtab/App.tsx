@@ -381,8 +381,6 @@ export function App({
   if (view === "settings") {
     return (
       <SettingsView
-        settings={settings}
-        onEngineChange={(engine) => void handleEngineChange(engine)}
         onBack={() => startTransition(() => setView("start"))}
         state={state}
         adapter={adapter}
@@ -407,7 +405,13 @@ export function App({
         </button>
       </header>
       <div className="search-row">
-        <SearchBox query={query} onChange={setQuery} onSearch={handleSearch} />
+        <SearchBox
+          query={query}
+          engine={settings.engine}
+          onChange={setQuery}
+          onSearch={handleSearch}
+          onEngineChange={(engine) => void handleEngineChange(engine)}
+        />
         <button
           type="button"
           className="add-button"

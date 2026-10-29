@@ -138,19 +138,110 @@ body {
   margin: 0 auto 22px;
 }
 
-.search-input {
-  display: block;
+/* 搜索胶囊:引擎按钮 + 输入同住一颗胶囊(胶囊是页面唯一主角,唯一带阴影) */
+.search-capsule {
+  position: relative;
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 0;
-  margin: 0;
-  padding: 12px 20px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--card);
-  color: var(--fg);
-  font-size: 15px;
   box-shadow: var(--shadow-hero);
   transition: border-color 120ms var(--ease-out);
+}
+
+.search-capsule:hover {
+  border-color: var(--border-strong);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 20px 12px 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 15px;
+}
+
+.search-input:focus {
+  outline: none;
+}
+
+.search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.engine-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  margin-left: 6px;
+  padding: 2px 10px 2px 12px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.engine-button:hover {
+  color: var(--fg);
+  border: none;
+}
+
+.engine-caret {
+  font-size: 10px;
+}
+
+/* 引擎菜单:锚在胶囊左下,150-250ms 释出 */
+.engine-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  min-width: 128px;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 32px -12px rgba(16, 19, 23, 0.3);
+  transform-origin: top left;
+  animation: engine-menu-in 160ms var(--ease-out);
+}
+
+@keyframes engine-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.engine-option {
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+}
+
+.engine-option:hover {
+  border: none;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.engine-option[aria-selected="true"] {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
 }
 
 .add-button {
@@ -752,38 +843,6 @@ button[type="submit"]:hover {
   margin: 0 0 14px;
   color: var(--muted);
   font-size: 13px;
-}
-
-/* 引擎选择:芯片化单选,选中态收墨 */
-.settings-engine-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.settings-engine-options label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition:
-    border-color 120ms var(--ease-out),
-    background-color 120ms var(--ease-out);
-}
-
-.settings-engine-options label:has(input:checked) {
-  border-color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-  font-weight: 550;
-}
-
-.settings-engine-options input {
-  accent-color: var(--fg);
-  margin: 0;
 }
 
 .import-export {
