@@ -3,29 +3,26 @@ import { INBOX_GROUP_ID } from "../domain/store";
 import type { DeleteGroupResult, Group, Result } from "../domain/types";
 import { ColorSwatches } from "./ColorSwatches";
 import { domainErrorText } from "./messages";
-import { ChevronDownIcon, GripIcon, PencilIcon, TrashIcon } from "./Icon";
+import { ChevronDownIcon, PencilIcon, TrashIcon } from "./Icon";
 
 type GroupHeaderProps = {
   group: Group;
   bookmarkCount: number;
   /** 折叠态(board-refresh/03):仅影响折叠钮指向与 aria-expanded */
   collapsed: boolean;
-  /** 白板模式(board-whiteboard/03):分组操作出现;组拖拽随门禁开放(白板内走 Pointer 定位) */
+  /** 白板模式(board-whiteboard/03):分组操作出现;分组移动走画布 Pointer 拖拽 */
   whiteboardMode: boolean;
   onToggleCollapse(): void;
   onRename(name: string): Promise<Result<Group>>;
   onRecolor(color: string): Promise<Result<Group>>;
   onDeleteGroup(): Promise<DeleteGroupResult>;
-  /** 组间拖拽排序:表头作为拖拽源(放置目标由所在分区承担);
-   * 事件透传给 App 设 effectAllowed。 */
-  onDragStart(event: React.DragEvent): void;
-  onDragEnd(): void;
 };
 
 /**
- * 分组列头:折叠钮/色点/名字/计数;改名/换色/删除与拖拽仅在白板模式
- * 出现(board-whiteboard/03 门禁;board-refresh/04 的常时拖拽回收入闸)。收集箱是
- * 保留分组,始终只读(可折叠可拖)。
+ * 分组列头:折叠钮/色点/名字/计数;改名/换色/删除仅在白板模式出现
+ * (board-whiteboard/03 门禁)。收集箱是保留分组,始终只读(可折叠)。
+ * 组头不携带原生 DnD:分组移动由画布 Pointer 拖拽承担(ADR-0004,
+ * 墙退役后仅收藏排序保留 HTML5 DnD)。
  */
 export function GroupHeader({
   group,
@@ -36,8 +33,6 @@ export function GroupHeader({
   onRename,
   onRecolor,
   onDeleteGroup,
-  onDragStart,
-  onDragEnd,
 }: GroupHeaderProps) {
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [name, setName] = useState(group.name);
@@ -80,15 +75,7 @@ export function GroupHeader({
   }
 
   return (
-    <div
-      className="group-header"
-      // 拖拽随白板模式门禁(board-whiteboard/03;board-refresh/04 常时拖拽回收入闸):
-      // 墙上走原生 DnD 换位,白板内被画布拦截改走 Pointer 定位;
-      // 编辑/删除确认中临时不可拖,避免与表单控件冲突
-      draggable={mode === "view" && whiteboardMode}
-      onDragStart={(event) => onDragStart(event)}
-      onDragEnd={onDragEnd}
-    >
+    <div className="group-header">
       {mode === "edit" && !isInbox ? (
         <form className="group-edit-form" onSubmit={handleSave}>
           <label htmlFor={`group-name-${group.id}`}>分组名</label>
@@ -158,11 +145,6 @@ export function GroupHeader({
           />
           <h2 className="group-name">{group.name}</h2>
           <span className="group-count">{bookmarkCount}</span>
-          {whiteboardMode && (
-            <span className="drag-grip" aria-hidden="true">
-              <GripIcon size={14} />
-            </span>
-          )}
           {!isInbox && whiteboardMode && (
             <span className="group-actions">
               <button

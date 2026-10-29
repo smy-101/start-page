@@ -121,10 +121,10 @@ if (mode === "fresh") {
   // 展开回来,进编辑模式
   await page.click('section[aria-label="设计灵感"] .collapse-toggle');
   await page.click('section[aria-label="影视娱乐"] .collapse-toggle');
-  await page.click(".edit-toggle");
+  await page.click(".whiteboard-toggle");
   await page.waitForTimeout(250);
   await page.screenshot({ path: `${outDir}/light-edit.png`, fullPage: true });
-  await page.click(".edit-toggle");
+  await page.click(".whiteboard-toggle");
   // 深色
   await page.emulateMedia({ colorScheme: "dark" });
   await page.waitForTimeout(400);

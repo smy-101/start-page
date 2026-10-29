@@ -17,3 +17,7 @@
 - **吸附与兜底**:松手吸附 16px 网格;允许重叠;「自动整理」复用 planWall——ADR-0003 的装箱算法从布局引擎**降级为整理算法**,墙的测高/RO 壳退役。
 - **拖拽实现**:Pointer 事件(跟手),画布层拦 `dragstart` 杀组头原生 DnD(否则劫持 pointermove);组内收藏排序仍走 HTML5 DnD 体系(DropHint 等)。
 - 原型为一手资料:`git checkout prototype/board-whiteboard`,`preview/index.html?variant=B` 可复跑;实现工单 `.scratch/board-whiteboard/`。
+
+**补记 2026-10-30(board-whiteboard/04)**:墙退役落地——白板成为唯一看板视图,
+墙壳(BookmarkGroups 测高/RO)与组间换位原生 DnD 删除;本篇「复用 planWall」
+所指装箱算法现名 `packCanvas`,与坐标几何同落 `src/domain/canvas.ts`。

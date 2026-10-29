@@ -82,6 +82,7 @@ function renderBoard(
     onSectionDrop: vi.fn(),
     onCardDragOver: vi.fn(),
     onCardDrop: vi.fn(),
+    onBoardDragLeave: vi.fn(),
     onEdit: vi.fn(),
     onDelete: vi.fn(),
     ...overrides,
@@ -211,7 +212,7 @@ describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
 });
 
 describe("白板:自动整理", () => {
-  it("量高装箱:planWall 贪心装箱回坐标(floor 取整),画布高随内容增长", () => {
+  it("量高装箱:packCanvas 贪心装箱回坐标(floor 取整),画布高随内容增长", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     // 三卡同高 100,第四组(乙组)200 高:装箱后乙组进首列第二行
     withHeight(sectionOf("收集箱"), 100);

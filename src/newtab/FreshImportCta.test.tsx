@@ -57,7 +57,7 @@ describe("全新安装引导(board-refresh/06)", () => {
       screen.getByRole("button", { name: "从浏览器书签导入" })
     ).toBeInTheDocument();
     // 看板仍在(收集箱空列可见),编辑/建组路径不被堵死
-    expect(document.querySelector(".groups-wall")).not.toBeNull();
+    expect(document.querySelector(".whiteboard-canvas")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "手动添加收藏" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe("全新安装引导(board-refresh/06)", () => {
     await screen.findByRole("listitem");
 
     expect(document.querySelector(".fresh-cta")).toBeNull();
-    expect(document.querySelector(".groups-wall")).not.toBeNull();
+    expect(document.querySelector(".whiteboard-canvas")).not.toBeNull();
   });
 
   it("导入空书签树:提示无书签,引导保留", async () => {

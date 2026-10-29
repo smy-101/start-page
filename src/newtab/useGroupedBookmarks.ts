@@ -9,7 +9,7 @@ function sameItems<T>(a: T[], b: T[]): boolean {
 /**
  * 组内收藏列表:内容未变(逐项同引用)时复用上一次的数组实例,
  * 使无关变更不打破下游 GroupSection/BookmarkCard 的 memo。
- * 墙(BookmarkGroups)与白板(Whiteboard)共用。
+ * 白板(Whiteboard)消费;墙退役(board-whiteboard/04)前与墙视图共用。
  */
 export function useGroupedBookmarks(
   bookmarks: Bookmark[],

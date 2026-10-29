@@ -34,6 +34,30 @@ export function spreadPositions(count: number): CanvasPos[] {
 }
 
 /**
+ * 自动整理装箱(ADR-0004):量得各分组卡高度后,按 order 逐个放入
+ * 当前最矮列(平手取靠前)贪心装箱,无行对齐空隙——原 ADR-0003
+ * 瀑布流墙的布局算法降级为整理算法,墙体退役后仅存此用途。
+ * DOM/Tab 序仍由 order 承担;高度全 0(测不出,jsdom)退化零高铺开。
+ */
+export function packCanvas(heights: readonly number[]): CanvasPos[] {
+  if (heights.length === 0) return [];
+  if (heights.every((h) => h === 0)) return spreadPositions(heights.length);
+  const columnHeights = new Array<number>(CANVAS_COLUMNS).fill(0);
+  return heights.map((height) => {
+    let target = 0;
+    for (let c = 1; c < CANVAS_COLUMNS; c++) {
+      if (columnHeights[c] < columnHeights[target]) target = c;
+    }
+    const pos = {
+      x: Math.floor(target * (CARD_W + GAP)),
+      y: Math.floor(columnHeights[target]),
+    };
+    columnHeights[target] += height + GAP;
+    return pos;
+  });
+}
+
+/**
  * 画布底部左侧追加位:新分组的默认落点(「第一个空位」的简单实现,同原型)。
  * 连续 count 个按堆叠步长顺次排开;高度未知,用代理卡高推底。
  */

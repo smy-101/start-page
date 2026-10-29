@@ -17,19 +17,10 @@ import type {
   Result,
 } from "../domain/types";
 import type { BookmarkPatch, GroupPositionInput } from "../domain/store";
-import {
-  CANVAS_COLUMNS,
-  CANVAS_W,
-  CARD_W,
-  GAP,
-  appendPositions,
-  spreadPositions,
-} from "../domain/canvas";
+import { CANVAS_W, appendPositions, packCanvas } from "../domain/canvas";
 import type { CanvasPos } from "../domain/canvas";
 import { GroupSection } from "./GroupSection";
-import { planWall } from "./wallLayout";
-import type { WallPlacement } from "./wallLayout";
-import type { DropHint, DragHandlers } from "./BookmarkGroups";
+import type { DropHint, DragHandlers } from "./dragTypes";
 import { useGroupedBookmarks } from "./useGroupedBookmarks";
 
 /** 松手吸附网格(px,ADR-0004 Q4)。 */
@@ -48,16 +39,16 @@ const CANVAS_PAD = 24;
  * - 组位移走 Pointer 事件:画布级委托 pointerdown(交互控件放行),
  *   move/up 挂 window;拖中关位移过渡跟手 1:1,松手吸附 16px 网格
  *   后经 onSetGroupPositions 写回(clamp 由领域层收口)。
- * - 画布捕获阶段拦组头原生 DnD(board-refresh/04 常开拖拽,在白板上
- *   会劫持 pointermove——原型实测坑);组内收藏排序仍走 HTML5 DnD
- *   (DropHint 体系),收藏卡(.card)的 dragstart 放行。
- * - 「自动整理」:量高贪心装箱回 planWall 落点;测不出高度(零高,
+ * - 画布捕获阶段拦非收藏卡的原生 dragstart(组头文字选区等,免劫持
+ *   pointermove);组内收藏排序仍走 HTML5 DnD(DropHint 体系),收藏卡
+ * (.card)的 dragstart 放行。
+ * - 「自动整理」:量高贪心装箱回 packCanvas 落点;测不出高度(零高,
  *   jsdom)退化零高铺开——与 v2→v3 迁移共用 spreadPositions。
  * - 本票门禁(board-whiteboard/03):白板模式(原编辑模式)是唯一拖拽入口。
  *   日常态不进拖拽会话,按住分组卡移动超 5px 出 nudge 引导
  *   (一键进入,4s 自动消隐);搜索过滤态禁拖也不出 nudge
  *   (过滤态坐标无意义),「自动整理」同因禁用。
- * - App 以 boardView 注入缝替换墙视图。
+ * - 墙退役后(board-whiteboard/04)是 App 的唯一看板视图。
  */
 /** 白板 props(渲染测试的 harness 供外部注入用)。 */
 export type WhiteboardProps = {
@@ -86,7 +77,7 @@ export type WhiteboardProps = {
   ): Promise<Result<Group[]>>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
-} & Omit<DragHandlers, "onGroupDragStart" | "onWallDragLeave">;
+} & DragHandlers;
 
 /** Pointer 拖拽会话的被拖卡跟手坐标(未吸附;松手才吸附写回)。 */
 type DragPos = { id: GroupId; x: number; y: number };
@@ -110,6 +101,7 @@ export function Whiteboard({
   onSectionDrop,
   onCardDragOver,
   onCardDrop,
+  onBoardDragLeave,
   onEdit,
   onDelete,
 }: WhiteboardProps) {
@@ -130,7 +122,7 @@ export function Whiteboard({
   // ---- 落点表:坐标来自分组数据(持久);引用稳定(memo 契约),
   // 数值未变的格子沿用旧对象,无关渲染不打断 GroupSection 的 memo。
   // 无坐标的分组(运行时损坏防御)落画布底部追加位,同新建分组口径。 ----
-  const placementsRef = useRef(new Map<GroupId, WallPlacement>());
+  const placementsRef = useRef(new Map<GroupId, CanvasPos>());
   const placements = useMemo(() => {
     const prev = placementsRef.current;
     const known = groupsByOrder.filter(
@@ -141,35 +133,30 @@ export function Whiteboard({
         ? appendPositions(known, groupsByOrder.length - known.length)
         : [];
     let appendAt = 0;
-    const next = new Map<GroupId, WallPlacement>();
+    const next = new Map<GroupId, CanvasPos>();
     for (const g of groupsByOrder) {
       const pos: CanvasPos =
         Number.isFinite(g.x) && Number.isFinite(g.y)
           ? { x: g.x, y: g.y }
           : appends[appendAt++];
       const kept = prev.get(g.id);
-      next.set(
-        g.id,
-        kept && kept.left === pos.x && kept.top === pos.y
-          ? kept
-          : { left: pos.x, top: pos.y, width: CARD_W }
-      );
+      next.set(g.id, kept && kept.x === pos.x && kept.y === pos.y ? kept : pos);
     }
     placementsRef.current = next;
     return next;
   }, [groupsByOrder]);
 
   /** 渲染落点:被拖卡用跟手坐标(每帧新对象;其余引用稳定)。 */
-  function placementOf(group: Group): WallPlacement | null {
+  function placementOf(group: Group): CanvasPos | null {
     return drag?.id === group.id
-      ? { left: drag.x, top: drag.y, width: CARD_W }
+      ? { x: drag.x, y: drag.y }
       : (placements.get(group.id) ?? null);
   }
 
   // 画布高随内容增长:最底卡片底边 + 底衬(测不出高度时退化为坐标底)
   let canvasMinH = CANVAS_PAD;
   for (const g of groupsByOrder) {
-    const top = drag?.id === g.id ? drag.y : placements.get(g.id)?.top;
+    const top = drag?.id === g.id ? drag.y : placements.get(g.id)?.y;
     if (top !== undefined)
       canvasMinH = Math.max(
         canvasMinH,
@@ -217,8 +204,8 @@ export function Whiteboard({
       grabX: event.clientX - rect.left,
       grabY: event.clientY - rect.top,
     };
-    dragPosRef.current = { x: pos.left, y: pos.top };
-    setDrag({ id, x: pos.left, y: pos.top });
+    dragPosRef.current = { x: pos.x, y: pos.y };
+    setDrag({ id, x: pos.x, y: pos.y });
   };
 
   useEffect(() => {
@@ -287,23 +274,19 @@ export function Whiteboard({
     if (whiteboardMode || searching) setNudge(false);
   }, [whiteboardMode, searching]);
 
-  // ---- 自动整理:量高 → planWall 贪心装箱回坐标;零高(测不出,
-  // jsdom)退化零高铺开(与 v2→v3 迁移共用 spreadPositions 策略)。 ----
+  // ---- 自动整理:量高 → packCanvas 贪心装箱回坐标(零高退化已内聚
+  // 在领域模块,与 v2→v3 迁移共用 spreadPositions 策略)。 ----
   const pack = useCallback(() => {
     if (ids.length === 0) return;
-    const heights = ids.map((id) => heightOf(id));
-    const positions: CanvasPos[] = heights.every((h) => h === 0)
-      ? spreadPositions(ids.length)
-      : planWall(heights, CANVAS_COLUMNS, CANVAS_W, GAP).placements.map(
-          (p) => ({ x: Math.floor(p.left), y: Math.floor(p.top) })
-        );
+    const positions = packCanvas(ids.map((id) => heightOf(id)));
     void onSetGroupPositions(
       ids.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }))
     );
   }, [ids, heightOf, onSetGroupPositions]);
 
-  // 组头原生 DnD 在白板上被杀(捕获阶段,组头自身 handler 不再触发);
-  // 收藏卡(.card,含浏览态链接拖曳)照常放行,组内排序 DnD 不受影响
+  // 组头等非收藏卡的原生 dragstart 被画布拦下(捕获阶段,避免文字选区
+  // 拖拽劫持 pointermove 会话);收藏卡(.card,含浏览态链接拖曳)照常
+  // 放行,组内排序 DnD 不受影响
   const onCanvasDragStart = (event: React.DragEvent) => {
     const target = event.target as HTMLElement;
     if (!target.closest(".card")) {
@@ -311,13 +294,6 @@ export function Whiteboard({
       event.stopPropagation();
     }
   };
-
-  // 组头拖拽回调占位:画布层已拦组头 dragstart,这里仅满足 GroupSection
-  // 的 prop 形状(白板内不会因交互触发)
-  const noopGroupDragStart = useCallback(
-    (_event: React.DragEvent, _groupId: GroupId) => {},
-    []
-  );
 
   if (searching && state.bookmarks.length === 0) {
     return <p className="search-empty">没有找到匹配的收藏</p>;
@@ -357,7 +333,7 @@ export function Whiteboard({
           </button>
         </div>
       )}
-      <div className="whiteboard-scroll">
+      <div className="whiteboard-scroll" onDragLeave={onBoardDragLeave}>
         <div
           className="whiteboard-canvas"
           ref={canvasRef}
@@ -382,7 +358,6 @@ export function Whiteboard({
               onRename={onRenameGroup}
               onRecolor={onRecolorGroup}
               onDeleteGroup={onDeleteGroup}
-              onGroupDragStart={noopGroupDragStart}
               onCardDragStart={onCardDragStart}
               onDragEnd={onDragEnd}
               onSectionDragOver={onSectionDragOver}

@@ -175,16 +175,19 @@ describe("分组管理:删除分组回收", () => {
   });
 });
 
-describe("分组管理:拖拽三件套", () => {
-  it("组间排序:把工作分组拖到收集箱分区上,工作排到收集箱之前", async () => {
+describe("分组管理:拖拽(组内排序与跨组移动)", () => {
+  it("组间换位 DnD 已随墙退役:组头拖不起,drop 不换位", async () => {
     await renderSeeded();
     expect(sectionNames()).toEqual(["收集箱", "工作"]);
 
     const work = screen.getByRole("region", { name: "工作" });
-    fireEvent.dragStart(within(work).getByRole("heading", { name: "工作" }));
+    expect(
+      fireEvent.dragStart(within(work).getByRole("heading", { name: "工作" }))
+    ).toBe(false);
     fireEvent.drop(screen.getByRole("region", { name: "收集箱" }));
 
-    await waitFor(() => expect(sectionNames()).toEqual(["工作", "收集箱"]));
+    // order 不变:分组移动只走白板 Pointer 拖拽(写 x/y,不改 order)
+    expect(sectionNames()).toEqual(["收集箱", "工作"]);
   });
 
   it("组内排序:把第二张收藏拖到第一张之前", async () => {

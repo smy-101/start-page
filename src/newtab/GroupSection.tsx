@@ -1,4 +1,4 @@
-import { Fragment, memo, useState } from "react";
+import { Fragment, memo } from "react";
 import type { CSSProperties, RefCallback } from "react";
 import type {
   Bookmark,
@@ -11,16 +11,17 @@ import type {
 import type { BookmarkPatch } from "../domain/store";
 import { BookmarkCard } from "./BookmarkCard";
 import { GroupHeader } from "./GroupHeader";
-import type { DragHandlers } from "./BookmarkGroups";
-import type { WallPlacement } from "./wallLayout";
+import { CARD_W } from "../domain/canvas";
+import type { CanvasPos } from "../domain/canvas";
+import type { DragHandlers } from "./dragTypes";
 
 type GroupSectionProps = {
   group: Group;
   bookmarks: Bookmark[];
   /** 全部分组(按 order 排序):行编辑换组的选择候选 */
   groups: Group[];
-  /** 瀑布流落点(ADR-0003):墙测高后由 planWall 计算;null 时不定位 */
-  placement: WallPlacement | null;
+  /** 画布坐标(ADR-0004):x/y 入库,卡宽全局常量;null 时不定位 */
+  placement: CanvasPos | null;
   /** 折叠态(board-refresh/03):仅渲染列头,不挂载组内 DOM */
   collapsed: boolean;
   /** 白板模式(原编辑模式,board-whiteboard/03):唯一开编辑控件与拖拽的门禁 */
@@ -29,7 +30,7 @@ type GroupSectionProps = {
   dragActive?: boolean;
   /** 拖收藏中的插入槽位(本组渲染坐标);null = 指针不在本组 */
   dropIndex: number | null;
-  /** 墙布局测量登记(BookmarkGroups 供给,按 id 缓存的稳定回调) */
+  /** 画布测量登记(Whiteboard 供给,按 id 缓存的稳定回调) */
   elementRef?: RefCallback<HTMLElement>;
   /** 折叠/展开(稳定身份):本组件以自身 group 数据供给 id */
   onToggleCollapse(groupId: GroupId): void;
@@ -39,12 +40,13 @@ type GroupSectionProps = {
   onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
-} & Omit<DragHandlers, "onWallDragLeave">;
+} & Omit<DragHandlers, "onBoardDragLeave">;
 
 /**
- * 看板列(ui-refresh/04):分组的瀑布流格子。折叠时仅列头(board-refresh/03),
- * 收集箱是保留分组,列头只读。memo:props 未变时跳过重渲染(工单 10a)。
- * placement 由墙布局计算(左/顶/宽),DOM 顺序仍保持组间逻辑顺序。
+ * 画布上的分组卡(ui-refresh/04 → ADR-0004 白板):x/y 坐标自由定位,
+ * 卡宽全局常量。折叠时仅列头(board-refresh/03),收集箱是保留分组,
+ * 列头只读。memo:props 未变时跳过重渲染(工单 10a)。
+ * DOM 顺序仍保持组间逻辑 order 序(可访问性)。
  */
 export const GroupSection = memo(function GroupSection({
   group,
@@ -60,7 +62,6 @@ export const GroupSection = memo(function GroupSection({
   onRename,
   onRecolor,
   onDeleteGroup,
-  onGroupDragStart,
   onCardDragStart,
   onDragEnd,
   onSectionDragOver,
@@ -70,11 +71,8 @@ export const GroupSection = memo(function GroupSection({
   onEdit,
   onDelete,
 }: GroupSectionProps) {
-  // 组拖拽源反馈:拖起时本列就地淡化(dragend 在源元素上必发,含放置成功)
-  const [groupDragging, setGroupDragging] = useState(false);
-
-  const wallStyle = placement
-    ? { left: placement.left, top: placement.top, width: placement.width }
+  const canvasStyle = placement
+    ? { left: placement.x, top: placement.y, width: CARD_W }
     : undefined;
 
   return (
@@ -82,12 +80,11 @@ export const GroupSection = memo(function GroupSection({
       className="group"
       aria-label={group.name}
       data-collapsed={collapsed ? "true" : undefined}
-      data-group-dragging={groupDragging ? "true" : undefined}
       data-drag-active={dragActive ? "true" : undefined}
       data-drop-hint={dropIndex !== null ? "true" : undefined}
       ref={elementRef}
       // 分组色注入为 CSS 变量:左脊/悬停边框/指示线等着色用(纯表现,不影响语义)
-      style={{ "--group-color": group.color, ...wallStyle } as CSSProperties}
+      style={{ "--group-color": group.color, ...canvasStyle } as CSSProperties}
       onDragOver={(event) => onSectionDragOver(event, group.id)}
       onDrop={(event) => onSectionDrop(event, group.id)}
     >
@@ -100,14 +97,6 @@ export const GroupSection = memo(function GroupSection({
         onRename={(name) => onRename(group.id, name)}
         onRecolor={(color) => onRecolor(group.id, color)}
         onDeleteGroup={() => onDeleteGroup(group.id)}
-        onDragStart={(event) => {
-          setGroupDragging(true);
-          onGroupDragStart(event, group.id);
-        }}
-        onDragEnd={() => {
-          setGroupDragging(false);
-          onDragEnd();
-        }}
       />
       {!collapsed &&
         (bookmarks.length === 0 ? (

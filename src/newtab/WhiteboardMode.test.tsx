@@ -8,7 +8,6 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
-import { Whiteboard } from "./Whiteboard";
 import { pointerEvent, queryNudge } from "./testUtils";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/store";
@@ -17,8 +16,8 @@ import type { BookmarkState } from "../domain/types";
 /**
  * 白板模式门禁(board-whiteboard/03,原编辑模式 ui-refresh/04 更名):
  * 白板模式是唯一开拖拽与编辑 UI 的状态;日常态锁死且发现性不倒退
- * ——组头无把手无 grab,拖动意图出 nudge 一键进入(白板画布上)。
- * 默认宿主仍是墙(墙体退役是票 04):墙上组头换位同样进门禁。
+ * ——组头无把手无 grab,拖动意图出 nudge 一键进入。
+ * 墙体已退役(board-whiteboard/04):白板是唯一看板视图。
  */
 
 function seededState(): BookmarkState {
@@ -56,19 +55,14 @@ function seededState(): BookmarkState {
   };
 }
 
-async function renderSeeded(withWhiteboard = false) {
-  render(
-    <App
-      adapter={createMemoryStorage(seededState())}
-      boardView={withWhiteboard ? Whiteboard : undefined}
-    />
-  );
+async function renderSeeded() {
+  render(<App adapter={createMemoryStorage(seededState())} />);
   await screen.findByRole("region", { name: "工作" });
 }
 
-/** 看板容器(排除头部开关的按钮断言范围)。 */
+/** 画布(排除头部开关的按钮断言范围)。 */
 async function board(): Promise<HTMLElement> {
-  const el = document.querySelector(".groups-wall, .whiteboard-canvas");
+  const el = document.querySelector(".whiteboard-canvas");
   if (!(el instanceof HTMLElement)) throw new Error("看板未渲染");
   return el;
 }
@@ -77,33 +71,31 @@ describe("白板模式(原编辑模式,ui-refresh/04 + board-whiteboard/03 门�
   it("日常态页面干净:无编辑/删除,组头无把手不可拖", async () => {
     await renderSeeded();
 
-    const wall = await board();
+    const canvas = await board();
     expect(
-      within(wall).queryAllByRole("button", { name: "编辑" })
+      within(canvas).queryAllByRole("button", { name: "编辑" })
     ).toHaveLength(0);
     expect(
-      within(wall).queryAllByRole("button", { name: "删除" })
+      within(canvas).queryAllByRole("button", { name: "删除" })
     ).toHaveLength(0);
     expect(
-      within(wall).queryAllByRole("button", { name: /^编辑分组/ })
+      within(canvas).queryAllByRole("button", { name: /^编辑分组/ })
     ).toHaveLength(0);
     expect(
-      within(wall).queryAllByRole("button", { name: /^删除分组/ })
+      within(canvas).queryAllByRole("button", { name: /^删除分组/ })
     ).toHaveLength(0);
 
     const inboxRegion = screen.getByRole("region", { name: "收集箱" });
     const card = within(inboxRegion).getByRole("listitem");
     expect(card).toHaveAttribute("draggable", "false");
-    // board-whiteboard/03:组头拖拽(含把手/grab 光标)随门禁收回,日常态无暗示
+    // 组头不再携带原生 DnD(ADR-0004 墙退役):无 draggable、无把手暗示
     const work = screen.getByRole("region", { name: "工作" });
-    expect(work.querySelector(".group-header")).toHaveAttribute(
-      "draggable",
-      "false"
+    expect(work.querySelector(".group-header")).not.toHaveAttribute(
+      "draggable"
     );
-    expect(work.querySelector(".drag-grip")).toBeNull();
   });
 
-  it("进入后行出编辑/删除并可拖拽,列头出分组操作与把手;完成后恢复干净", async () => {
+  it("进入后行出编辑/删除并可拖拽,列头出分组操作;完成后恢复干净", async () => {
     await renderSeeded();
 
     fireEvent.click(screen.getByRole("button", { name: "进入白板" }));
@@ -127,11 +119,7 @@ describe("白板模式(原编辑模式,ui-refresh/04 + board-whiteboard/03 门�
     expect(
       within(work).getByRole("button", { name: "删除分组 工作" })
     ).toBeInTheDocument();
-    expect(work.querySelector(".group-header")).toHaveAttribute(
-      "draggable",
-      "true"
-    );
-    expect(work.querySelector(".drag-grip")).not.toBeNull();
+    // 组头无原生 DnD:分组移动走画布 Pointer 拖拽(见 Whiteboard.test)
 
     fireEvent.click(screen.getByRole("button", { name: "完成" }));
 
@@ -147,28 +135,30 @@ describe("白板模式(原编辑模式,ui-refresh/04 + board-whiteboard/03 门�
     ).toBeInTheDocument();
   });
 
-  it("组头换位进门禁(board-whiteboard/03):日常态拖不动,进入后可换位", async () => {
+  it("组间换位 DnD 已退役(墙退役):组头 dragstart 被画布拦下,drop 不换位", async () => {
     await renderSeeded();
 
     const work = screen.getByRole("region", { name: "工作" });
-    // 日常态:原生 dragstart 在组头上照发,但 draggable=false 浏览器不放行;
-    // 即便人为拖起,落点也不换位(门禁语义)
-    fireEvent.dragStart(work.querySelector(".group-header")!);
+    // 组头无原生 DnD;即便人为拖起,落点也不换位(分支已删)
+    expect(fireEvent.dragStart(work.querySelector(".group-header")!)).toBe(
+      false
+    );
     fireEvent.drop(screen.getByRole("region", { name: "收集箱" }));
     await waitFor(() => expect(sectionNames()).toEqual(["收集箱", "工作"]));
 
-    // 进入白板模式:组头换位恢复(board-refresh/04 行为进门禁内)
+    // 白板模式内同样拦:分组移动只走画布 Pointer 拖拽
     fireEvent.click(screen.getByRole("button", { name: "进入白板" }));
-    fireEvent.dragStart(work.querySelector(".group-header")!);
+    expect(fireEvent.dragStart(work.querySelector(".group-header")!)).toBe(
+      false
+    );
     fireEvent.drop(screen.getByRole("region", { name: "收集箱" }));
-
-    await waitFor(() => expect(sectionNames()).toEqual(["工作", "收集箱"]));
+    await waitFor(() => expect(sectionNames()).toEqual(["收集箱", "工作"]));
   });
 });
 
-describe("白板画布门禁 + nudge(board-whiteboard/03,注入白板视图)", () => {
+describe("白板画布门禁 + nudge(board-whiteboard/03)", () => {
   it("日常态拖动意图出 nudge,一键进入后可拖", async () => {
-    await renderSeeded(true);
+    await renderSeeded();
     const groupWork = screen.getByRole("region", { name: "工作" });
 
     // 日常态:按住分组卡移动(位移 >5px)→ nudge 引导,卡片不动
@@ -221,7 +211,7 @@ describe("白板画布门禁 + nudge(board-whiteboard/03,注入白板视图)", (
   });
 
   it("头部入口常驻:白板内出自动整理,完成回到日常", async () => {
-    await renderSeeded(true);
+    await renderSeeded();
 
     // 日常态:无工具行,只有常驻头部入口
     expect(

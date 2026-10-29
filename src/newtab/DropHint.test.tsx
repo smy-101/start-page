@@ -156,38 +156,33 @@ describe("拖拽:插入指示线与前后判定", () => {
     expect(indicatorSlot(inbox())).toBeNull();
   });
 
-  it("指针拖离整墙清指示线;组内移动触发的 dragleave 不清", async () => {
+  it("指针拖离看板清指示线;组内移动触发的 dragleave 不清", async () => {
     await renderSeeded();
 
     fireEvent.dragStart(cards(inbox())[2]);
     dragOverWith(withGeometry(cards(inbox())[0]), 110);
     expect(indicatorSlot(inbox())).toBe(0);
 
-    // 拖离墙外(relatedTarget 不在墙内)
-    const wall = document.querySelector(".groups-wall")!;
-    dragLeaveTo(wall, document.body);
+    // 拖离看板外(relatedTarget 不在看板内)
+    const board = document.querySelector(".whiteboard-scroll")!;
+    dragLeaveTo(board, document.body);
     expect(indicatorSlot(inbox())).toBeNull();
 
-    // 组间移动(relatedTarget 是墙内元素)不清
+    // 组间移动(relatedTarget 是看板内元素)不清
     dragOverWith(withGeometry(cards(inbox())[0]), 110);
     dragLeaveTo(inbox(), cards(inbox())[0]);
     expect(indicatorSlot(inbox())).toBe(0);
   });
 
-  it("拖组经过分区不出收藏指示线;拖拽源就地淡化", async () => {
+  it("组头原生 dragstart 被画布拦下(墙退役,分组无 DnD),不出收藏指示线", async () => {
     await renderSeeded();
 
     const header = inbox().querySelector(".group-header")!;
-    fireEvent.dragStart(header);
-    expect(inbox()).toHaveAttribute("data-group-dragging", "true");
-
+    expect(fireEvent.dragStart(header)).toBe(false);
     fireEvent.dragOver(screen.getByRole("region", { name: "空组" }));
     expect(
       indicatorSlot(screen.getByRole("region", { name: "空组" }))
     ).toBeNull();
-
-    fireEvent.dragEnd(header);
-    expect(inbox()).not.toHaveAttribute("data-group-dragging");
   });
 
   it("拖收藏时源行就地淡化,松手恢复", async () => {

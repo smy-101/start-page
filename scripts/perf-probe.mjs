@@ -55,9 +55,15 @@ async function connectPage() {
       );
     });
     ws0.close();
-    await new Promise((r) => setTimeout(r, 1500));
-    const list2 = await (await fetch("http://127.0.0.1:9222/json/list")).json();
-    page = list2.find((t) => t.targetId === target.targetId);
+    // 轮询等标签出现(固定等待在冷启动时会赌输)
+    page = null;
+    for (let i = 0; i < 40 && !page; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      const list2 = await (
+        await fetch("http://127.0.0.1:9222/json/list")
+      ).json();
+      page = list2.find((t) => t.id === target.targetId);
+    }
     if (!page) throw new Error("扩展页创建后未出现在 target 列表");
   }
   const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -138,8 +144,10 @@ async function coldLoad({ expectedCards, expectedGroups, doneOn }) {
   await call("Page.navigate", { url: EXT_URL });
   await call("Page.bringToFront");
   await new Promise((r) => setTimeout(r, 2500));
-  await call("Page.addScriptToEvaluateOnNewDocument", {
-    source: `(() => {
+  const { identifier: collectorId } = await call(
+    "Page.addScriptToEvaluateOnNewDocument",
+    {
+      source: `(() => {
   try {
     const M = { cards: 0, firstCards: null, cardsDone: null, groups: 0, firstGroups: null, groupsDone: null, longtasks: [] }
     window.__marks = M
@@ -163,7 +171,8 @@ async function coldLoad({ expectedCards, expectedGroups, doneOn }) {
     else document.addEventListener('readystatechange', () => { if (document.documentElement) startObs() }, { once: true })
   } catch (e) { window.__collectorError = String(e) }
 })()`,
-  });
+    }
+  );
   await call("Page.navigate", { url: "about:blank" });
   await new Promise((r) => setTimeout(r, 300));
   await call("Page.navigate", { url: EXT_URL });
@@ -175,6 +184,10 @@ async function coldLoad({ expectedCards, expectedGroups, doneOn }) {
     if ((M.${doneOn} !== null) || Date.now() - t0 > 30000) { clearInterval(iv); resolve() }
   }, 100)
 })`);
+  // 测量完即拆收集器:同一标签反复跑探针时不再叠加 MutationObserver(污染后续轮次)
+  await call("Page.removeScriptToEvaluateOnNewDocument", {
+    identifier: collectorId,
+  });
   await new Promise((r) => setTimeout(r, 1000));
   return evalJs(`(() => {
   const M = window.__marks || {}
@@ -243,24 +256,24 @@ async function boardInteractions() {
     `window.__setInput(document.querySelector('input[aria-label="搜索收藏"]'), '')`
   );
   await waitFor(`document.querySelectorAll('.card').length >= ${seeded.count}`);
-  interactions["编辑模式开启"] = await measure(
-    `window.__clickBtn(document.querySelector('.edit-toggle'))`
+  interactions["白板模式开启"] = await measure(
+    `window.__clickBtn(document.querySelector('.whiteboard-toggle'))`
   );
   await waitFor(`document.querySelector('.card button') !== null`);
-  interactions["编辑模式关闭"] = await measure(
-    `window.__clickBtn(document.querySelector('.edit-toggle'))`
+  interactions["白板模式关闭"] = await measure(
+    `window.__clickBtn(document.querySelector('.whiteboard-toggle'))`
   );
   await waitFor(`document.querySelector('.card button') === null`);
   interactions["添加收藏"] = await measure(addBookmarkScript);
-  // 删除(ui-refresh/04:仅编辑模式有按钮)——Node 侧分步驱动 + waitFor 轮询,
-  // 不在页内自旋(该路径在本机 Chrome 的 untrusted click 下不稳定)
-  await measure(`document.querySelector('.edit-toggle').click(); 0`);
+  // 删除(仅白板模式有按钮;board-refresh 起按钮为图标钮,按 aria-label 找)——
+  // Node 侧分步驱动 + waitFor 轮询,不在页内自旋(该路径在本机 Chrome 的 untrusted click 下不稳定)
+  await measure(`document.querySelector('.whiteboard-toggle').click(); 0`);
   await waitFor(
     `[...document.querySelectorAll('.card')].find((c) => c.textContent.includes('性能探针'))?.querySelectorAll('button').length > 0`
   );
   interactions["删除收藏"] = await measure(`(() => {
     const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('性能探针'))
-    const del = card && [...card.querySelectorAll('button')].find((b) => b.textContent.trim() === '删除')
+    const del = card && [...card.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') || b.textContent.trim()) === '删除')
     if (!del) return -1
     window.__delT0 = performance.now()
     del.click()

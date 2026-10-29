@@ -594,8 +594,8 @@ button[type="submit"]:hover {
   gap: 8px;
 }
 
-/* 白板模式开关(原编辑模式,board-whiteboard/03 更名):开启态收墨(aria-pressed) */
-.edit-toggle[aria-pressed="true"] {
+/* 白板模式开关(board-whiteboard/04 起类名随旧名退役更正):开启态收墨(aria-pressed) */
+.whiteboard-toggle[aria-pressed="true"] {
   background: var(--fg);
   border-color: transparent;
   color: var(--bg);
@@ -603,19 +603,15 @@ button[type="submit"]:hover {
 }
 
 /* ============================================================
-   看板(ADR-0003 瀑布流):分组卡高度不一,墙测高后贪心装箱到
-   最矮列,无行间空隙。墙是定位上下文,格子绝对定位、DOM 顺序
-   仍保持组间逻辑顺序;组托盘 + 白卡三层表面;列内条目多时列内
-   滚动,色脊保留为分组颜色的信息用法
+   画布分组卡(ADR-0004 白板):x/y 坐标自由定位(JS 内联供给,
+   坐标即布局、入库 schema v3),DOM 顺序仍保持组间逻辑 order 序;
+   组托盘 + 白卡三层表面;列内条目多时列内滚动,色脊保留为
+   分组颜色的信息用法。原 ADR-0003 瀑布流墙已退役(测高/RO 壳
+   拆除,装箱算法降级为白板「自动整理」)
    ============================================================ */
-.groups-wall {
-  position: relative;
-  /* 高度与格子坐标由 JS 布局(wallLayout.ts)内联供给 */
-}
 
 /* 组 = 托盘:比页面底沉一级的容器面,收藏卡浮在其上。
-   位移过渡让增删/换位/折叠后的重排有连续性;宽不参与过渡
-   (窗口缩放时时跟手,不拖泥带水) */
+   位移过渡让拖拽落点/折叠后的到位有连续性;宽不参与过渡 */
 .group {
   position: absolute;
   overflow: hidden;
@@ -629,11 +625,6 @@ button[type="submit"]:hover {
     opacity 120ms var(--ease-out),
     top 180ms var(--ease-out),
     left 180ms var(--ease-out);
-}
-
-/* 拖拽源反馈:被拖的组列就地淡化(落点由 dragover 高亮承担) */
-.group[data-group-dragging="true"] {
-  opacity: 0.45;
 }
 
 /* 收藏插入指示:目标组着色的细线,落在列内两个槽位之间 */
@@ -698,14 +689,8 @@ button[type="submit"]:hover {
   margin-bottom: 6px;
 }
 
-/* 组头拖拽随白板模式门禁(board-whiteboard/03):grab 光标随 draggable 出现 */
-.group-header[draggable="true"] {
-  cursor: grab;
-}
-
-.group-header[draggable="true"]:active {
-  cursor: grabbing;
-}
+/* 分组移动走画布 Pointer 拖拽(白板模式内):grab 手性由画布层供给,
+   组头不再携带原生 DnD(ADR-0004 墙退役) */
 
 /* 折叠钮(board-refresh/03):列头左缘,箭头旋转指向,不换图标 */
 .collapse-toggle {
@@ -726,25 +711,6 @@ button[type="submit"]:hover {
 .group[data-collapsed="true"] .group-header {
   margin-bottom: 0;
   padding-bottom: 6px;
-}
-
-/* 拖拽把手(board-refresh/04):白板模式内列头悬停浮现的可拖暗示(纯装饰) */
-.drag-grip {
-  flex: none;
-  display: inline-flex;
-  color: var(--muted);
-  opacity: 0;
-  transition: opacity 120ms var(--ease-out);
-}
-
-.group-header:hover .drag-grip {
-  opacity: 0.55;
-}
-
-@media (hover: none) {
-  .drag-grip {
-    display: none;
-  }
 }
 
 .group-color-dot {

@@ -12,7 +12,6 @@ import type {
   Bookmark,
   BookmarkId,
   BookmarkState,
-  Group,
   GroupId,
   Result,
   StorageAdapter,
@@ -32,7 +31,7 @@ import { filterState } from "../domain/search";
 import { createChromeStorage } from "../storage/chromeStorage";
 import type { NativeBookmarkNode } from "../domain/nativeImport";
 import { AddDialog } from "./AddDialog";
-import { BookmarkGroups } from "./BookmarkGroups";
+import { Whiteboard } from "./Whiteboard";
 import { SearchBox } from "./SearchBox";
 import { SettingsView } from "./SettingsView";
 import { searchUrl } from "./searchEngine";
@@ -55,18 +54,15 @@ import {
 import { domainErrorText } from "./messages";
 import { PlusIcon, SettingsIcon } from "./Icon";
 import { loadCollapsedGroups, saveCollapsedGroups } from "./collapsedGroups";
-import type { DragHandlers, DropHint } from "./BookmarkGroups";
-import type { BookmarkGroupsProps } from "./BookmarkGroups";
+import type { DragHandlers, DropHint } from "./dragTypes";
 import type { GroupPositionInput } from "../domain/store";
 
 const chromeStorage = createChromeStorage();
 const chromeSettingsStorage = createChromeSettingsStorage();
 
-/** 拖拽中对象:整个分组(组间排序)或收藏卡片(组内排序/跨组移动)。 */
-type Drag =
-  | { kind: "group"; id: GroupId }
-  | { kind: "bookmark"; id: BookmarkId; groupId: GroupId }
-  | null;
+/** 拖拽中的收藏卡片(组内排序/跨组移动;ADR-0004 墙退役后仅此一种
+ * 拖拽源——分组移动走画布 Pointer 拖拽,不经 DnD 状态)。 */
+type Drag = { id: BookmarkId; groupId: GroupId } | null;
 
 type AppProps = {
   /** 注入存储适配器;缺省用 chrome.storage.local(测试注入内存适配器) */
@@ -75,26 +71,12 @@ type AppProps = {
   settingsAdapter?: SettingsAdapter;
   /** 原生书签树读取缝隙;测试注入假树 */
   getBookmarkTree?: () => Promise<NativeBookmarkNode[]>;
-  /** 看板视图注入缝(board-whiteboard/02):缺省瀑布流墙;白板由此注入替换 */
-  boardView?: React.ComponentType<BoardViewProps>;
-};
-
-/** 看板视图 props 并集:墙(默认)与白板共用同一注入缝;
- * 白板多收 onSetGroupPositions(拖拽松手/自动整理写回)与
- * onEnterWhiteboard(nudge 一键进入,board-whiteboard/03),墙视图忽略之。 */
-export type BoardViewProps = BookmarkGroupsProps & {
-  onSetGroupPositions(
-    positions: GroupPositionInput[]
-  ): Promise<Result<Group[]>>;
-  /** nudge 一键进入白板模式(board-whiteboard/03;白板视图供给,墙视图忽略) */
-  onEnterWhiteboard(): void;
 };
 
 export function App({
   adapter = chromeStorage,
   settingsAdapter = chromeSettingsStorage,
   getBookmarkTree = getNativeBookmarkTree,
-  boardView,
 }: AppProps) {
   const [store, setStore] = useState<BookmarkStore | null>(null);
   const [state, setState] = useState<BookmarkState | null>(null);
@@ -201,7 +183,7 @@ export function App({
     [refresh]
   );
 
-  // ---- 进入 BookmarkGroups 的回调:全部稳定身份(memo 契约) ----
+  // ---- 进入白板看板的回调:全部稳定身份(memo 契约) ----
 
   const handleRenameGroup = useCallback(
     (id: GroupId, name: string) =>
@@ -286,12 +268,21 @@ export function App({
     return at + (after ? 1 : 0);
   }
 
+  /** 追加到目标组末尾的下标:按完整状态计算(搜索过滤视图下同样落到真实末尾)。 */
+  const appendIndex = useCallback(
+    (groupId: GroupId, draggedId: BookmarkId) =>
+      (stateRef.current?.bookmarks ?? []).filter(
+        (b) => b.groupId === groupId && b.id !== draggedId
+      ).length,
+    []
+  );
+
   /** 更新插入指示线:槽位换算到目标组的渲染坐标(被拖项还在列内)。 */
   const hintAt = useCallback((groupId: GroupId, insertion: number) => {
     const current = dragRef.current;
     setDropHint((prev) => {
       let index = insertion;
-      if (current?.kind === "bookmark" && current.groupId === groupId) {
+      if (current && current.groupId === groupId) {
         const full = (stateRef.current?.bookmarks ?? [])
           .filter((b) => b.groupId === groupId)
           .sort(byOrder);
@@ -304,40 +295,29 @@ export function App({
     });
   }, []);
 
-  /** 分区放置:拖组→与目标组换位;拖收藏→追加到目标组末尾。 */
+  /** 分区放置:拖收藏→追加到目标组末尾。 */
   const handleSectionDrop = useCallback(
     (_event: React.DragEvent, targetGroupId: GroupId) => {
       const current = dragRef.current;
       setDrag(null);
       setDropHint(null);
       if (!current) return;
-      if (current.kind === "group") {
-        if (current.id === targetGroupId) return;
-        const without = [...(stateRef.current?.groups ?? [])]
-          .sort(byOrder)
-          .map((g) => g.id)
-          .filter((id) => id !== current.id);
-        without.splice(without.indexOf(targetGroupId), 0, current.id);
-        void run(() => storeRef.current!.reorderGroups(without));
-      } else {
-        // 下标按完整状态计算,搜索过滤视图下拖拽同样落到真实末尾
-        const index = (stateRef.current?.bookmarks ?? []).filter(
-          (b) => b.groupId === targetGroupId && b.id !== current.id
-        ).length;
-        void run(() =>
-          storeRef.current!.moveBookmark(current.id, targetGroupId, index)
-        );
-      }
+      void run(() =>
+        storeRef.current!.moveBookmark(
+          current.id,
+          targetGroupId,
+          appendIndex(targetGroupId, current.id)
+        )
+      );
     },
-    [run]
+    [run, appendIndex]
   );
 
-  /** 卡片放置:按悬停上/下半插到目标之前/之后(组内排序与跨组移动共用);
-   * 拖组则冒泡给分区。 */
+  /** 卡片放置:按悬停上/下半插到目标之前/之后(组内排序与跨组移动共用)。 */
   const handleCardDrop = useCallback(
     (event: React.DragEvent, targetBookmarkId: BookmarkId) => {
       const current = dragRef.current;
-      if (!current || current.kind === "group") return;
+      if (!current) return;
       // 收藏拖放由卡片就地处理,不再冒泡给分区(避免二次追加)
       event.stopPropagation();
       setDrag(null);
@@ -385,17 +365,12 @@ export function App({
     setWhiteboardMode(true);
   }, []);
 
-  // 拖拽回调束(DragHandlers):表头换位 + 卡片组内排序/跨组移动 + 插入指示线
+  // 拖拽回调束(DragHandlers):收藏卡片组内排序/跨组移动 + 插入指示线
   const dragHandlers: DragHandlers = useMemo(
     () => ({
-      onGroupDragStart: (event, groupId) => {
-        markDragSource(event);
-        setDropHint(null);
-        setDrag({ kind: "group", id: groupId });
-      },
       onCardDragStart: (event, bookmarkId, groupId) => {
         markDragSource(event);
-        setDrag({ kind: "bookmark", id: bookmarkId, groupId });
+        setDrag({ id: bookmarkId, groupId });
       },
       onDragEnd: () => {
         setDrag(null);
@@ -405,18 +380,14 @@ export function App({
         allowDrop(event);
         // 拖收藏悬停在非卡片区(列头/空白):指示追加到该组末尾
         const current = dragRef.current;
-        if (current?.kind !== "bookmark") return;
-        const count = (stateRef.current?.bookmarks ?? []).filter(
-          (b) => b.groupId === targetGroupId && b.id !== current.id
-        ).length;
-        hintAt(targetGroupId, count);
+        if (!current) return;
+        hintAt(targetGroupId, appendIndex(targetGroupId, current.id));
       },
       onSectionDrop: handleSectionDrop,
       onCardDragOver: (event, targetBookmarkId) => {
         event.preventDefault();
         const current = dragRef.current;
-        // 拖组经过卡片:交给分区高亮,不抢指示线
-        if (current?.kind !== "bookmark") return;
+        if (!current) return;
         event.stopPropagation();
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
         const target = stateRef.current?.bookmarks.find(
@@ -426,15 +397,22 @@ export function App({
         hintAt(target.groupId, cardInsertionIndex(event, target, current.id));
       },
       onCardDrop: handleCardDrop,
-      onWallDragLeave: (event) => {
-        // 拖拽整墙拖离才清指示线;组内/组间移动触发的 dragleave 不算
+      onBoardDragLeave: (event) => {
+        // 拖拽整块看板拖离才清指示线;组内/组间移动触发的 dragleave 不算
         const to = event.relatedTarget;
         if (!(to instanceof Node) || !event.currentTarget.contains(to)) {
           setDropHint(null);
         }
       },
     }),
-    [allowDrop, markDragSource, hintAt, handleSectionDrop, handleCardDrop]
+    [
+      allowDrop,
+      markDragSource,
+      hintAt,
+      handleSectionDrop,
+      handleCardDrop,
+      appendIndex,
+    ]
   );
 
   /** 换引擎即存,回车立即生效(设置全量落盘,保留 iconFetch 开关) */
@@ -474,8 +452,6 @@ export function App({
     () => (state ? [...state.groups].sort(byOrder) : []),
     [state?.groups]
   );
-
-  const Board = boardView ?? BookmarkGroups;
 
   if (!store || !state) {
     return (
@@ -590,7 +566,7 @@ export function App({
         <span className="header-actions">
           <button
             type="button"
-            className="edit-toggle"
+            className="whiteboard-toggle"
             aria-pressed={whiteboardMode}
             onClick={() => setWhiteboardMode((on) => !on)}
           >
@@ -651,7 +627,7 @@ export function App({
           onManualAdd={() => setAddOpen(true)}
         />
       )}
-      <Board
+      <Whiteboard
         state={visible}
         groups={groupsInOrder}
         searching={deferredQuery.trim() !== ""}

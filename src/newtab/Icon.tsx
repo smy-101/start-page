@@ -102,17 +102,3 @@ export function ArrowLeftIcon(props: IconProps) {
     </Svg>
   );
 }
-
-/** 拖拽把手:列头 hover 时的可拖暗示(装饰性) */
-export function GripIcon(props: IconProps) {
-  return (
-    <Svg {...props} strokeWidth={2.5}>
-      <circle cx="9" cy="5" r="0.5" />
-      <circle cx="9" cy="12" r="0.5" />
-      <circle cx="9" cy="19" r="0.5" />
-      <circle cx="15" cy="5" r="0.5" />
-      <circle cx="15" cy="12" r="0.5" />
-      <circle cx="15" cy="19" r="0.5" />
-    </Svg>
-  );
-}

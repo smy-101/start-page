@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import "./chrome-shim.js";
 import "../src/newtab/index.css";
 import { App } from "../src/newtab/App";
-import { Whiteboard } from "../src/newtab/Whiteboard";
 import { createMemoryStorage } from "../src/storage/memoryStorage";
 import {
   INBOX_GROUP_COLOR,
@@ -232,15 +231,8 @@ const seed: BookmarkState = {
 
 const adapter = createMemoryStorage(seed);
 
-// 宿主可选:缺省瀑布流墙;?variant=whiteboard 挂白板(board-whiteboard/03 起带门禁;
-// 墙体退役/白板接管是票 04)
-const boardView =
-  new URLSearchParams(window.location.search).get("variant") === "whiteboard"
-    ? Whiteboard
-    : undefined;
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App adapter={adapter} boardView={boardView} />
+    <App adapter={adapter} />
   </StrictMode>
 );
