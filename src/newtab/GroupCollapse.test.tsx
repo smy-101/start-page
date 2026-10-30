@@ -107,6 +107,45 @@ describe("分组折叠(board-refresh/03)", () => {
     ).toBeInTheDocument();
   });
 
+  it("底缘组折叠/展开:画布高同帧随组高收缩,不闪旧边界(collapse-canvas-sync)", async () => {
+    // 桩量高(jsdom 几何全 0,同步量高腿需可读数):组托盘展开 200、折叠 56;
+    // 其余元素走 jsdom 原值
+    const desc = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "offsetHeight"
+    )!;
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (!this.classList.contains("group"))
+          return desc.get!.call(this) as number;
+        return this.dataset.collapsed === "true" ? 56 : 200;
+      },
+    });
+    try {
+      const state = seededState();
+      state.groups[1].y = 400; // 工作组沉到底缘
+      render(<App adapter={createMemoryStorage(state)} />);
+      await screen.findByRole("region", { name: "工作" });
+
+      const canvas = document.querySelector(
+        ".whiteboard-canvas"
+      ) as HTMLElement;
+      // 展开态画布高 = 底缘组 400 + 200 + 底衬 24
+      expect(canvas.style.minHeight).toBe("624px");
+
+      fireEvent.click(screen.getByRole("button", { name: "折叠分组 工作" }));
+      // RO 缺席也要当帧收缩:400 + 56 + 24——旧实现停在 624,
+      // 底缘会闪一帧旧高露出画布边界(实测 canvas-bounds 闪烁复现机制)
+      expect(canvas.style.minHeight).toBe("480px");
+
+      fireEvent.click(screen.getByRole("button", { name: "展开分组 工作" }));
+      expect(canvas.style.minHeight).toBe("624px");
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", desc);
+    }
+  });
+
   it("搜索时忽略折叠:命中项照常展示", async () => {
     await renderSeeded();
     fireEvent.click(screen.getByRole("button", { name: "折叠分组 工作" }));

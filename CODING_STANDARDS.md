@@ -11,8 +11,12 @@
 
 ## 同步量高
 
-挂载期测量(测高、量尺寸)走 `useLayoutEffect` + state 两腿驱动;
-ref 直存方案在 StrictMode 双调用下翻车(白板原型实测,首挂载引导两趟需求即源于此)。
+测量(测高、量尺寸)走 `useLayoutEffect` + state;ref 直存方案在 StrictMode
+双调用下翻车(白板原型实测,首挂载引导两趟需求即源于此)。
+同步量在每次提交后都跑(不止挂载/集合变化):改组高的提交当帧回流
+画布高,不闪旧边界——RO 的 setState 在绘制后才提交,赶不上这一帧
+(useCardRegistry 三条腿:每提交后同步量 + RO 跟非提交变化 +
+即时量高直读 DOM)。
 即时量高(如「自动整理」)先读 DOM 再入 state,不吃 state 旧账。
 
 ## 命名跟随 GLOSSARY

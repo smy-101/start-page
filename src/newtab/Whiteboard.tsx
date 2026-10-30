@@ -105,10 +105,7 @@ export type WhiteboardProps = {
   /** 组宽档位写回(group-span-decouple):组右缘拖柄/键盘 → store 钳回落盘 */
   onResizeGroup(id: GroupId, span: number): Promise<Result<Group>>;
   /** 每行条数写回(group-span-decouple):组头表单 → store 只升不降落盘 */
-  onSetGroupColumns(
-    id: GroupId,
-    columns: number
-  ): Promise<Result<Group>>;
+  onSetGroupColumns(id: GroupId, columns: number): Promise<Result<Group>>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
 } & DragHandlers;
@@ -233,9 +230,7 @@ export function Whiteboard({
   // 调宽拖柄在组内本地预览,提交后经持久档位回流到本表
   const widthOf = useCallback(
     (id: GroupId): number =>
-      groupWidthOf(
-        groupSpanOf(groupsByOrder.find((g) => g.id === id) ?? {})
-      ),
+      groupWidthOf(groupSpanOf(groupsByOrder.find((g) => g.id === id) ?? {})),
     [groupsByOrder]
   );
   const widthOfRef = useRef(widthOf);
@@ -283,7 +278,10 @@ export function Whiteboard({
     // 拖中钳在画布内(右界 = 宽 − 各组宽,group-width-tint;画布向下无界只压非负)——
     // 不再先逃逸后弹回,边缘可见后钳回可预期
     const dragW = widthOfRef.current(grab.id);
-    const x = Math.min(Math.max(0, clientX - rect.left - grab.grabX), width - dragW);
+    const x = Math.min(
+      Math.max(0, clientX - rect.left - grab.grabX),
+      width - dragW
+    );
     const y = Math.max(0, clientY - rect.top - grab.grabY);
     // 对齐吸附:与其余卡(持久落点 + 已测高)和画布边线比对
     const others: Rect[] = [];
@@ -506,8 +504,7 @@ export function Whiteboard({
       const pos = placements.get(pending.id);
       // 右界哨兵与 store 同口径:固定宽按固定值,自动档按上限;
       // 右界随各组宽(group-width-tint)
-      const bound =
-        canvasBoundWidth(state) - widthOfRef.current(pending.id);
+      const bound = canvasBoundWidth(state) - widthOfRef.current(pending.id);
       const settled =
         pos &&
         pos.y === pending.y &&
@@ -646,12 +643,12 @@ export function Whiteboard({
                 onResizeSpan={onResizeGroup}
                 onSetColumns={onSetGroupColumns}
                 onDeleteGroup={onDeleteGroup}
-              onCardDragStart={onCardDragStart}
-              onDragEnd={onDragEnd}
-              onSectionDragOver={onSectionDragOver}
-              onSectionDrop={onSectionDrop}
-              onCardDragOver={onCardDragOver}
-              onCardDrop={onCardDrop}
+                onCardDragStart={onCardDragStart}
+                onDragEnd={onDragEnd}
+                onSectionDragOver={onSectionDragOver}
+                onSectionDrop={onSectionDrop}
+                onCardDragOver={onCardDragOver}
+                onCardDrop={onCardDrop}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 elementRef={itemRef(group.id)}
@@ -721,9 +718,12 @@ export function Whiteboard({
 
 /**
  * 分组卡登记与量高(白板版):itemRef 正向登记(按 id 缓存的稳定回调,
- * memo 前提)、拖拽委托反查 id;量高两条腿——挂载/集合变化时
- * useLayoutEffect 同步量(首帧不闪),ResizeObserver 跟踪后续变化
- * (收藏增删/折叠/编辑态)。高度进 state(渲染用)而非只存 ref:
+ * memo 前提)、拖拽委托反查 id;量高三条腿——每次提交后
+ * useLayoutEffect 同步量(首帧不闪,且提交改高当帧回流画布高:
+ * 折叠/展开、组宽档位、收藏增删不闪旧高露出画布边界;
+ * RO 的 setState 在绘制后才提交,赶不上这一帧)、ResizeObserver 跟踪
+ * 非提交引起的变化(字体加载等)、即时量高(自动整理)直读 DOM。
+ * 高度进 state(渲染用)而非只存 ref:
  * 画布高随测随长,StrictMode 双调用下时序确定(原型 ref 版翻车教训)。
  * jsdom 无 RO、量出恒 0 → 画布高退化、自动整理走零高铺开,行为不受影响。
  */
@@ -759,7 +759,10 @@ function useCardRegistry(ids: readonly GroupId[]) {
     [register]
   );
 
-  // 同步测量:首帧(绘画前)即得到真实高度;jsdom 里恒 0,同样无害
+  // 同步测量:首帧(绘画前)即得到真实高度;且每次提交后都量——折叠/展开、
+  // 组宽档位、收藏增删等凡改组高的提交,画布高在同一帧内回流(RO 的
+  // setState 在绘制后才提交,底缘组折叠会闪一帧旧高露出画布边界);
+  // 未变则返回旧引用,不触发多余渲染。jsdom 里恒 0,同样无害
   useLayoutEffect(() => {
     setHeights((prev) => {
       let changed = false;
@@ -780,7 +783,7 @@ function useCardRegistry(ids: readonly GroupId[]) {
       }
       return changed ? next : prev;
     });
-  }, [ids]);
+  });
 
   // 后续高度变化(增删收藏/折叠/编辑表单)由 RO 跟踪
   useEffect(() => {
