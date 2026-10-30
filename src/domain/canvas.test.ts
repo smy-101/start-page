@@ -19,9 +19,11 @@ import {
   DEFAULT_CANVAS_W,
   effectiveCanvasWidth,
   GAP,
+  groupCellsOf,
+  groupSpanOf,
   groupWidthOf,
-  maxColumnsForCanvas,
-  nearestGroupColumns,
+  maxSpanForCanvas,
+  nearestGroupSpan,
   packCanvas,
   snapAlignment,
   spreadPositions,
@@ -290,19 +292,41 @@ describe("每行条数几何(group-width-tint,schema v6)", () => {
     expect(groupWidthOf(2) - GROUP_EDGE).toBe(2 * CELL_W + CELL_GAP);
   });
 
-  it("nearestGroupColumns:吸附最近列边界,越界钳回 1..上限", () => {
-    expect(nearestGroupColumns(389.33)).toBe(1);
-    expect(nearestGroupColumns(394)).toBe(1); // 距 W(1) 4.67 < 距 W(2) 18
-    expect(nearestGroupColumns(406)).toBe(2); // 趝过中点 ~393.7
-    expect(nearestGroupColumns(10000)).toBe(MAX_GROUP_COLUMNS);
-    expect(nearestGroupColumns(-50)).toBe(1);
+  it("nearestGroupSpan:吸附最近列边界,越界钳回 1..上限", () => {
+    expect(nearestGroupSpan(389.33)).toBe(1);
+    expect(nearestGroupSpan(394)).toBe(1); // 距 W(1) 4.67 < 距 W(2) 18
+    expect(nearestGroupSpan(406)).toBe(2); // 趝过中点 ~393.7
+    expect(nearestGroupSpan(10000)).toBe(MAX_GROUP_COLUMNS);
+    expect(nearestGroupSpan(-50)).toBe(1);
   });
 
-  it("maxColumnsForCanvas:界内放得下的最大列数,至少 1", () => {
-    expect(maxColumnsForCanvas(720)).toBe(3); // W(3)=602 ≤ 720 < W(4)=792
-    expect(maxColumnsForCanvas(DEFAULT_CANVAS_W)).toBe(MAX_GROUP_COLUMNS); // W(6)=1172 ≤ 1200
-    expect(maxColumnsForCanvas(2400)).toBe(MAX_GROUP_COLUMNS);
-    expect(maxColumnsForCanvas(100)).toBe(1);
+  it("maxSpanForCanvas:界内放得下的最大列数,至少 1", () => {
+    expect(maxSpanForCanvas(720)).toBe(3); // W(3)=602 ≤ 720 < W(4)=792
+    expect(maxSpanForCanvas(DEFAULT_CANVAS_W)).toBe(MAX_GROUP_COLUMNS); // W(6)=1172 ≤ 1200
+    expect(maxSpanForCanvas(2400)).toBe(MAX_GROUP_COLUMNS);
+    expect(maxSpanForCanvas(100)).toBe(1);
+  });
+});
+
+describe("组宽档位推导(group-span-decouple,schema v7)", () => {
+  it("groupSpanOf:span 优先;缺省从 columns 推导(v6 存量零改写);非法回退链终归 1", () => {
+    expect(groupSpanOf({ span: 4, columns: 1 })).toBe(4);
+    expect(groupSpanOf({ columns: 4 })).toBe(4);
+    expect(groupSpanOf({})).toBe(1);
+    // 非法 span(非整数/越界)回退 columns;两者皆非法归 1
+    expect(groupSpanOf({ span: 0, columns: 3 })).toBe(3);
+    expect(groupSpanOf({ span: 2.5, columns: 3 })).toBe(3);
+    expect(groupSpanOf({ span: 99, columns: 0 })).toBe(1);
+  });
+
+  it("groupCellsOf:columns 缺省 = 装满(随档位);防御钳 ≤ 档位", () => {
+    expect(groupCellsOf({ span: 4 })).toBe(4);
+    expect(groupCellsOf({ columns: 3 })).toBe(3);
+    expect(groupCellsOf({})).toBe(1);
+    // 宽组清单式:本功能的落点形态
+    expect(groupCellsOf({ span: 4, columns: 1 })).toBe(1);
+    // 防御:columns 越档(写路径不产生,手改 JSON 可能)钳回档位
+    expect(groupCellsOf({ span: 2, columns: 4 })).toBe(2);
   });
 });
 

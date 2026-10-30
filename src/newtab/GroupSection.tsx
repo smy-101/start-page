@@ -11,7 +11,7 @@ import type {
 import type { BookmarkPatch } from "../domain/store";
 import { BookmarkCard } from "./BookmarkCard";
 import { GroupHeader } from "./GroupHeader";
-import { groupWidthOf, nearestGroupColumns } from "../domain/canvas";
+import { groupCellsOf, groupSpanOf, groupWidthOf, nearestGroupSpan, CELL_W } from "../domain/canvas";
 import type { CanvasPos } from "../domain/canvas";
 import type { DragHandlers } from "./dragTypes";
 
@@ -20,8 +20,8 @@ type GroupSectionProps = {
   bookmarks: Bookmark[];
   /** 全部分组(按 order 排序):行编辑换组的选择候选 */
   groups: Group[];
-  /** 画布坐标(ADR-0004):x/y 入库,组宽随每行条数推导(schema v6);
-   * null 时不定位 */
+  /** 画布坐标(ADR-0004):x/y 入库,组宽随档位推导(schema v7,
+   * group-span-decouple:档位与每行条数解耦);null 时不定位 */
   placement: CanvasPos | null;
   /** 折叠态(board-refresh/03):仅渲染列头,不挂载组内 DOM */
   collapsed: boolean;
@@ -31,8 +31,8 @@ type GroupSectionProps = {
   dragActive?: boolean;
   /** 组右缘调宽拖柄可见(group-width-tint):白板模式且非搜索、非折叠 */
   resizable: boolean;
-  /** 调宽钳上界(列):画布内放得下的最大每行条数(Whiteboard 供给) */
-  resizeMaxColumns: number;
+  /** 调宽钳上界(档位):画布内放得下的最大组宽档位(Whiteboard 供给) */
+  resizeMaxSpan: number;
   /** 拖收藏中的插入槽位(本组渲染坐标);null = 指针不在本组 */
   dropIndex: number | null;
   /** 画布测量登记(Whiteboard 供给,按 id 缓存的稳定回调) */
@@ -42,8 +42,10 @@ type GroupSectionProps = {
   /** 共享回调(稳定身份):本组件以自身 group/bookmark 数据供给 id。 */
   onRename(id: GroupId, name: string): Promise<Result<Group>>;
   onRecolor(id: GroupId, color: string): Promise<Result<Group>>;
-  /** 每行条数写回(拖柄松手/键盘步进;group-width-tint) */
-  onResizeColumns(id: GroupId, columns: number): Promise<Result<Group>>;
+  /** 组宽档位写回(拖柄松手/键盘步进;group-span-decouple) */
+  onResizeSpan(id: GroupId, span: number): Promise<Result<Group>>;
+  /** 每行条数写回(组头表单;组宽只升不降) */
+  onSetColumns(id: GroupId, columns: number): Promise<Result<Group>>;
   onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
@@ -51,9 +53,9 @@ type GroupSectionProps = {
 
 /**
  * 画布上的分组卡(ui-refresh/04 → ADR-0004 白板):x/y 坐标自由定位,
- * 组宽随每行条数推导(schema v6,group-width-tint;拖柄调宽、松手吸附
- * 列边界)。折叠时仅列头(board-refresh/03),收集箱是保留分组,
- * 列头只读。memo:props 未变时跳过重渲染(工单 10a)。
+ * 组宽随档位推导(schema v7,group-span-decouple;拖柄调档位、表单调
+ * 每行条数且不缩宽)。折叠时仅列头(board-refresh/03),收集箱是保留
+ * 分组,列头只读。memo:props 未变时跳过重渲染(工单 10a)。
  * DOM 顺序仍保持组间逻辑 order 序(可访问性)。
  */
 export const GroupSection = memo(function GroupSection({
@@ -64,14 +66,15 @@ export const GroupSection = memo(function GroupSection({
   collapsed,
   whiteboardMode,
   resizable,
-  resizeMaxColumns,
+  resizeMaxSpan,
   dragActive,
   dropIndex,
   elementRef,
   onToggleCollapse,
   onRename,
   onRecolor,
-  onResizeColumns,
+  onResizeSpan,
+  onSetColumns,
   onDeleteGroup,
   onCardDragStart,
   onDragEnd,
@@ -82,26 +85,33 @@ export const GroupSection = memo(function GroupSection({
   onEdit,
   onDelete,
 }: GroupSectionProps) {
-  // ---- 组右缘调宽(group-width-tint):拖中连续预览宽;松手吸附列边界后
-  // 已提交宽留到持久 columns 回流再清(同画布 canvasOverride 口径,免闪回)。
+  // ---- 组右缘调宽(group-span-decouple):拖中连续预览宽;松手吸附档位后
+  // 已提交宽留到持久档位回流再清(同画布 canvasOverride 口径,免闪回)。
   // delta 制(起点宽 + 指针位移),不依赖 rect——jsdom 里几何全 0 亦可测。
   const [previewW, setPreviewW] = useState<number | null>(null);
   const [committedW, setCommittedW] = useState<number | null>(null);
   const sessionRef = useRef<{ startX: number; startW: number } | null>(null);
-  // 提交时的请求列数与当时的持久列数:哨兵辨别「回流到位」与
-  // 「store 钳回了不同值」(如窄画布降列)两幂数据(均应解除本地宽)
+  // 提交时的请求档位与当时的持久档位/每行条数:哨兵辨别「回流到位」与
+  // 「store 钳回了不同值」(如窄画布降档)两幂数据(均应解除本地宽)
   const pendingRef = useRef<{
     requested: number;
+    atSpan: number | undefined;
     atColumns: number | undefined;
   } | null>(null);
 
-  const width = previewW ?? committedW ?? groupWidthOf(group.columns);
+  const span = groupSpanOf(group);
+  const width = previewW ?? committedW ?? groupWidthOf(span);
   const minW = groupWidthOf(1);
-  const maxW = groupWidthOf(resizeMaxColumns);
+  const maxW = groupWidthOf(resizeMaxSpan);
+  // 组内网格模板:每行条数生效值(缺省 = 装满);与 CSS minmax 同口径,
+  // 条数 < 档位时条目拉满整行(清单式)
+  const gridTemplate = {
+    gridTemplateColumns: `repeat(${groupCellsOf(group)}, minmax(${CELL_W}px, 1fr))`,
+  };
 
-  // 回流哨兵:持久 columns 的推导宽追上已提交宽即清(存储往返 1–2 帧
-  // 不闪回旧宽);store 钳回不同值(窄画布降列)或列数被外部改动
-  // (表单/缩画布)时持久 columns 偏离提交时快照,同样解除本地宽
+  // 回流哨兵:持久档位的推导宽追上已提交宽即清(存储往返 1–2 帧
+  // 不闪回旧宽);store 钳回不同值(窄画布降档)或档位/每行条数被外部
+  // 改动(表单/缩画布)时持久值偏离提交时快照,同样解除本地宽
   useEffect(() => {
     if (committedW === null) {
       pendingRef.current = null;
@@ -109,13 +119,15 @@ export const GroupSection = memo(function GroupSection({
     }
     const pending = pendingRef.current;
     const settled =
-      groupWidthOf(group.columns) === committedW ||
-      (pending !== null && group.columns !== pending.atColumns);
+      groupWidthOf(groupSpanOf(group)) === committedW ||
+      (pending !== null &&
+        (group.span !== pending.atSpan ||
+          group.columns !== pending.atColumns));
     if (settled) {
       setCommittedW(null);
       pendingRef.current = null;
     }
-  }, [committedW, group.columns]);
+  }, [committedW, group]);
 
   function applyResize(clientX: number): void {
     const session = sessionRef.current;
@@ -130,11 +142,15 @@ export const GroupSection = memo(function GroupSection({
     sessionRef.current = null;
     setPreviewW(null);
     if (!session || preview === null) return;
-    // 松手吸附列边界(最近 W(c)),已提交宽留到持久回流再清
-    const columns = nearestGroupColumns(preview);
-    pendingRef.current = { requested: columns, atColumns: group.columns };
-    setCommittedW(groupWidthOf(columns));
-    void onResizeColumns(group.id, columns);
+    // 松手吸附档位(最近 W(k)),已提交宽留到持久回流再清
+    const nextSpan = nearestGroupSpan(preview);
+    pendingRef.current = {
+      requested: nextSpan,
+      atSpan: group.span,
+      atColumns: group.columns,
+    };
+    setCommittedW(groupWidthOf(nextSpan));
+    void onResizeSpan(group.id, nextSpan);
   }
 
   function cancelResize(): void {
@@ -167,22 +183,26 @@ export const GroupSection = memo(function GroupSection({
     setPreviewW(width);
   };
 
-  // 键盘:←/→ 步进一列(钳 1..resizeMax;store 收口重复钳)。
+  // 键盘:←/→ 步进一档(钳 1..resizeMaxSpan;store 收口重复钳)。
   // 当前值吃本地已提交宽(回流前连按可累计,同画布调宽口径)
   const onHandleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const current =
-      committedW !== null ? nearestGroupColumns(committedW) : (group.columns ?? 1);
+      committedW !== null ? nearestGroupSpan(committedW) : span;
     const step = event.key === "ArrowRight" ? 1 : -1;
     const next = Math.min(
       Math.max(1, current + step),
-      Math.max(1, resizeMaxColumns)
+      Math.max(1, resizeMaxSpan)
     );
     if (next === current) return;
-    pendingRef.current = { requested: next, atColumns: group.columns };
+    pendingRef.current = {
+      requested: next,
+      atSpan: group.span,
+      atColumns: group.columns,
+    };
     setCommittedW(groupWidthOf(next));
-    void onResizeColumns(group.id, next);
+    void onResizeSpan(group.id, next);
   };
 
   const canvasStyle = placement
@@ -211,20 +231,20 @@ export const GroupSection = memo(function GroupSection({
         onToggleCollapse={() => onToggleCollapse(group.id)}
         onRename={(name) => onRename(group.id, name)}
         onRecolor={(color) => onRecolor(group.id, color)}
-        onSetColumns={(columns) => onResizeColumns(group.id, columns)}
+        onSetColumns={(columns) => onSetColumns(group.id, columns)}
         onDeleteGroup={() => onDeleteGroup(group.id)}
       />
       {!collapsed &&
         (bookmarks.length === 0 ? (
           dropIndex !== null ? (
-            <ul className="group-grid">
+            <ul className="group-grid" style={gridTemplate}>
               <li className="drop-indicator" aria-hidden="true" />
             </ul>
           ) : (
             <p className="group-empty">还没有收藏</p>
           )
         ) : (
-          <ul className="group-grid">
+          <ul className="group-grid" style={gridTemplate}>
             {bookmarks.map((bookmark, index) => (
               <Fragment key={bookmark.id}>
                 {dropIndex === index && (
@@ -249,25 +269,37 @@ export const GroupSection = memo(function GroupSection({
             )}
           </ul>
         ))}
-      {/* 组右缘调宽拖柄(group-width-tint):白板模式且非搜索、非折叠;
-          键盘可达(separator 角色),←/→ 步进一列 */}
+      {/* 组右缘调宽拖柄(group-span-decouple):白板模式且非搜索、非折叠;
+          键盘可达(separator 角色),←/→ 步进一档 */}
       {resizable && (
         <div
           className="group-resize"
           role="separator"
           aria-orientation="vertical"
           aria-label={`调整分组 ${group.name} 宽度`}
-          aria-valuenow={group.columns ?? 1}
+          aria-valuenow={span}
           aria-valuemin={1}
-          aria-valuemax={resizeMaxColumns}
-          title="拖动调整每行条数"
+          aria-valuemax={resizeMaxSpan}
+          title="拖动调整组宽"
           tabIndex={0}
           onPointerDown={onHandlePointerDown}
           onKeyDown={onHandleKeyDown}
         >
           {previewW !== null && (
             <span className="group-resize-badge" role="status">
-              一行 {nearestGroupColumns(previewW)} 条
+              {(() => {
+                const nextSpan = nearestGroupSpan(previewW);
+                // 每行条数随预览同口径:缺省 = 装满(随档位),显式值钳
+                // 不越预览档(同 store setGroupSpan 的自动降)
+                const cells =
+                  group.columns === undefined
+                    ? nextSpan
+                    : Math.min(group.columns, nextSpan);
+                // 装满只报档位;清单式(条数 < 档位)附每行条数
+                return cells < nextSpan
+                  ? `宽 ${nextSpan} 列 · 一行 ${cells} 条`
+                  : `宽 ${nextSpan} 列`;
+              })()}
             </span>
           )}
         </div>

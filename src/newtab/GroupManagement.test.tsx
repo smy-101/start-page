@@ -289,3 +289,71 @@ describe("分组管理:每行条数(group-width-tint)", () => {
     expect(within(inbox).queryByLabelText("每行条数")).toBeNull();
   });
 });
+
+describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () => {
+  /** 预置工作组带档位字段(拖宽等效);g-work 由 overrides 覆盖。 */
+  async function renderSpanned(overrides: { span?: number; columns?: number }) {
+    const state = seededState();
+    state.groups = state.groups.map((g) =>
+      g.id === "g-work" ? { ...g, ...overrides } : g
+    );
+    render(<App adapter={createMemoryStorage(state)} />);
+    await screen.findByRole("region", { name: "工作" });
+    return screen.getByRole("region", { name: "工作" });
+  }
+
+  function gridTemplate(work: HTMLElement): string {
+    return (
+      work.querySelector(".group-grid") as HTMLElement
+    ).style.gridTemplateColumns;
+  }
+
+  it("拖宽(span 4)后表单改一行 1 条:组宽保持 792,网格单列拉满整行", async () => {
+    const work = await renderSpanned({ span: 4 });
+    enterWhiteboardMode();
+
+    fireEvent.click(within(work).getByRole("button", { name: "编辑分组 工作" }));
+    fireEvent.change(within(work).getByLabelText("每行条数"), {
+      target: { value: "1" },
+    });
+    fireEvent.click(within(work).getByRole("button", { name: "保存" }));
+
+    // W(4)=792 组宽不缩(用户诉求);清单式网格 repeat(1)
+    await waitFor(() =>
+      expect(gridTemplate(work)).toBe("repeat(1, minmax(184px, 1fr))")
+    );
+    expect(parseFloat(work.style.width)).toBe(792);
+  });
+
+  it("v6 存量(columns 4 无 span)同路径:零改写迁移下表单不缩宽", async () => {
+    const work = await renderSpanned({ columns: 4 });
+    enterWhiteboardMode();
+
+    fireEvent.click(within(work).getByRole("button", { name: "编辑分组 工作" }));
+    fireEvent.change(within(work).getByLabelText("每行条数"), {
+      target: { value: "1" },
+    });
+    fireEvent.click(within(work).getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(gridTemplate(work)).toBe("repeat(1, minmax(184px, 1fr))")
+    );
+    expect(parseFloat(work.style.width)).toBe(792);
+  });
+
+  it("表单选更大每行条数自动升档:span 2 → 一行 3 条 → 组宽 602", async () => {
+    const work = await renderSpanned({ span: 2, columns: 1 });
+    enterWhiteboardMode();
+
+    fireEvent.click(within(work).getByRole("button", { name: "编辑分组 工作" }));
+    fireEvent.change(within(work).getByLabelText("每行条数"), {
+      target: { value: "3" },
+    });
+    fireEvent.click(within(work).getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(gridTemplate(work)).toBe("repeat(3, minmax(184px, 1fr))")
+    );
+    expect(parseFloat(work.style.width)).toBe(602);
+  });
+});

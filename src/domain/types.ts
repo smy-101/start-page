@@ -31,9 +31,15 @@ export interface Group {
   y: number;
   /**
    * 每行条数(schema v6,group-width-tint):组内一行摆几条收藏(1–6),
-   * 组宽由此推导(groupWidthOf)不存 px;缺省 = 1 = 存量宽行单列。
+   * 缺省 = 装满(随组宽档位,schema v7);恒 ≤ 档位(写路径保证)。
    */
   columns?: number;
+  /**
+   * 组宽档位(schema v7,group-span-decouple):组宽 = groupWidthOf(档位),
+   * 不存 px;缺省 = 从每行条数推导(装满,v6 存量零改写迁移)。
+   * 与每行条数解耦:拖柄只改档位,表单只改每行条数且永不缩宽。
+   */
+  span?: number;
 }
 
 /** 单一状态对象,整体持久化到 chrome.storage.local。 */
@@ -80,13 +86,15 @@ export type Result<T> =
 
 /**
  * 持久化数据结构版本,随结构演进递增(导入导出的 JSON 备份依赖它)。
- * v6:分组新增可选 columns(每行条数,组宽推导;group-width-tint)。
+ * v7:分组新增可选 span(组宽档位,与每行条数解耦;group-span-decouple);
+ * v6 数据零改写迁移(缺省档位从 columns 推导)。
+ * v6:分组新增可选 columns(每行条数;group-width-tint)。
  * v5:canvasWidth 缺省转正为「自动撑满」档(拖柄调宽后钉住为固定值)。
  * v4:状态新增可选 canvasWidth(画布宽可调);v3 备份导入后补默认 1200。
  * v3:分组新增画布坐标 x/y(ADR-0004 白板自由定位);v2 及更早备份仍可导入。
  * v2:收藏新增可选 icon(data URL);v1 备份仍可导入。
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /** 画布上的落点(px,见 canvas.ts 与 GLOSSARY「画布」)。 */
 export interface CanvasPos {

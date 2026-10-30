@@ -85,6 +85,7 @@ export function columnsFor(canvasW: number): number {
  * 组宽推导(group-width-tint,schema v6):每行条数 c → 渲染宽(px),不存 px。
  * c=1 → CARD_W(存量单列宽行观感逐字不变);c≥2 → 固定开销 + c 格 + (c−1) 格距,
  * 内宽恰装 c 格(auto-fill minmax 的精确边界)。非法(非有限/非正整数)归 1。
+ * schema v7 起入参是组宽档位 span(见 groupSpanOf),数学不动。
  */
 export function groupWidthOf(columns?: number): number {
   const c =
@@ -99,7 +100,7 @@ export function groupWidthOf(columns?: number): number {
 }
 
 /** 宽度 → 最近列数(拖柄松手吸附列边界,group-width-tint):1..上限,越界钳回。 */
-export function nearestGroupColumns(widthPx: number): number {
+export function nearestGroupSpan(widthPx: number): number {
   let best = 1;
   let bestDistance = Infinity;
   for (let c = 1; c <= MAX_GROUP_COLUMNS; c++) {
@@ -112,8 +113,44 @@ export function nearestGroupColumns(widthPx: number): number {
   return best;
 }
 
+/** 档位合法:正整数 1..上限;非法归 undefined(缺省间回退链用)。 */
+function validStep(value: number | undefined): number | undefined {
+  return value !== undefined &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_GROUP_COLUMNS
+    ? value
+    : undefined;
+}
+
+/**
+ * 组宽档位生效值(group-span-decouple,schema v7):span 优先,缺省从每行条数
+ * 推导(装满——v6 存量因此零改写迁移);非法逐级回退,终归 1。
+ * 输入取 Partial<Group> 形状,组件/领域均传整组。
+ */
+export function groupSpanOf(group: {
+  span?: number;
+  columns?: number;
+}): number {
+  return validStep(group.span) ?? validStep(group.columns) ?? 1;
+}
+
+/**
+ * 每行条数生效值(group-span-decouple,schema v7):columns 缺省 = 装满
+ * (随档位);给了则防御钳 ≤ 档位(写路径恒保证,手改 JSON 的兑底)。
+ * (span 4, columns 1) = 宽组清单式——本功能的落点形态。
+ */
+export function groupCellsOf(group: {
+  span?: number;
+  columns?: number;
+}): number {
+  const span = groupSpanOf(group);
+  const cells = validStep(group.columns);
+  return cells === undefined ? span : Math.min(cells, span);
+}
+
 /** 画布内放得下的最大每行条数(至少 1):调列/缩画布的钳上界。 */
-export function maxColumnsForCanvas(canvasW: number): number {
+export function maxSpanForCanvas(canvasW: number): number {
   for (let c = MAX_GROUP_COLUMNS; c > 1; c--) {
     if (groupWidthOf(c) <= canvasW) return c;
   }
@@ -181,7 +218,7 @@ export function packCanvas(
     const spanW = slots * (CARD_W + GAP) - GAP;
     const pos = {
       // 居中偏移但不出画布(宽卡跨槽溢出时靠左;组宽 ≤ 画布是常态,
-      // store 已按 maxColumnsForCanvas 钳过,此处仅防御)
+      // store 已按 maxSpanForCanvas 钳过,此处仅防御)
       x: Math.max(
         0,
         Math.floor(target * (CARD_W + GAP) + (spanW - w) / 2)

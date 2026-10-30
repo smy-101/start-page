@@ -21,8 +21,9 @@ import {
   canvasWidthOf,
   clampCanvasWidth,
   clampToCanvas,
+  groupSpanOf,
   groupWidthOf,
-  maxColumnsForCanvas,
+  maxSpanForCanvas,
 } from "./canvas";
 import { migrateState } from "./migrations";
 
@@ -304,8 +305,10 @@ function isGroupShape(v: unknown, requireCoords: boolean): v is Group {
     typeof g.order === "number" &&
     // 画布坐标(schema v3 起):v3 备份必携带且为数字;更早版本无此字段
     (!requireCoords || (typeof g.x === "number" && typeof g.y === "number")) &&
-    // 每行条数(schema v6 起):可缺省,给了就必须是数字(非法值迁移链剥离)
-    (g.columns === undefined || typeof g.columns === "number")
+    // 每行条数(schema v6 起)/组宽档位(schema v7 起):可缺省,
+    // 给了就必须是数字(非法值迁移链剥离)
+    (g.columns === undefined || typeof g.columns === "number") &&
+    (g.span === undefined || typeof g.span === "number")
   );
 }
 
@@ -363,7 +366,8 @@ function parseStateJson(raw: string): Result<BookmarkState> {
 /**
  * 替换全部:清空后恢复备份(id/顺序/颜色/备注/坐标逐字保留),画布宽随备份
  * (固定宽钳回;缺省 = 自动档,坐标按上限钳界,与 store 自动档同口径),
- * 超宽组降列(每行条数随画布宽钳回,同 setCanvasWidth 口径),
+ * 超档组降档、每行条数连带降到档位(同 setCanvasWidth 口径),按各自宽钳 x;
+ * 缺省组不物化 span(渲染口径从 columns 推导,v6 备份往返不变形),
  * 同时修复损坏备份:补回缺失收集箱、孤儿收藏收回收集箱、备份内重复 URL 只留首条。
  */
 function restoreFrom(backup: BookmarkState): {
@@ -372,14 +376,22 @@ function restoreFrom(backup: BookmarkState): {
 } {
   const canvasWidth = canvasWidthOf(backup);
   const bound = canvasWidth ?? MAX_CANVAS_W;
-  const maxColumns = maxColumnsForCanvas(bound);
+  const maxColumns = maxSpanForCanvas(bound);
   const groups: Group[] = backup.groups.map((g) => {
+    const spanRaw = groupSpanOf(g);
+    const spanClamped = Math.min(spanRaw, maxColumns);
     const columns =
-      g.columns !== undefined && g.columns > maxColumns ? maxColumns : g.columns;
+      g.columns === undefined ? undefined : Math.min(g.columns, spanClamped);
+    // 缺省组(span 未存且未超档)保持缺省,不物化;其余写钳后档位
+    const span =
+      g.span !== undefined || spanClamped !== spanRaw
+        ? spanClamped
+        : undefined;
     return {
       ...g,
+      span,
       columns,
-      ...clampToCanvas(g, bound, groupWidthOf(columns)),
+      ...clampToCanvas(g, bound, groupWidthOf(spanClamped)),
     };
   });
   if (!groups.some((g) => g.id === INBOX_GROUP_ID)) {

@@ -24,8 +24,9 @@ import {
   canvasBoundWidth,
   clampCanvasWidth,
   effectiveCanvasWidth,
+  groupSpanOf,
   groupWidthOf,
-  maxColumnsForCanvas,
+  maxSpanForCanvas,
   packCanvas,
   snapAlignment,
 } from "../domain/canvas";
@@ -101,8 +102,13 @@ export type WhiteboardProps = {
   ): Promise<Result<Group[]>>;
   /** 画布宽写回(右缘拖柄松手/键盘调整;钳回与重钳越界分组在 store 收口) */
   onResizeCanvas(width: number): Promise<Result<number>>;
-  /** 每行条数写回(group-width-tint):组右缘拖柄/组头表单 → store 钳回落盘 */
-  onResizeGroup(id: GroupId, columns: number): Promise<Result<Group>>;
+  /** 组宽档位写回(group-span-decouple):组右缘拖柄/键盘 → store 钳回落盘 */
+  onResizeGroup(id: GroupId, span: number): Promise<Result<Group>>;
+  /** 每行条数写回(group-span-decouple):组头表单 → store 只升不降落盘 */
+  onSetGroupColumns(
+    id: GroupId,
+    columns: number
+  ): Promise<Result<Group>>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
 } & DragHandlers;
@@ -125,6 +131,7 @@ export function Whiteboard({
   onSetGroupPositions,
   onResizeCanvas,
   onResizeGroup,
+  onSetGroupColumns,
   onCardDragStart,
   onDragEnd,
   onSectionDragOver,
@@ -222,11 +229,13 @@ export function Whiteboard({
       : (placements.get(group.id) ?? null);
   }
 
-  // 各组渲染宽(group-width-tint):每行条数推导,拖拽钳界/对齐/哨兵共用;
-  // 调宽拖柄在组内本地预览,提交后经持久 columns 回流到本表
+  // 各组渲染宽(group-span-decouple):档位推导,拖拽钳界/对齐/哨兵共用;
+  // 调宽拖柄在组内本地预览,提交后经持久档位回流到本表
   const widthOf = useCallback(
     (id: GroupId): number =>
-      groupWidthOf(groupsByOrder.find((g) => g.id === id)?.columns),
+      groupWidthOf(
+        groupSpanOf(groupsByOrder.find((g) => g.id === id) ?? {})
+      ),
     [groupsByOrder]
   );
   const widthOfRef = useRef(widthOf);
@@ -626,7 +635,7 @@ export function Whiteboard({
                 collapsed={collapsed}
                 whiteboardMode={whiteboardMode}
                 resizable={!locked && !collapsed}
-                resizeMaxColumns={maxColumnsForCanvas(canvasW)}
+                resizeMaxSpan={maxSpanForCanvas(canvasW)}
                 dragActive={drag?.id === group.id}
                 dropIndex={
                   dropHint?.groupId === group.id ? dropHint.index : null
@@ -634,7 +643,8 @@ export function Whiteboard({
                 onToggleCollapse={onToggleCollapse}
                 onRename={onRenameGroup}
                 onRecolor={onRecolorGroup}
-                onResizeColumns={onResizeGroup}
+                onResizeSpan={onResizeGroup}
+                onSetColumns={onSetGroupColumns}
                 onDeleteGroup={onDeleteGroup}
               onCardDragStart={onCardDragStart}
               onDragEnd={onDragEnd}

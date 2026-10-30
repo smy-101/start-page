@@ -1080,3 +1080,94 @@ describe("V4 画布宽兼容(canvas-bounds-align)", () => {
     expect((await adapter.load())!.canvasWidth).toBeUndefined();
   });
 });
+
+describe("V7 组宽档位兼容(group-span-decouple)", () => {
+  /** v7 备份组:超档组(span 6, columns 4)+ 清单式组(span 4, columns 1)。 */
+  function v7Groups() {
+    return [
+      {
+        id: INBOX_GROUP_ID,
+        name: "收集箱",
+        color: "#3b82f6",
+        order: 0,
+        x: 0,
+        y: 0,
+      },
+      {
+        id: "g-over",
+        name: "超档",
+        color: "#e99695",
+        order: 1,
+        x: 100,
+        y: 0,
+        span: 6,
+        columns: 4,
+      },
+      {
+        id: "g-list",
+        name: "清单",
+        color: "#81a2be",
+        order: 2,
+        x: 0,
+        y: 200,
+        span: 4,
+        columns: 1,
+      },
+    ];
+  }
+  const backup = (groups: unknown[] = v7Groups(), canvasWidth = 720) =>
+    JSON.stringify({
+      schemaVersion: SCHEMA_VERSION,
+      canvasWidth,
+      groups,
+      bookmarks: [],
+    });
+
+  it("span 校验:可缺省;给了必须是数字,字符串拒收", async () => {
+    const pristine = createMemoryStorage(null);
+    const noSpan = v7Groups().map((g) => ({ ...g, span: undefined }));
+    expect(
+      (await importStateFromJson(pristine, backup(noSpan), "replace")).ok
+    ).toBe(true);
+
+    const bad = createMemoryStorage(null);
+    const strSpan = v7Groups().map((g, i) =>
+      i === 1 ? { ...g, span: "4" } : g
+    );
+    expect((await importStateFromJson(bad, backup(strSpan), "replace")).ok).toBe(
+      false
+    );
+  });
+
+  it("replace 恢复:超档组降档连带降每行条数,x 按新宽钳;清单式 columns 不动", async () => {
+    const adapter = createMemoryStorage(null);
+
+    expect((await importStateFromJson(adapter, backup(), "replace")).ok).toBe(
+      true
+    );
+
+    const state = (await adapter.load())!;
+    // 720 下最大档 3(W(3)=602 ≤ 720 < W(4)=792);x=100 ≤ 118 合法不动
+    expect(state.groups[1]).toMatchObject({ span: 3, columns: 3, x: 100 });
+    // 清单式组同样降档:columns 1 ≤ 3 不动
+    expect(state.groups[2]).toMatchObject({ span: 3, columns: 1 });
+  });
+
+  it("宽画布原样往返:档位与每行条数逐字保留;缺省组不物化 span", async () => {
+    const adapter = createMemoryStorage(null);
+
+    await importStateFromJson(adapter, backup(v7Groups(), 1200), "replace");
+
+    const state = (await adapter.load())!;
+    expect(state.groups[1]).toMatchObject({ span: 6, columns: 4 });
+    expect(state.groups[2]).toMatchObject({ span: 4, columns: 1 });
+
+    // v6 形状(无 span)导入:不物化 span,渲染口径从 columns 推导
+    const v6 = createMemoryStorage(null);
+    const noSpan = v7Groups().map((g) => ({ ...g, span: undefined }));
+    await importStateFromJson(v6, backup(noSpan, 1200), "replace");
+    const v6State = (await v6.load())!;
+    expect(v6State.groups[1].span).toBeUndefined();
+    expect(v6State.groups[1].columns).toBe(4);
+  });
+});

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { INBOX_GROUP_ID } from "../domain/store";
+import { groupCellsOf } from "../domain/canvas";
 import type { DeleteGroupResult, Group, Result } from "../domain/types";
 import { ColorSwatches } from "./ColorSwatches";
 import { domainErrorText } from "./messages";
@@ -40,15 +41,15 @@ export function GroupHeader({
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [name, setName] = useState(group.name);
   const [color, setColor] = useState(group.color);
-  // 每行条数(group-width-tint):缺省 1 = 存量宽行单列
-  const [columns, setColumns] = useState(group.columns ?? 1);
+  // 每行条数(group-span-decouple):生效值含装满缺省(columns 缺省 = 随档位)
+  const [columns, setColumns] = useState(groupCellsOf(group));
   const [error, setError] = useState<string | null>(null);
   const isInbox = group.id === INBOX_GROUP_ID;
 
   function startEdit() {
     setName(group.name);
     setColor(group.color);
-    setColumns(group.columns ?? 1);
+    setColumns(groupCellsOf(group));
     setError(null);
     setMode("edit");
   }
@@ -71,7 +72,7 @@ export function GroupHeader({
         return;
       }
     }
-    if (columns !== (group.columns ?? 1)) {
+    if (columns !== groupCellsOf(group)) {
       const resized = await onSetColumns(columns);
       if (!resized.ok) {
         setError(domainErrorText[resized.error]);

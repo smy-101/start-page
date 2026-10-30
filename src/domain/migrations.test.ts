@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createBookmarkStore, statesEqual } from "../domain/store";
+import { migrateState } from "../domain/migrations";
 import { exportStateAsJson, importStateFromJson } from "../domain/importExport";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/types";
@@ -491,5 +492,70 @@ describe("schema v6 每行条数(group-width-tint)", () => {
     await createBookmarkStore(adapter);
 
     expect(await adapter.load()).toBe(current);
+  });
+});
+
+describe("schema v7 组宽档位(group-span-decouple)", () => {
+  /** v6 状态:甲 columns 4、乙 columns 缺省。 */
+  function v6State(): BookmarkState {
+    return {
+      schemaVersion: 6,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        { id: "g-a", name: "甲", color: "#e99695", order: 1, x: 405, y: 0, columns: 4 },
+        { id: "g-b", name: "乙", color: "#81a2be", order: 2, x: 0, y: 144 },
+      ],
+      bookmarks: [],
+    };
+  }
+
+  it("v6 → v7 零数据改写:升版落盘,groups 逐组引用不变,不物化 span", async () => {
+    const seed = v6State();
+    const adapter = createMemoryStorage(seed);
+    const store = await createBookmarkStore(adapter);
+
+    const state = store.getState();
+    expect(state.schemaVersion).toBe(SCHEMA_VERSION);
+    // 零改写:组对象引用原样(缺省档位从 columns 推导,渲染逐字不变)
+    expect(state.groups[0]).toBe(seed.groups[0]);
+    expect(state.groups[1]).toBe(seed.groups[1]);
+    expect(state.groups[2]).toBe(seed.groups[2]);
+    expect((await adapter.load())?.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it("幂等:已是 v7 的干净状态原引用返回", () => {
+    const state = { ...v6State(), schemaVersion: SCHEMA_VERSION };
+    expect(migrateState(state)).toBe(state);
+  });
+
+  it("防御:span 非法(越界/非整数)剥离为缺省(= 从 columns 推导)", () => {
+    const state = {
+      ...v6State(),
+      schemaVersion: SCHEMA_VERSION,
+      groups: [
+        { ...v6State().groups[0], span: 0 },
+        { ...v6State().groups[1], span: 2.5, columns: 4 },
+      ],
+    };
+    const migrated = migrateState(state);
+    expect(migrated.groups[0].span).toBeUndefined();
+    // span 剥离后缺省从 columns 推导(生效档位 4,与抬档等价;剩一路径)
+    expect(migrated.groups[1]).toMatchObject({ span: undefined, columns: 4 });
+  });
+
+  it("防御:columns > span 抬 span 到 columns(宽到装得下,不丢排版)", () => {
+    const state = {
+      ...v6State(),
+      schemaVersion: SCHEMA_VERSION,
+      groups: [{ ...v6State().groups[1], span: 2, columns: 4 }],
+    };
+    expect(migrateState(state).groups[0]).toMatchObject({ span: 4, columns: 4 });
   });
 });

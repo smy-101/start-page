@@ -26,8 +26,9 @@ const seed: BookmarkState = {
       x: 0,
       y: 0,
     },
-    // 每行条数各异(group-width-tint):3 列 / 2 列 / 缺省 1 列混排,
-    // 供视觉评审多列观感;组宽随列数推导
+    // 档位/每行条数各异(group-span-decouple):装满 3 档 / 装满 2 档 /
+    // 缺省单列 / 清单式(span 4 + 一行 1 条,条目拉满整行)混排,
+    // 供视觉评审;组宽随档位推导
     {
       id: "g-dev",
       name: "前端开发",
@@ -61,6 +62,17 @@ const seed: BookmarkState = {
       order: 4,
       x: 630,
       y: 260,
+    },
+    // 清单式:拖宽到 4 档后表单改一行 1 条——宽组保持、条目拉满整行
+    {
+      id: "g-tools",
+      name: "常用工具",
+      color: "#8abeb7",
+      order: 5,
+      x: 0,
+      y: 880,
+      span: 4,
+      columns: 1,
     },
   ],
   bookmarks: [
@@ -235,6 +247,31 @@ const seed: BookmarkState = {
       title: "豆瓣电影",
       note: "",
       groupId: "g-video",
+      order: 2,
+    },
+    // 常用工具(清单式样例)
+    {
+      id: "b50",
+      url: "https://excalidraw.com",
+      title: "Excalidraw",
+      note: "",
+      groupId: "g-tools",
+      order: 0,
+    },
+    {
+      id: "b51",
+      url: "https://www.remove.bg",
+      title: "remove.bg",
+      note: "",
+      groupId: "g-tools",
+      order: 1,
+    },
+    {
+      id: "b52",
+      url: "https://tinypng.com",
+      title: "TinyPNG",
+      note: "",
+      groupId: "g-tools",
       order: 2,
     },
   ],

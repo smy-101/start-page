@@ -10,8 +10,12 @@
  * (刻意调回 1200 的会被误判,重拖一次拖柄即恢复固定)。
  * v5→v6 每行条数(group-width-tint):分组可选 columns 无数据回填
  * (缺省 = 1 = 存量宽行单列);仅剥离非法值(非有限/非整数/越 1..6)。
+ * v6→v7 组宽档位(group-span-decouple):零数据改写——缺省档位从每行
+ * 条数推导,v6 全部状态渲染逐字不变,仅升版本号。
  * 末尾统一修复:宽度存在但非法(NaN/越界)钳回;缺省 = 自动档,不补数值;
- * columns 存在但非法剥离(undefined 与 1 同义,不回填数值)。
+ * columns 存在但非法剥离(undefined 与 1 同义,不回填数值);span 非法
+ * 剥离(缺省 = 从 columns 推导);合法 columns > 合法 span 时抬 span 到
+ * columns(宽到装得下,不丢排版;手改 JSON 的兑底)。
  * 幂等:已是当前版本且无需修复的状态原引用返回(不重排、不落盘)。
  */
 import type { BookmarkState } from "./types";
@@ -45,12 +49,17 @@ export function migrateState(state: BookmarkState): BookmarkState {
   }
   if (next.schemaVersion < 6) {
     // v5→v6:非法 columns 剥离(合法值原样保留;缺省不补数值)
-    const groups = next.groups.some((g) => !isValidColumns(g.columns))
+    const groups = next.groups.some((g) => !isValidStep(g.columns))
       ? next.groups.map((g) =>
-          isValidColumns(g.columns) ? g : { ...g, columns: undefined }
+          isValidStep(g.columns) ? g : { ...g, columns: undefined }
         )
       : next.groups;
     next = { ...next, schemaVersion: 6, groups };
+  }
+  if (next.schemaVersion < 7) {
+    // v6→v7 零数据改写(group-span-decouple):缺省档位从每行条数推导,
+    // v6 全部状态渲染逐字不变(groups 引用原样保留)
+    next = { ...next, schemaVersion: 7 };
   }
   // 缺省 = 自动档(schema v5),修复仅针对已存在的非法值
   if (
@@ -59,15 +68,36 @@ export function migrateState(state: BookmarkState): BookmarkState {
   ) {
     next = { ...next, canvasWidth: clampCanvasWidth(next.canvasWidth) };
   }
+  // v7 防御:span 非法剥离;合法 columns > 合法 span 抬 span(幂等:
+  // 干净状态 groups 引用不变,整体原引用返回)
+  if (next.groups.some((g) => needsSpanRepair(g))) {
+    next = {
+      ...next,
+      groups: next.groups.map((g) => {
+        if (!isValidStep(g.span)) return { ...g, span: undefined };
+        return needsSpanRepair(g) ? { ...g, span: g.columns } : g;
+      }),
+    };
+  }
   return next;
 }
 
-/** columns 合法:缺省(与 1 同义)或有限整数 1..上限。 */
-function isValidColumns(columns: number | undefined): boolean {
+/** 档位/每行条数共用合法域:缺省(与推导/装满同义)或有限整数 1..上限。 */
+function isValidStep(value: number | undefined): boolean {
   return (
-    columns === undefined ||
-    (Number.isInteger(columns) &&
-      columns >= 1 &&
-      columns <= MAX_GROUP_COLUMNS)
+    value === undefined ||
+    (Number.isInteger(value) && value >= 1 && value <= MAX_GROUP_COLUMNS)
+  );
+}
+
+/** span 需修复:非法,或被合法 columns 超出(抬到装得下)。 */
+function needsSpanRepair(g: { span?: number; columns?: number }): boolean {
+  if (!isValidStep(g.span)) return true;
+  const { span, columns } = g;
+  return (
+    span !== undefined &&
+    columns !== undefined &&
+    isValidStep(columns) &&
+    columns > span
   );
 }
