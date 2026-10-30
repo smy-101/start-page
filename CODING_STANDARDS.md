@@ -23,3 +23,12 @@
 
 词条更名时,类名、文案、变量同步改(`.edit-toggle`→`.whiteboard-toggle` P2 即漏网例);
 新命名先查 `GLOSSARY.md` 的词条与 Avoid 列表,再落码。
+
+## 行为冻结
+
+深 module 抽取票的新增测试,断言值须可追溯到票面真值表:抽取前在原
+组件上跑探针(临时测试,`npx vitest run <file> --disable-console-intercept`,
+vitest 默认拦 console 会吞探针输出)实测捕获,用后即删,真值表落票面
+Comments。无真值表支撑的断言打回;读码或注释与实测有出入,记 Comments
+待裁定,冻结不动(card-dnd-deepen 实例:自悬下半指示线落在 p+2,非原
+注释所称「贴自身后」)。
