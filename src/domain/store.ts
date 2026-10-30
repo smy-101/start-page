@@ -17,10 +17,13 @@ import {
 import { normalizeUrl } from "./url";
 import { migrateState } from "./migrations";
 import {
+  MAX_GROUP_COLUMNS,
   appendPositions,
   canvasBoundWidth,
   clampCanvasWidth,
   clampToCanvas,
+  groupWidthOf,
+  maxColumnsForCanvas,
 } from "./canvas";
 
 export { INBOX_GROUP_COLOR, INBOX_GROUP_ID, SCHEMA_VERSION } from "./types";
@@ -90,6 +93,16 @@ export interface BookmarkStore {
    * 钉任意值都算变化)。返回生效宽度。
    */
   setCanvasWidth(width: number): Promise<Result<number>>;
+  /**
+   * 每行条数写回(schema v6,group-width-tint):组右缘拖柄松手/键盘步进与
+   * 组头表单选择共用。钳回 [1, min(6, 画布放得下的最大列数)](自动档按
+   * 上限,同 canvasBoundWidth 口径)后落盘;变宽后按新宽重钳 x 回画布内;
+   * 列数与坐标均无实际变化不落盘(缺省 1 与显式 1 同义不落盘)。
+   */
+  setGroupColumns(
+    id: GroupId,
+    columns: number
+  ): Promise<Result<Group>>;
   /** 删除分组:组内收藏全部回收进收集箱(绝不连带删除)。 */
   deleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   /**
@@ -150,7 +163,8 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
       x.color !== y.color ||
       x.order !== y.order ||
       x.x !== y.x ||
-      x.y !== y.y
+      x.y !== y.y ||
+      x.columns !== y.columns
     ) {
       return false;
     }
@@ -378,9 +392,17 @@ export async function createBookmarkStore(
         return { ok: false, error: "group-not-found" };
       }
       const width = canvasBoundWidth(state);
+      const widthOf = new Map(
+        state.groups.map((g) => [g.id, groupWidthOf(g.columns)] as const)
+      );
       const byId = new Map(
         positions.map((p) => {
-          const clamped = clampToCanvas({ x: p.x, y: p.y }, width);
+          // 各组按各自宽钳右界(group-width-tint);未知 id 已整批拒绝
+          const clamped = clampToCanvas(
+            { x: p.x, y: p.y },
+            width,
+            widthOf.get(p.id)
+          );
           return [p.id, clamped] as const;
         })
       );
@@ -402,18 +424,59 @@ export async function createBookmarkStore(
       const clamped = clampCanvasWidth(width);
       // 逐字比较:自动档(缺省)钉任意值都算变化(schema v5)
       const widthChanged = clamped !== state.canvasWidth;
-      // 缩宽时越界分组重钳到新右界(宽化不变坐标);逐组判断,未动者原对象保留
+      // 缩宽时超宽组降列(maxColumnsForCanvas)、坐标按各自宽重钳到新右界
+      // (宽化不变坐标与列数);逐组判断,未动者原对象保留
       let moved = false;
       const groups = state.groups.map((g) => {
-        const pos = clampToCanvas({ x: g.x, y: g.y }, clamped);
-        if (pos.x === g.x && pos.y === g.y) return g;
+        const maxColumns = maxColumnsForCanvas(clamped);
+        const columns =
+          g.columns !== undefined && g.columns > maxColumns
+            ? maxColumns
+            : g.columns;
+        const pos = clampToCanvas(
+          { x: g.x, y: g.y },
+          clamped,
+          groupWidthOf(columns)
+        );
+        // 未降列且坐标未动:原对象保留(不写入显式 undefined)
+        if (columns === g.columns && pos.x === g.x && pos.y === g.y) return g;
         moved = true;
-        return { ...g, x: pos.x, y: pos.y };
+        return { ...g, x: pos.x, y: pos.y, columns };
       });
       if (!widthChanged && !moved) return { ok: true, value: clamped };
       state = { ...state, canvasWidth: clamped, groups };
       await adapter.save(state);
       return { ok: true, value: clamped };
+    },
+
+    async setGroupColumns(
+      id: GroupId,
+      columns: number
+    ): Promise<Result<Group>> {
+      const group = state.groups.find((g) => g.id === id);
+      if (!group) return { ok: false, error: "group-not-found" };
+      // 钳上界随画布宽(自动档按上限);非有限值归 1,取整一律 floor
+      const maxColumns = maxColumnsForCanvas(canvasBoundWidth(state));
+      const requested = Number.isFinite(columns) ? Math.floor(columns) : 1;
+      const clamped = Math.max(
+        1,
+        Math.min(requested, MAX_GROUP_COLUMNS, maxColumns)
+      );
+      // 与当前同义(含缺省 1)不落盘
+      if ((group.columns ?? 1) === clamped) return { ok: true, value: group };
+      // 变宽后按新宽重钳 x 回画布内(y 只压非负不变)
+      const pos = clampToCanvas(
+        { x: group.x, y: group.y },
+        canvasBoundWidth(state),
+        groupWidthOf(clamped)
+      );
+      const resized: Group = { ...group, columns: clamped, x: pos.x, y: pos.y };
+      state = {
+        ...state,
+        groups: state.groups.map((g) => (g.id === id ? resized : g)),
+      };
+      await adapter.save(state);
+      return { ok: true, value: resized };
     },
 
     async deleteGroup(id: GroupId): Promise<DeleteGroupResult> {

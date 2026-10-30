@@ -15,6 +15,8 @@ type GroupHeaderProps = {
   onToggleCollapse(): void;
   onRename(name: string): Promise<Result<Group>>;
   onRecolor(color: string): Promise<Result<Group>>;
+  /** 每行条数选择(group-width-tint):与改名/换色同表单提交 */
+  onSetColumns(columns: number): Promise<Result<Group>>;
   onDeleteGroup(): Promise<DeleteGroupResult>;
 };
 
@@ -32,17 +34,21 @@ export function GroupHeader({
   onToggleCollapse,
   onRename,
   onRecolor,
+  onSetColumns,
   onDeleteGroup,
 }: GroupHeaderProps) {
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [name, setName] = useState(group.name);
   const [color, setColor] = useState(group.color);
+  // 每行条数(group-width-tint):缺省 1 = 存量宽行单列
+  const [columns, setColumns] = useState(group.columns ?? 1);
   const [error, setError] = useState<string | null>(null);
   const isInbox = group.id === INBOX_GROUP_ID;
 
   function startEdit() {
     setName(group.name);
     setColor(group.color);
+    setColumns(group.columns ?? 1);
     setError(null);
     setMode("edit");
   }
@@ -62,6 +68,13 @@ export function GroupHeader({
       const recolored = await onRecolor(color);
       if (!recolored.ok) {
         setError(domainErrorText[recolored.error]);
+        return;
+      }
+    }
+    if (columns !== (group.columns ?? 1)) {
+      const resized = await onSetColumns(columns);
+      if (!resized.ok) {
+        setError(domainErrorText[resized.error]);
         return;
       }
     }
@@ -90,6 +103,18 @@ export function GroupHeader({
             value={color}
             onChange={setColor}
           />
+          <label htmlFor={`group-columns-${group.id}`}>每行条数</label>
+          <select
+            id={`group-columns-${group.id}`}
+            value={columns}
+            onChange={(e) => setColumns(Number(e.target.value))}
+          >
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                一行 {n} 条
+              </option>
+            ))}
+          </select>
           <div className="card-actions">
             <button type="submit">保存</button>
             <button type="button" onClick={() => setMode("view")}>

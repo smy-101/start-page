@@ -53,6 +53,7 @@ function seededState(): BookmarkState {
 type Board = {
   onSetGroupPositions: Mock;
   onResizeCanvas: Mock;
+  onResizeGroup: Mock;
   onEnterWhiteboard: Mock;
   rerender(next: BookmarkState, overrides?: Partial<WhiteboardProps>): void;
 };
@@ -69,6 +70,18 @@ function renderBoard(
     ok: true as const,
     value: 1200,
   }));
+  const onResizeGroup = vi.fn(async (_id: GroupId, columns: number) => ({
+    ok: true as const,
+    value: {
+      id: _id,
+      name: "",
+      color: "",
+      order: 0,
+      x: 0,
+      y: 0,
+      columns,
+    },
+  }));
   const onEnterWhiteboard = vi.fn();
   const props: WhiteboardProps = {
     state: initial,
@@ -84,6 +97,7 @@ function renderBoard(
     onDeleteGroup: vi.fn(),
     onSetGroupPositions,
     onResizeCanvas,
+    onResizeGroup,
     onCardDragStart: vi.fn(),
     onDragEnd: vi.fn(),
     onSectionDragOver: vi.fn(),
@@ -99,6 +113,7 @@ function renderBoard(
   return {
     onSetGroupPositions,
     onResizeCanvas,
+    onResizeGroup,
     onEnterWhiteboard,
     rerender(next, extra) {
       view.rerender(
@@ -746,5 +761,206 @@ describe("右缘调宽拖柄(canvas-bounds-align)", () => {
 
     expect(board.onSetGroupPositions).not.toHaveBeenCalled();
     expect(sectionOf("甲组")).toHaveStyle({ left: "405px", top: "0px" });
+  });
+});
+
+describe("组右缘调宽拖柄(group-width-tint)", () => {
+  function groupHandle(name: string): HTMLElement {
+    return screen.getByRole("separator", { name: `调整分组 ${name} 宽度` });
+  }
+
+  it("门禁:仅白板模式且非搜索、非折叠时出现;收集箱同样可调", () => {
+    const board = renderBoard();
+    expect(
+      screen.queryByRole("separator", { name: "调整分组 甲组 宽度" })
+    ).not.toBeInTheDocument();
+
+    board.rerender(seededState(), { whiteboardMode: true });
+    expect(groupHandle("甲组")).toBeInTheDocument();
+    expect(groupHandle("收集箱")).toBeInTheDocument();
+
+    // 搜索态锁定:临时展开也无可调宽入口
+    board.rerender(seededState(), { whiteboardMode: true, searching: true });
+    expect(
+      screen.queryByRole("separator", { name: "调整分组 甲组 宽度" })
+    ).not.toBeInTheDocument();
+
+    // 折叠组仅剩列头,无拖柄
+    board.rerender(seededState(), {
+      whiteboardMode: true,
+      collapsedIds: new Set<GroupId>(["g-a"]),
+    });
+    expect(
+      screen.queryByRole("separator", { name: "调整分组 甲组 宽度" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("组宽随每行条数推导入渲染;拖柄拖动预览,松手吸附列边界写回", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = groupHandle("甲组");
+    const groupA = sectionOf("甲组");
+
+    // 缺省 = 1 = CARD_W(存量宽行观感)
+    expect(parseFloat(groupA.style.width)).toBeCloseTo(CARD_W, 5);
+
+    // jsdom 几何全 0 无碍:拖柄会话 delta 制(起点宽 + 指针位移)
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 100, clientY: 30 })
+      );
+    });
+    expect(groupA).toHaveAttribute("data-resizing", "true");
+    // 拖宽 300 → 预览 ≈ 689.33(clamp 界内),最近列边界 = 3 列(W(3)=614)
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 400, clientY: 30 })
+      );
+    });
+    expect(parseFloat(groupA.style.width)).toBeCloseTo(CARD_W + 300, 5);
+    expect(screen.getByText("一行 3 条")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 松手:吸附列边界写回 3 列;已提交宽留到持久回流再清(不闪回旧宽)
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 3);
+    expect(groupA).not.toHaveAttribute("data-resizing");
+    expect(parseFloat(groupA.style.width)).toBe(602);
+
+    // 持久 columns 回流:哨兵清场,组宽保持推导值
+    const settled = seededState();
+    settled.groups = settled.groups.map((g) =>
+      g.id === "g-a" ? { ...g, columns: 3 } : g
+    );
+    board.rerender(settled);
+    expect(parseFloat(groupA.style.width)).toBe(602);
+  });
+
+  it("拖柄钳界:预览不越 [W(1), W(maxColumns)];画布窄时上界收窄", () => {
+    // 画布钉 720:maxColumns=3(W(4)=816 > 720)
+    const narrow = seededState();
+    narrow.canvasWidth = 720;
+    const board = renderBoard(narrow, { whiteboardMode: true });
+    const handle = groupHandle("甲组");
+
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 0, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 9999, clientY: 0 })
+      );
+    });
+    // 预览钳在 W(3)=602,松手吸附 3 列
+    expect(parseFloat(sectionOf("甲组").style.width)).toBe(602);
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 3);
+  });
+
+  it("键盘:←/→ 步进一列写回;日常态无拖柄不可聚焦", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = groupHandle("甲组");
+
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 2);
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 1);
+  });
+
+  it("指针取消:只清预览不写回", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = groupHandle("甲组");
+
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 0, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 300, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointercancel"));
+    });
+
+    expect(board.onResizeGroup).not.toHaveBeenCalled();
+    expect(parseFloat(sectionOf("甲组").style.width)).toBeCloseTo(CARD_W, 5);
+  });
+
+  it("调宽不劫持分组拖拽:拖柄 pointerdown 不发起分组移动会话", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = groupHandle("甲组");
+
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 100, clientY: 30 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 200, clientY: 30 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+
+    expect(board.onSetGroupPositions).not.toHaveBeenCalled();
+  });
+
+  it("拖拽钳界按各组宽:两列组拖到右缘外钳在 1200 − 412", () => {
+    const wide = seededState();
+    wide.groups = wide.groups.map((g) =>
+      g.id === "g-a" ? { ...g, columns: 2 } : g
+    );
+    renderBoard(wide, { whiteboardMode: true });
+    const groupA = sectionOf("甲组");
+
+    dragBy(groupA, { x: 0, y: 0 }, { x: 2997, y: 41 });
+
+    const left = parseFloat(groupA.style.left);
+    expect(left).toBeLessThanOrEqual(1200 - 412);
+    expect(left).toBeGreaterThanOrEqual(1200 - 412 - 1);
+  });
+});
+
+describe("组右缘调宽拖柄:回流哨兵的钳回分歧(group-width-tint)", () => {
+  it("store 钳回不同列数(窄画布降列)时本地已提交宽解除,采纳持久值", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = screen.getByRole("separator", {
+      name: "调整分组 甲组 宽度",
+    });
+    const groupA = sectionOf("甲组");
+
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 100, clientY: 30 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 400, clientY: 30 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 请求 3 列(W(3)=614),但 store 画布更窄只给了 2 列
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 3);
+    expect(parseFloat(groupA.style.width)).toBe(602);
+
+    const clamped = seededState();
+    clamped.groups = clamped.groups.map((g) =>
+      g.id === "g-a" ? { ...g, columns: 2 } : g
+    );
+    board.rerender(clamped);
+    // 哨兵解除:渲染采纳持久 2 列宽,不再卡在 614
+    expect(parseFloat(groupA.style.width)).toBe(412);
   });
 });

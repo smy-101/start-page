@@ -735,3 +735,164 @@ describe("画布宽自动档(schema v5,canvas-bounds-align/04)", () => {
     expect(store.getState().groups[1].x).toBe(1760 - CARD_W);
   });
 });
+
+describe("每行条数写回(group-width-tint,schema v6)", () => {
+  /** 收集箱(0,0) + g-a(810,0,两列) 的库(默认画布 1200 固定宽)。 */
+  async function columned() {
+    const base = createMemoryStorage({
+      schemaVersion: SCHEMA_VERSION,
+      canvasWidth: 1200,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        {
+          id: "g-a",
+          name: "A",
+          color: "#e99695",
+          order: 1,
+          x: 810,
+          y: 0,
+          columns: 2,
+        },
+      ],
+      bookmarks: [],
+    });
+    const save = vi.fn(base.save.bind(base));
+    const adapter = Object.assign({}, base, { save });
+    const store = await createBookmarkStore(adapter);
+    return { store, adapter, save };
+  }
+
+  it("调列:落盘生效;变宽后 x 重钳到新右界(598 = 1200 − 602)", async () => {
+    const { store, save } = await columned();
+
+    const result = await store.setGroupColumns("g-a", 3);
+
+    expect(result.ok).toBe(true);
+    const group = store.getState().groups[1];
+    expect(group.columns).toBe(3);
+    expect(group).toMatchObject({ x: 598, y: 0, name: "A" });
+    expect(save).toHaveBeenCalled();
+  });
+
+  it("变宽越界重钳:5 列组(宽 982)在右缘 810 时钳回 218", async () => {
+    const { store } = await columned();
+
+    await store.setGroupColumns("g-a", 5);
+
+    // 右界 = 1200 − 982 = 218
+    expect(store.getState().groups[1].x).toBe(218);
+    expect(store.getState().groups[1].columns).toBe(5);
+  });
+
+  it("钳回:越上限 6 归 6;窄画布按放得下的最大列数", async () => {
+    const { store } = await columned();
+
+    // 画布 1200:W(6)=1172 ≤ 1200 → 6
+    expect(await store.setGroupColumns("g-a", 99)).toMatchObject({
+      ok: true,
+      value: { columns: 6 },
+    });
+
+    // 画布缩到 720:maxColumns=3(W(4)=792 > 720)
+    await store.setCanvasWidth(720);
+    expect(await store.setGroupColumns("g-a", 6)).toMatchObject({
+      ok: true,
+      value: { columns: 3 },
+    });
+  });
+
+  it("非有限值归 1(显式落盘);与当前同值不落盘", async () => {
+    const { store, save } = await columned();
+
+    expect(await store.setGroupColumns("g-a", Number.NaN)).toMatchObject({
+      ok: true,
+      value: { columns: 1 },
+    });
+    expect(store.getState().groups[1].columns).toBe(1);
+    save.mockClear();
+    // 与当前同值(1)不再落盘
+    await store.setGroupColumns("g-a", 1);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("未知分组被拒", async () => {
+    const { store, save } = await columned();
+
+    expect(await store.setGroupColumns("g-none", 2)).toEqual({
+      ok: false,
+      error: "group-not-found",
+    });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("缩画布:超宽组降列 + 按各自宽重钳 x(两列组 720 下保得住 2 列)", async () => {
+    const { store } = await columned();
+
+    await store.setCanvasWidth(720);
+
+    // W(2)=412 ≤ 720:g-a 保持 2 列;x 钳回 720−412=308
+    const group = store.getState().groups[1];
+    expect(group.columns).toBe(2);
+    expect(group.x).toBe(308);
+  });
+
+  it("缩画布:五列组(1018)在 720 下降到 3 列并重钳", async () => {
+    const base = createMemoryStorage({
+      schemaVersion: SCHEMA_VERSION,
+      canvasWidth: 1200,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        {
+          id: "g-wide",
+          name: "宽组",
+          color: "#e99695",
+          order: 1,
+          x: 0,
+          y: 0,
+          columns: 5,
+        },
+      ],
+      bookmarks: [],
+    });
+    const store = await createBookmarkStore(base);
+
+    await store.setCanvasWidth(720);
+
+    // W(3)=602 ≤ 720 < W(4)=792 → 3 列;x 0 不越界保持
+    const group = store.getState().groups[1];
+    expect(group.columns).toBe(3);
+    expect(group.x).toBe(0);
+  });
+
+  it("落点钳回按各自组宽:两列组右界 = 画布宽 − 412", async () => {
+    const { store } = await columned();
+
+    await store.setGroupPositions([{ id: "g-a", x: 1000, y: 0 }]);
+
+    // 1200 − 412 = 788
+    expect(store.getState().groups[1].x).toBe(788);
+  });
+
+  it("statesEqual 纳入 columns 比较", async () => {
+    const { store } = await columned();
+    const a = store.getState();
+    const b = structuredClone(a);
+    expect(statesEqual(a, b)).toBe(true);
+    b.groups[1].columns = 3;
+    expect(statesEqual(a, b)).toBe(false);
+  });
+});

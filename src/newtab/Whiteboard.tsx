@@ -18,13 +18,14 @@ import type {
 } from "../domain/types";
 import type { BookmarkPatch, GroupPositionInput } from "../domain/store";
 import {
-  CARD_W,
   MAX_CANVAS_W,
   MIN_CANVAS_W,
   appendPositions,
   canvasBoundWidth,
   clampCanvasWidth,
   effectiveCanvasWidth,
+  groupWidthOf,
+  maxColumnsForCanvas,
   packCanvas,
   snapAlignment,
 } from "../domain/canvas";
@@ -100,6 +101,8 @@ export type WhiteboardProps = {
   ): Promise<Result<Group[]>>;
   /** 画布宽写回(右缘拖柄松手/键盘调整;钳回与重钳越界分组在 store 收口) */
   onResizeCanvas(width: number): Promise<Result<number>>;
+  /** 每行条数写回(group-width-tint):组右缘拖柄/组头表单 → store 钳回落盘 */
+  onResizeGroup(id: GroupId, columns: number): Promise<Result<Group>>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
 } & DragHandlers;
@@ -121,6 +124,7 @@ export function Whiteboard({
   onDeleteGroup,
   onSetGroupPositions,
   onResizeCanvas,
+  onResizeGroup,
   onCardDragStart,
   onDragEnd,
   onSectionDragOver,
@@ -218,6 +222,16 @@ export function Whiteboard({
       : (placements.get(group.id) ?? null);
   }
 
+  // 各组渲染宽(group-width-tint):每行条数推导,拖拽钳界/对齐/哨兵共用;
+  // 调宽拖柄在组内本地预览,提交后经持久 columns 回流到本表
+  const widthOf = useCallback(
+    (id: GroupId): number =>
+      groupWidthOf(groupsByOrder.find((g) => g.id === id)?.columns),
+    [groupsByOrder]
+  );
+  const widthOfRef = useRef(widthOf);
+  widthOfRef.current = widthOf;
+
   // 画布高随内容增长:最底卡片底边 + 底衬(测不出高度时退化为坐标底)
   let canvasMinH = CANVAS_PAD;
   for (const g of groupsByOrder) {
@@ -257,12 +271,10 @@ export function Whiteboard({
     if (!grab || !canvas) return;
     const rect = canvas.getBoundingClientRect();
     const width = canvasWRef.current;
-    // 拖中钳在画布内(右界 = 宽 − 卡宽;画布向下无界只压非负)——
+    // 拖中钳在画布内(右界 = 宽 − 各组宽,group-width-tint;画布向下无界只压非负)——
     // 不再先逃逸后弹回,边缘可见后钳回可预期
-    const x = Math.min(
-      Math.max(0, clientX - rect.left - grab.grabX),
-      width - CARD_W
-    );
+    const dragW = widthOfRef.current(grab.id);
+    const x = Math.min(Math.max(0, clientX - rect.left - grab.grabX), width - dragW);
     const y = Math.max(0, clientY - rect.top - grab.grabY);
     // 对齐吸附:与其余卡(持久落点 + 已测高)和画布边线比对
     const others: Rect[] = [];
@@ -271,12 +283,12 @@ export function Whiteboard({
       others.push({
         x: pos.x,
         y: pos.y,
-        w: CARD_W,
+        w: widthOfRef.current(id),
         h: heightsRef.current[id] ?? 0,
       });
     }
     const snap = snapAlignment(
-      { x, y, w: CARD_W, h: heightsRef.current[grab.id] ?? 0 },
+      { x, y, w: dragW, h: heightsRef.current[grab.id] ?? 0 },
       others,
       width
     );
@@ -483,8 +495,10 @@ export function Whiteboard({
     const pending = dropPendingRef.current;
     if (pending) {
       const pos = placements.get(pending.id);
-      // 右界哨兵与 store 同口径:固定宽按固定值,自动档按上限
-      const bound = canvasBoundWidth(state) - CARD_W;
+      // 右界哨兵与 store 同口径:固定宽按固定值,自动档按上限;
+      // 右界随各组宽(group-width-tint)
+      const bound =
+        canvasBoundWidth(state) - widthOfRef.current(pending.id);
       const settled =
         pos &&
         pos.y === pending.y &&
@@ -519,7 +533,9 @@ export function Whiteboard({
     if (ids.length === 0) return;
     const positions = packCanvas(
       ids.map((id) => heightOf(id)),
-      canvasWRef.current
+      canvasWRef.current,
+      // 宽度感知装箱(group-width-tint):各组按各自渲染宽占槽
+      ids.map((id) => widthOfRef.current(id))
     );
     void onSetGroupPositions(
       ids.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }))
@@ -598,32 +614,40 @@ export function Whiteboard({
           onPointerDown={onPointerDown}
           onDragStartCapture={onCanvasDragStart}
         >
-          {groupsByOrder.map((group) => (
-            <GroupSection
-              key={group.id}
-              group={group}
-              bookmarks={grouped.get(group.id) ?? []}
-              groups={groups}
-              placement={placementOf(group)}
-              collapsed={!searching && collapsedIds.has(group.id)}
-              whiteboardMode={whiteboardMode}
-              dragActive={drag?.id === group.id}
-              dropIndex={dropHint?.groupId === group.id ? dropHint.index : null}
-              onToggleCollapse={onToggleCollapse}
-              onRename={onRenameGroup}
-              onRecolor={onRecolorGroup}
-              onDeleteGroup={onDeleteGroup}
+          {groupsByOrder.map((group) => {
+            const collapsed = !searching && collapsedIds.has(group.id);
+            return (
+              <GroupSection
+                key={group.id}
+                group={group}
+                bookmarks={grouped.get(group.id) ?? []}
+                groups={groups}
+                placement={placementOf(group)}
+                collapsed={collapsed}
+                whiteboardMode={whiteboardMode}
+                resizable={!locked && !collapsed}
+                resizeMaxColumns={maxColumnsForCanvas(canvasW)}
+                dragActive={drag?.id === group.id}
+                dropIndex={
+                  dropHint?.groupId === group.id ? dropHint.index : null
+                }
+                onToggleCollapse={onToggleCollapse}
+                onRename={onRenameGroup}
+                onRecolor={onRecolorGroup}
+                onResizeColumns={onResizeGroup}
+                onDeleteGroup={onDeleteGroup}
               onCardDragStart={onCardDragStart}
               onDragEnd={onDragEnd}
               onSectionDragOver={onSectionDragOver}
               onSectionDrop={onSectionDrop}
               onCardDragOver={onCardDragOver}
               onCardDrop={onCardDrop}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              elementRef={itemRef(group.id)}
-            />
-          ))}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                elementRef={itemRef(group.id)}
+              />
+            );
+          })}
           {/* 对齐辅助线(canvas-bounds-align):拖中才有;画布线贯穿整幅 */}
           {guides.map((guide, i) =>
             guide.axis === "x" ? (

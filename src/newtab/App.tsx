@@ -375,6 +375,13 @@ export function App({
     [run]
   );
 
+  /** 每行条数写回(group-width-tint):组右缘拖柄/组头表单 → store 钳回落盘 */
+  const handleResizeGroup = useCallback(
+    (id: GroupId, columns: number) =>
+      run(() => storeRef.current!.setGroupColumns(id, columns)),
+    [run]
+  );
+
   /** nudge 一键进入(board-whiteboard/03):只开不关,关闭走头部开关 */
   const handleEnterWhiteboard = useCallback(() => {
     setWhiteboardMode(true);
@@ -686,6 +693,7 @@ export function App({
         onDeleteGroup={handleDeleteGroup}
         onSetGroupPositions={handleSetGroupPositions}
         onResizeCanvas={handleResizeCanvas}
+        onResizeGroup={handleResizeGroup}
         onEnterWhiteboard={handleEnterWhiteboard}
         {...dragHandlers}
         onEdit={handleCardEdit}

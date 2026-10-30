@@ -16,9 +16,19 @@ export const MIN_CANVAS_W = 720;
 /** 画布宽上限(px,16 倍数):再宽超出超宽屏意义,横向滚动找回。 */
 export const MAX_CANVAS_W = 2400;
 export const GAP = 16;
-/** 卡宽 = (1200 − 2×16)/3 ≈ 389.33(原型口径);不入库,全局唯一常量,
- * 不随画布宽拉伸(可读性由卡宽定,canvas-bounds-align)。 */
+/** 卡宽 = (1200 − 2×16)/3 ≈ 389.33(原型口径);schema v6 起为「单列基准宽」,
+ * 也是缺省列数(1)下的组宽;多列组宽见 groupWidthOf(group-width-tint)。 */
 export const CARD_W = (DEFAULT_CANVAS_W - GAP * 2) / 3;
+/** 组内书签格宽(px,group-width-tint):CSS minmax(184px, 1fr) 同一口径。 */
+export const CELL_W = 184;
+/** 组内书签格间距(px):与 .group-grid gap 同源。 */
+export const CELL_GAP = 6;
+/** 组宽推算的固定横向开销(px):组边框 1×2 + 组横 padding 8×2 + 网格横
+ * padding 4×2 + 滚动槽 12(网格 scrollbar-gutter: stable 常驻预留;
+ * Windows thin 实测 10,留 2 余量——不预留则列内容滚出时塌列)。 */
+export const GROUP_EDGE = 38;
+/** 每行条数上限(6 列宽 1142 ≤ 默认画布 1200,再多横条格过窄)。 */
+export const MAX_GROUP_COLUMNS = 6;
 /** 默认三列 = 3×卡宽 + 2×间距 = 1200 恰好铺满(宽画布列数见 columnsFor)。 */
 export const CANVAS_COLUMNS = 3;
 /** 引导堆叠步长(原型口径):迁移铺开的行距、连续新组的间距。 */
@@ -72,6 +82,45 @@ export function columnsFor(canvasW: number): number {
 }
 
 /**
+ * 组宽推导(group-width-tint,schema v6):每行条数 c → 渲染宽(px),不存 px。
+ * c=1 → CARD_W(存量单列宽行观感逐字不变);c≥2 → 固定开销 + c 格 + (c−1) 格距,
+ * 内宽恰装 c 格(auto-fill minmax 的精确边界)。非法(非有限/非正整数)归 1。
+ */
+export function groupWidthOf(columns?: number): number {
+  const c =
+    columns !== undefined &&
+    Number.isInteger(columns) &&
+    columns >= 1 &&
+    columns <= MAX_GROUP_COLUMNS
+      ? columns
+      : 1;
+  if (c === 1) return CARD_W;
+  return GROUP_EDGE + c * CELL_W + (c - 1) * CELL_GAP;
+}
+
+/** 宽度 → 最近列数(拖柄松手吸附列边界,group-width-tint):1..上限,越界钳回。 */
+export function nearestGroupColumns(widthPx: number): number {
+  let best = 1;
+  let bestDistance = Infinity;
+  for (let c = 1; c <= MAX_GROUP_COLUMNS; c++) {
+    const distance = Math.abs(groupWidthOf(c) - widthPx);
+    if (distance < bestDistance) {
+      best = c;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/** 画布内放得下的最大每行条数(至少 1):调列/缩画布的钳上界。 */
+export function maxColumnsForCanvas(canvasW: number): number {
+  for (let c = MAX_GROUP_COLUMNS; c > 1; c--) {
+    if (groupWidthOf(c) <= canvasW) return c;
+  }
+  return 1;
+}
+
+/**
  * 零高装箱(未测量/测不出高度):列间轮流派位,行距 STACK_STEP。
  * 迁移(v2→v3 存量铺开)与白板「自动整理」的测不出退化共用同一份
  * 策略(board-whiteboard/02 评审遗留:两侧同形,聚拱于纯模块)。
@@ -91,29 +140,57 @@ export function spreadPositions(
 
 /**
  * 自动整理装箱(ADR-0004):量得各分组卡高度后,按 order 逐个放入
- * 当前最矮列(平手取靠前)贪心装箱,无行对齐空隙——原 ADR-0003
- * 瀑布流墙的布局算法降级为整理算法,墙体退役后仅存此用途。
+ * 当前最矮位置贪心装箱,无行对齐空隙——原 ADR-0003 瀑布流墙的布局算法
+ * 降级为整理算法,墙体退役后仅存此用途。
+ * 宽度感知(group-width-tint):卡位槽仍按 CARD_W+GAP 间距列分配,宽卡占
+ * k = ceil((宽+GAP)/(CARD_W+GAP)) 个连续槽,放「窗口内最高槽」最小的窗口
+ * (平手靠左),组在槽跨度内居中;k=1(含缺省 widths)与旧实现逐字一致
+ * (单槽跨度恰 = CARD_W)。
  * DOM/Tab 序仍由 order 承担;高度全 0(测不出,jsdom)退化零高铺开。
  */
 export function packCanvas(
   heights: readonly number[],
-  canvasW = DEFAULT_CANVAS_W
+  canvasW = DEFAULT_CANVAS_W,
+  widths?: readonly number[]
 ): CanvasPos[] {
   if (heights.length === 0) return [];
   if (heights.every((h) => h === 0))
     return spreadPositions(heights.length, canvasW);
   const columns = columnsFor(canvasW);
   const columnHeights = new Array<number>(columns).fill(0);
-  return heights.map((height) => {
+  return heights.map((height, i) => {
+    const w = widths?.[i] !== undefined ? widths[i] : CARD_W;
+    // 占槽数:宽卡跨连续槽(单槽跨度 = CARD_W,恰容纳缺省宽)
+    const slots = Math.min(
+      columns,
+      Math.max(1, Math.ceil((w + GAP) / (CARD_W + GAP)))
+    );
+    // 候选窗口:连续 slots 列,取窗口内最高槽最小者(平手靠左)
     let target = 0;
-    for (let c = 1; c < columns; c++) {
-      if (columnHeights[c] < columnHeights[target]) target = c;
+    let targetTop = Infinity;
+    for (let s = 0; s + slots <= columns; s++) {
+      let top = 0;
+      for (let c = s; c < s + slots; c++) {
+        top = Math.max(top, columnHeights[c]);
+      }
+      if (top < targetTop) {
+        target = s;
+        targetTop = top;
+      }
     }
+    const spanW = slots * (CARD_W + GAP) - GAP;
     const pos = {
-      x: Math.floor(target * (CARD_W + GAP)),
-      y: Math.floor(columnHeights[target]),
+      // 居中偏移但不出画布(宽卡跨槽溢出时靠左;组宽 ≤ 画布是常态,
+      // store 已按 maxColumnsForCanvas 钳过,此处仅防御)
+      x: Math.max(
+        0,
+        Math.floor(target * (CARD_W + GAP) + (spanW - w) / 2)
+      ),
+      y: Math.floor(targetTop),
     };
-    columnHeights[target] += height + GAP;
+    for (let c = target; c < target + slots; c++) {
+      columnHeights[c] = targetTop + height + GAP;
+    }
     return pos;
   });
 }
@@ -138,17 +215,21 @@ export function appendPositions(
 
 /**
  * V3+ 坐标校验钳回:非负;x 钳回画布右界(画布向下无界,y 只压非负)。
- * 右界随画布宽(schema v4);非有限值(NaN/±Infinity)归 0;
+ * 右界随画布宽(schema v4)与卡宽(group-width-tint:多列组按各自宽,
+ * 缺省 CARD_W);非有限值(NaN/±Infinity)归 0;
  * 界内值逐字保留(不取整,备份往返无损)。
  */
 export function clampToCanvas(
   pos: CanvasPos,
-  canvasW = DEFAULT_CANVAS_W
+  canvasW = DEFAULT_CANVAS_W,
+  cardW = CARD_W
 ): CanvasPos {
   const x = Number.isFinite(pos.x) ? pos.x : 0;
   const y = Number.isFinite(pos.y) ? pos.y : 0;
   return {
-    x: Math.min(Math.max(x, 0), canvasW - CARD_W),
+    // 卡宽 > 画布宽(六列组遇窄画布)时右界为负:压回 0(左对齐溢出,
+    // 优于负坐标)
+    x: Math.min(Math.max(x, 0), Math.max(0, canvasW - cardW)),
     y: Math.max(y, 0),
   };
 }

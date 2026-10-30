@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  CELL_GAP,
+  CELL_W,
+  GROUP_EDGE,
+  GUIDES_PAD,
+  MAX_CANVAS_W,
+  MAX_GROUP_COLUMNS,
+  MIN_CANVAS_W,
   alignRects,
   appendPositions,
   CANVAS_COLUMNS,
@@ -12,9 +19,9 @@ import {
   DEFAULT_CANVAS_W,
   effectiveCanvasWidth,
   GAP,
-  GUIDES_PAD,
-  MAX_CANVAS_W,
-  MIN_CANVAS_W,
+  groupWidthOf,
+  maxColumnsForCanvas,
+  nearestGroupColumns,
   packCanvas,
   snapAlignment,
   spreadPositions,
@@ -157,6 +164,46 @@ describe("packCanvas:自动整理装箱(ADR-0004;原 ADR-0003 布局算法降级
       { x: 0, y: STACK_STEP },
     ]);
   });
+
+  it("宽度感知(group-width-tint):缺省 widths 与旧实现逐字一致", () => {
+    expect(packCanvas([100, 100, 100, 200])).toEqual(
+      packCanvas([100, 100, 100, 200], DEFAULT_CANVAS_W, [
+        CARD_W,
+        CARD_W,
+        CARD_W,
+        CARD_W,
+      ])
+    );
+  });
+
+  it("宽度感知:宽卡占连续槽、窗口内最高槽最小,组在槽跨度内居中", () => {
+    // 两列组宽 412 → 占 2 槽(跨度 2×(CARD_W+GAP)−GAP ≈ 794.67,居中偏移 ≈ 191)
+    const span2 = 2 * (CARD_W + GAP) - GAP;
+    const [wide, slim] = packCanvas(
+      [100, 100],
+      DEFAULT_CANVAS_W,
+      [groupWidthOf(2), CARD_W]
+    );
+    expect(wide).toEqual({
+      x: Math.floor((span2 - groupWidthOf(2)) / 2),
+      y: 0,
+    });
+    // 宽卡占列 0、1(顶高 116),窄卡去唯一空着的 2 号槽
+    expect(slim).toEqual({ x: 810, y: 0 });
+  });
+
+  it("宽度感知:占满整行槽位的宽卡把后续卡挤到第二行;溢出跨度的宽卡靠左", () => {
+    // 六列组宽 1220 → ceil((1220+16)/405.33) = 4 槽,默认画布 3 槽只够
+    // 收成 3 槽(跨槽溢出),居中偏移为负 → 防御性压回 0(靠左)
+    const [hug, after] = packCanvas(
+      [50, 50],
+      DEFAULT_CANVAS_W,
+      [groupWidthOf(6), CARD_W]
+    );
+    expect(hug).toEqual({ x: Math.floor((1200 - groupWidthOf(6)) / 2), y: 0 });
+    // 三槽全占后,窄卡从第二行起步(三列顶高均为 50+GAP)
+    expect(after).toEqual({ x: 0, y: 66 });
+  });
 });
 
 describe("appendPositions:画布底部追加位", () => {
@@ -202,6 +249,60 @@ describe("clampToCanvas:坐标钳回", () => {
       y: 0,
     });
     expect(clampToCanvas({ x: 2000, y: 0 }, 2400)).toEqual({ x: 2000, y: 0 });
+  });
+
+  it("卡宽参数:多列组按各自宽钳右界(group-width-tint)", () => {
+    // 两列组宽 400:右界 = 1200 − 400 = 800
+    expect(clampToCanvas({ x: 900, y: 0 }, DEFAULT_CANVAS_W, 400)).toEqual({
+      x: 800,
+      y: 0,
+    });
+    // 缺省卡宽 = CARD_W,旧口径不变
+    expect(clampToCanvas({ x: 900, y: 0 }, DEFAULT_CANVAS_W)).toEqual({
+      x: DEFAULT_CANVAS_W - CARD_W,
+      y: 0,
+    });
+  });
+});
+
+describe("每行条数几何(group-width-tint,schema v6)", () => {
+  it("groupWidthOf:1 → CARD_W(存量观感逐字不变);c≥2 内宽恰装 c 格", () => {
+    expect(groupWidthOf()).toBe(CARD_W);
+    expect(groupWidthOf(1)).toBe(CARD_W);
+    for (let c = 2; c <= MAX_GROUP_COLUMNS; c++) {
+      const w = groupWidthOf(c);
+      // 内宽 = w − 固定开销,恰装 c 格 + (c−1) 格距
+      expect(w - GROUP_EDGE).toBe(c * CELL_W + (c - 1) * CELL_GAP);
+    }
+    // W(2)=412、W(6)=1172(上限 6 列 ≤ 默认画布 1200)
+    expect(groupWidthOf(2)).toBe(412);
+    expect(groupWidthOf(6)).toBe(1172);
+    // 非法值归 1:非整数、越界、非有限
+    expect(groupWidthOf(0)).toBe(CARD_W);
+    expect(groupWidthOf(7)).toBe(CARD_W);
+    expect(groupWidthOf(2.5)).toBe(CARD_W);
+    expect(groupWidthOf(Number.NaN)).toBe(CARD_W);
+  });
+
+  it("W(1) 内宽 < 两格下限:auto-fill 单列,存量单列宽行不被自动拆分", () => {
+    // 两格至少 2×CELL_W + CELL_GAP = 374;W(1) 内宽 = CARD_W − 26 ≈ 363.33
+    expect(groupWidthOf(1) - GROUP_EDGE).toBeLessThan(2 * CELL_W + CELL_GAP);
+    expect(groupWidthOf(2) - GROUP_EDGE).toBe(2 * CELL_W + CELL_GAP);
+  });
+
+  it("nearestGroupColumns:吸附最近列边界,越界钳回 1..上限", () => {
+    expect(nearestGroupColumns(389.33)).toBe(1);
+    expect(nearestGroupColumns(394)).toBe(1); // 距 W(1) 4.67 < 距 W(2) 18
+    expect(nearestGroupColumns(406)).toBe(2); // 趝过中点 ~393.7
+    expect(nearestGroupColumns(10000)).toBe(MAX_GROUP_COLUMNS);
+    expect(nearestGroupColumns(-50)).toBe(1);
+  });
+
+  it("maxColumnsForCanvas:界内放得下的最大列数,至少 1", () => {
+    expect(maxColumnsForCanvas(720)).toBe(3); // W(3)=602 ≤ 720 < W(4)=792
+    expect(maxColumnsForCanvas(DEFAULT_CANVAS_W)).toBe(MAX_GROUP_COLUMNS); // W(6)=1172 ≤ 1200
+    expect(maxColumnsForCanvas(2400)).toBe(MAX_GROUP_COLUMNS);
+    expect(maxColumnsForCanvas(100)).toBe(1);
   });
 });
 

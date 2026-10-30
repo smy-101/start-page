@@ -21,6 +21,8 @@ import {
   canvasWidthOf,
   clampCanvasWidth,
   clampToCanvas,
+  groupWidthOf,
+  maxColumnsForCanvas,
 } from "./canvas";
 import { migrateState } from "./migrations";
 
@@ -301,7 +303,9 @@ function isGroupShape(v: unknown, requireCoords: boolean): v is Group {
     isNonEmptyString(g.color) &&
     typeof g.order === "number" &&
     // 画布坐标(schema v3 起):v3 备份必携带且为数字;更早版本无此字段
-    (!requireCoords || (typeof g.x === "number" && typeof g.y === "number"))
+    (!requireCoords || (typeof g.x === "number" && typeof g.y === "number")) &&
+    // 每行条数(schema v6 起):可缺省,给了就必须是数字(非法值迁移链剥离)
+    (g.columns === undefined || typeof g.columns === "number")
   );
 }
 
@@ -359,6 +363,7 @@ function parseStateJson(raw: string): Result<BookmarkState> {
 /**
  * 替换全部:清空后恢复备份(id/顺序/颜色/备注/坐标逐字保留),画布宽随备份
  * (固定宽钳回;缺省 = 自动档,坐标按上限钳界,与 store 自动档同口径),
+ * 超宽组降列(每行条数随画布宽钳回,同 setCanvasWidth 口径),
  * 同时修复损坏备份:补回缺失收集箱、孤儿收藏收回收集箱、备份内重复 URL 只留首条。
  */
 function restoreFrom(backup: BookmarkState): {
@@ -367,10 +372,16 @@ function restoreFrom(backup: BookmarkState): {
 } {
   const canvasWidth = canvasWidthOf(backup);
   const bound = canvasWidth ?? MAX_CANVAS_W;
-  const groups = backup.groups.map((g) => ({
-    ...g,
-    ...clampToCanvas(g, bound),
-  }));
+  const maxColumns = maxColumnsForCanvas(bound);
+  const groups: Group[] = backup.groups.map((g) => {
+    const columns =
+      g.columns !== undefined && g.columns > maxColumns ? maxColumns : g.columns;
+    return {
+      ...g,
+      columns,
+      ...clampToCanvas(g, bound, groupWidthOf(columns)),
+    };
+  });
   if (!groups.some((g) => g.id === INBOX_GROUP_ID)) {
     groups.unshift(
       // 补缺落画布底部追加位(同 store.ensureInbox),不与既有分组重叠

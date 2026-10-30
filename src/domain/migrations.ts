@@ -8,12 +8,20 @@
  * v4→v5 画布宽自动档(canvas-bounds-align/04):v4 曾给全部存量回填默认 1200,
  * 与「用户调过」无法区分——恰等于默认值的按回填到高剥离回自动档
  * (刻意调回 1200 的会被误判,重拖一次拖柄即恢复固定)。
- * 末尾统一修复:宽度存在但非法(NaN/越界)钳回;缺省 = 自动档,不补数值。
+ * v5→v6 每行条数(group-width-tint):分组可选 columns 无数据回填
+ * (缺省 = 1 = 存量宽行单列);仅剥离非法值(非有限/非整数/越 1..6)。
+ * 末尾统一修复:宽度存在但非法(NaN/越界)钳回;缺省 = 自动档,不补数值;
+ * columns 存在但非法剥离(undefined 与 1 同义,不回填数值)。
  * 幂等:已是当前版本且无需修复的状态原引用返回(不重排、不落盘)。
  */
 import type { BookmarkState } from "./types";
 import { byOrder } from "./types";
-import { DEFAULT_CANVAS_W, clampCanvasWidth, spreadPositions } from "./canvas";
+import {
+  DEFAULT_CANVAS_W,
+  MAX_GROUP_COLUMNS,
+  clampCanvasWidth,
+  spreadPositions,
+} from "./canvas";
 
 export function migrateState(state: BookmarkState): BookmarkState {
   let next = state;
@@ -35,6 +43,15 @@ export function migrateState(state: BookmarkState): BookmarkState {
         ? { ...rest, schemaVersion: 5 }
         : { ...next, schemaVersion: 5 };
   }
+  if (next.schemaVersion < 6) {
+    // v5→v6:非法 columns 剥离(合法值原样保留;缺省不补数值)
+    const groups = next.groups.some((g) => !isValidColumns(g.columns))
+      ? next.groups.map((g) =>
+          isValidColumns(g.columns) ? g : { ...g, columns: undefined }
+        )
+      : next.groups;
+    next = { ...next, schemaVersion: 6, groups };
+  }
   // 缺省 = 自动档(schema v5),修复仅针对已存在的非法值
   if (
     next.canvasWidth !== undefined &&
@@ -43,4 +60,14 @@ export function migrateState(state: BookmarkState): BookmarkState {
     next = { ...next, canvasWidth: clampCanvasWidth(next.canvasWidth) };
   }
   return next;
+}
+
+/** columns 合法:缺省(与 1 同义)或有限整数 1..上限。 */
+function isValidColumns(columns: number | undefined): boolean {
+  return (
+    columns === undefined ||
+    (Number.isInteger(columns) &&
+      columns >= 1 &&
+      columns <= MAX_GROUP_COLUMNS)
+  );
 }

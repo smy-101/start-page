@@ -257,3 +257,35 @@ function cardTitles(section: HTMLElement): string[] {
     .queryAllByRole("listitem")
     .map((card) => card.querySelector(".card-title")?.textContent ?? "");
 }
+
+describe("分组管理:每行条数(group-width-tint)", () => {
+  it("组头编辑表单选每行条数,保存后组宽随列数推导", async () => {
+    const { work } = await renderSeeded();
+    enterWhiteboardMode();
+
+    expect(parseFloat(work.style.width)).toBeCloseTo(
+      (1200 - 16 * 2) / 3,
+      5
+    );
+
+    fireEvent.click(
+      within(work).getByRole("button", { name: "编辑分组 工作" })
+    );
+    fireEvent.change(within(work).getByLabelText("每行条数"), {
+      target: { value: "3" },
+    });
+    fireEvent.click(within(work).getByRole("button", { name: "保存" }));
+
+    // W(3)=602:38 + 3×184 + 2×6
+    await waitFor(() =>
+      expect(parseFloat(work.style.width)).toBe(602)
+    );
+  });
+
+  it("收集箱表单不出现:无改名/换色入口,每行条数同样只读", async () => {
+    const { inbox } = await renderSeeded();
+    enterWhiteboardMode();
+
+    expect(within(inbox).queryByLabelText("每行条数")).toBeNull();
+  });
+});

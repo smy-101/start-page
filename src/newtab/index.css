@@ -609,19 +609,24 @@ button[type="submit"]:hover {
 /* ============================================================
    画布分组卡(ADR-0004 白板):x/y 坐标自由定位(JS 内联供给,
    坐标即布局、入库 schema v3),DOM 顺序仍保持组间逻辑 order 序;
-   组托盘 + 白卡三层表面;列内条目多时列内滚动,色脊保留为
-   分组颜色的信息用法。原 ADR-0003 瀑布流墙已退役(测高/RO 壳
+   组托盘 + 白卡三层表面;列内条目多时列内滚动;组宽随每行条数
+   推导(schema v6,group-width-tint),组内横条网格自动换行;
+   托盘淡染组色(色脊已退役,组色由底染 + 色点承担)。
+   原 ADR-0003 瀑布流墙已退役(测高/RO 壳
    拆除,装箱算法降级为白板「自动整理」)
    ============================================================ */
 
 /* 组 = 托盘:比页面底沉一级的容器面,收藏卡浮在其上。
-   位移过渡让拖拽落点/折叠后的到位有连续性;宽不参与过渡 */
+   底染约 8% 组色(group-width-tint,原 3px 色脊退役)、边框微带色,
+   深浅色随 --tray/--border 令牌自动适配;位移过渡让拖拽落点/折叠后的
+   到位有连续性;宽不参与过渡 */
 .group {
   position: absolute;
   overflow: hidden;
   min-width: 0;
-  background: var(--tray);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--group-color, var(--fg)) 8%, var(--tray));
+  border: 1px solid
+    color-mix(in srgb, var(--group-color, var(--fg)) 18%, var(--border));
   border-radius: var(--r-lg);
   padding: 6px 8px 10px;
   transition:
@@ -631,9 +636,22 @@ button[type="submit"]:hover {
     left 180ms var(--ease-out);
 }
 
-/* 收藏插入指示:目标组着色的细线,落在列内两个槽位之间 */
+/* 自定义背景(GLOSSARY「背景」)下的组托盘:半透明磨砂玻璃——
+   日常态画布无底色,组托盘自己磨砂保证图上可读;口径同画布磨砂
+   (blur 8px,canvas-bounds-align/05):透出的纹理磨软,墨线对比度不坠 */
+:root[data-start-background] .group {
+  background: color-mix(
+    in srgb,
+    var(--group-color, var(--fg)) 9%,
+    color-mix(in srgb, var(--bg) 72%, transparent)
+  );
+  backdrop-filter: blur(8px);
+}
+
+/* 收藏插入指示:目标组着色的细线,跨全行落在两个行槽之间(网格里
+   不占单格) */
 .drop-indicator {
-  flex: none;
+  grid-column: 1 / -1;
   height: 3px;
   border-radius: 999px;
   background: var(--group-color, var(--fg));
@@ -654,17 +672,10 @@ button[type="submit"]:hover {
 .group-empty {
   max-height: clamp(280px, calc(100vh - 330px), 560px);
   overflow-y: auto;
+  /* 滚动槽常驻预留(与领域 GROUP_EDGE 同源):内容滚出时列数不塌 */
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
-}
-
-/* 分组色脊柱:颜色的信息用法(扫视定位),不是装饰 */
-.group::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--group-color, var(--border-strong));
 }
 
 .group:dragover {
@@ -784,20 +795,29 @@ button[type="submit"]:hover {
 
 /* ============================================================
    收藏卡:托盘上的白瓷砖,边框+浅影浮出;网址/备注进 title 提示
+   组内横条网格自动换行(group-width-tint):格宽下限 184px 与
+   领域 CELL_W 同源(canvas.ts,组宽推导恰装整数格);
    编辑模式下行尾出现操作、行可拖拽(ui-refresh/04)
    ============================================================ */
 .group-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
   gap: 6px;
   margin: 0;
   padding: 0 4px;
   list-style: none;
 }
 
+/* 插入指示线跨全行(见上);行内编辑表单同样跨全行(不挤进单格) */
+.card-editing {
+  grid-column: 1 / -1;
+}
+
 .card {
   display: flex;
   align-items: center;
+  /* 格项 min-width:auto 会撑破窄格:显式归零让标题截断接管 */
+  min-width: 0;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -932,6 +952,17 @@ button[type="submit"]:hover {
 }
 
 .group-edit-form input {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+/* 每行条数下拉(group-width-tint):与输入同语言 */
+.group-edit-form select {
   min-width: 0;
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -1317,6 +1348,69 @@ button[type="submit"]:hover {
   white-space: nowrap;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 18%, transparent);
   pointer-events: none;
+}
+
+/* 组右缘调宽拖柄(group-width-tint):白板模式且非搜索、非折叠时
+   由组件挂载;整高热区贴组右缘内侧(组 overflow:hidden 裁平),
+   中间一枚竖向握把胶囊;键盘可达(separator 角色) */
+.group-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.group-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 28px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+  transition:
+    background 120ms ease-out,
+    height 120ms ease-out;
+}
+
+.group-resize:hover::after,
+.group-resize:focus-visible::after,
+.group[data-resizing="true"] .group-resize::after {
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+  height: 44px;
+}
+
+.group-resize:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* 调宽读数徽章:拖柄顶部回显(仅调宽中);复用画布徽章语言 */
+.group-resize-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 18%, transparent);
+  pointer-events: none;
+}
+
+/* 调宽中:锁选区,拖中宽度不经过渡 1:1 跟手 */
+.group[data-resizing="true"] {
+  user-select: none;
 }
 
 /* 对齐辅助线(canvas-bounds-align):拖中才存在;1px 墨线,深浅色随 --fg */

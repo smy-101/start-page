@@ -407,3 +407,89 @@ describe("schema v5 画布宽自动档(canvas-bounds-align/04)", () => {
     expect(statesEqual(base, { ...base, canvasWidth: 1760 })).toBe(false);
   });
 });
+
+describe("schema v6 每行条数(group-width-tint)", () => {
+  /** 自定义坐标的 v5 状态(合法 columns 与非法 columns 各一)。 */
+  function v5State(): BookmarkState {
+    return {
+      schemaVersion: 5,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        { id: "g-a", name: "甲", color: "#e99695", order: 1, x: 405, y: 0 },
+        { id: "g-b", name: "乙", color: "#81a2be", order: 2, x: 0, y: 144 },
+      ],
+      bookmarks: [],
+    };
+  }
+
+  it("v5 → 当前版:升版落盘,坐标与既有字段逐字保留,无 columns 不回填", async () => {
+    const adapter = createMemoryStorage(v5State());
+    const store = await createBookmarkStore(adapter);
+
+    const state = store.getState();
+    expect(state.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.groups.every((g) => g.columns === undefined)).toBe(true);
+    expect(state.groups.map((g) => [g.id, g.x, g.y])).toEqual([
+      [INBOX_GROUP_ID, 0, 0],
+      ["g-a", 405, 0],
+      ["g-b", 0, 144],
+    ]);
+    expect((await adapter.load())?.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it("合法 columns 逐字保留;非法(越界/非整数/NaN)剥离为缺省", async () => {
+    const state = {
+      ...v5State(),
+      groups: [
+        ...v5State().groups.slice(0, 2),
+        {
+          ...v5State().groups[2],
+          columns: 0,
+        },
+      ],
+    };
+    const adapter = createMemoryStorage(state);
+    const store = await createBookmarkStore(adapter);
+    expect(store.getState().groups[2].columns).toBeUndefined();
+
+    const fractional = createMemoryStorage({
+      ...v5State(),
+      groups: v5State().groups.map((g, i) =>
+        i === 1 ? { ...g, columns: 2.5 } : g
+      ),
+    });
+    const store2 = await createBookmarkStore(fractional);
+    expect(store2.getState().groups[1].columns).toBeUndefined();
+
+    const valid = createMemoryStorage({
+      ...v5State(),
+      groups: v5State().groups.map((g, i) =>
+        i === 1 ? { ...g, columns: 3 } : g
+      ),
+    });
+    const store3 = await createBookmarkStore(valid);
+    expect(store3.getState().groups[1].columns).toBe(3);
+  });
+
+  it("已是当前版且 columns 合法:幂等不落盘", async () => {
+    const current: BookmarkState = {
+      ...v5State(),
+      schemaVersion: SCHEMA_VERSION,
+      groups: v5State().groups.map((g, i) =>
+        i === 1 ? { ...g, columns: 2 } : g
+      ),
+    };
+    const adapter = createMemoryStorage(current);
+
+    await createBookmarkStore(adapter);
+
+    expect(await adapter.load()).toBe(current);
+  });
+});
