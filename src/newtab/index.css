@@ -1232,15 +1232,26 @@ button[type="submit"]:hover {
 }
 
 /* 画布边缘可见 + 点阵底纹(canvas-bounds-align):仅白板模式非锁定态。
-   描边用虚线区分于卡片实线;点阵 16px = 吸附网格,暗示可摆区域 */
+   描边用虚线区分于卡片实线;点阵 16px = 吸附网格,暗示可摆区域。
+   磨砂底面(canvas-bounds-align/05):非锁定画布自带底色 86% 半透明——
+   默认纯底上叠同色是无操作,观感不变;自定义背景下画布浮出为一张台面,
+   上面的墨线(描边/点阵/拖柄)保持纯底调出的对比度 */
 .whiteboard-canvas:not([data-locked="true"]) {
   border: 1px dashed color-mix(in srgb, var(--fg) 28%, transparent);
   border-radius: 8px;
+  background-color: color-mix(in srgb, var(--bg) 86%, transparent);
   background-image: radial-gradient(
     color-mix(in srgb, var(--fg) 14%, transparent) 1px,
     transparent 1px
   );
   background-size: 16px 16px;
+}
+
+/* 磨砂仅在设有自定义背景时开(App 在 <html> 打 data-start-background):
+ * backdrop-filter 会把整页文字抗锯齿从子像素(ClearType)切到灰度——默认底上
+ * 磨砂毫无所得,不付这笔账;背景上它把透出的纹理磨软,台面才像台面 */
+:root[data-start-background] .whiteboard-canvas:not([data-locked="true"]) {
+  backdrop-filter: blur(8px);
 }
 
 /* 调宽中:锁定选区,画布描边实线强调当前范围 */

@@ -16,6 +16,11 @@ function pageBackground(): string {
     .trim();
 }
 
+/** 设有背景的标记(canvas-bounds-align/05):画布磨砂底面借此启用。 */
+function backgroundFlag(): boolean {
+  return document.documentElement.hasAttribute("data-start-background");
+}
+
 async function renderApp(settingsAdapter?: SettingsAdapter) {
   const adapter: StorageAdapter = createMemoryStorage();
   const view = render(
@@ -40,6 +45,7 @@ async function backToStart() {
 
 afterEach(() => {
   document.documentElement.style.removeProperty("--start-background");
+  document.documentElement.removeAttribute("data-start-background");
 });
 
 describe("背景应用到初始页", () => {
@@ -53,6 +59,7 @@ describe("背景应用到初始页", () => {
     );
 
     expect(pageBackground()).toBe("#d9dee5");
+    expect(backgroundFlag()).toBe(true);
   });
 
   it("图片背景:cover 居中、不随滚动(fixed)", async () => {
@@ -67,12 +74,14 @@ describe("背景应用到初始页", () => {
     expect(pageBackground()).toBe(
       `url("${IMAGE_DATA_URL}") center / cover no-repeat fixed`
     );
+    expect(backgroundFlag()).toBe(true);
   });
 
   it("默认背景:不设变量(跟随石墨/雾纸)", async () => {
     await renderApp();
 
     expect(pageBackground()).toBe("");
+    expect(backgroundFlag()).toBe(false);
   });
   it("进设置页撤下背景,返回初始页恢复", async () => {
     await renderApp(
@@ -86,9 +95,11 @@ describe("背景应用到初始页", () => {
 
     await openSettings();
     expect(pageBackground()).toBe("");
+    expect(backgroundFlag()).toBe(false);
 
     await backToStart();
     expect(pageBackground()).toBe("#d9dee5");
+    expect(backgroundFlag()).toBe(true);
   });
 
   it("设置页选色/恢复默认:持久化到设置存储,返回初始页生效", async () => {

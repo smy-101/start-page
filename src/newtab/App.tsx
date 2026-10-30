@@ -460,16 +460,22 @@ export function App({
 
   // 背景 → 视口底(GLOSSARY「背景」):仅初始页生效;纯色直填、
   // 图片 cover 居中不随滚动。CSS 侧由 body 的 --start-background 回退 --bg 接收。
+  // data-start-background(canvas-bounds-align/05):设有背景时给 <html> 打的标记,
+  // 画布磨砂底面借此启用——backdrop-filter 会把整页文字抗锯齿从子像素切到
+  // 灰度,默认底上磨砂毫无所得不付这笔账,只在真正有背景时开。
   const backgroundCss = backgroundCssValue(settings.background);
   useEffect(() => {
     const root = document.documentElement;
     if (view === "start" && backgroundCss !== null) {
       root.style.setProperty("--start-background", backgroundCss);
+      root.setAttribute("data-start-background", "");
     } else {
       root.style.removeProperty("--start-background");
+      root.removeAttribute("data-start-background");
     }
     return () => {
       root.style.removeProperty("--start-background");
+      root.removeAttribute("data-start-background");
     };
   }, [view, backgroundCss]);
 
