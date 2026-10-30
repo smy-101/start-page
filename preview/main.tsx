@@ -32,7 +32,7 @@ const seed: BookmarkState = {
     {
       id: "g-dev",
       name: "前端开发",
-      color: "#81a2be",
+      color: "#35b8e0",
       order: 1,
       x: 0,
       y: 260,
@@ -41,7 +41,7 @@ const seed: BookmarkState = {
     {
       id: "g-news",
       name: "资讯阅读",
-      color: "#f0c674",
+      color: "#de935f",
       order: 2,
       x: 0,
       y: 560,
@@ -50,7 +50,7 @@ const seed: BookmarkState = {
     {
       id: "g-design",
       name: "设计灵感",
-      color: "#b294bb",
+      color: "#e57bb4",
       order: 3,
       x: 810,
       y: 0,

@@ -19,8 +19,9 @@
   --shadow-card-hover:
     0 1px 2px rgba(16, 19, 23, 0.05), 0 2px 8px rgba(16, 19, 23, 0.07);
 
-  /* 圆角分级:分区 > 卡片/输入 > 按钮/色点 */
-  --r-lg: 14px;
+  /* 圆角分级:分区 > 卡片/输入 > 按钮。r-lg 统一大面
+     (组托盘/对话框/设置分区,16px 柔角不显锐) */
+  --r-lg: 16px;
   --r-md: 10px;
   --r-sm: 8px;
 
@@ -109,7 +110,7 @@ body {
   letter-spacing: 0.01em;
 }
 
-/* 品牌记号:四点色签,呼应分组色点体系 */
+/* 品牌记号:四点色签 */
 .page-title::before {
   content: "";
   width: 14px;
@@ -483,7 +484,8 @@ button[type="submit"]:hover {
   background: color-mix(in srgb, var(--fg) 86%, var(--bg));
 }
 
-/* 图标钮(board-refresh/01):安静圆角底,悬停才显;语义在按钮 aria-label */
+/* 图标钮(board-refresh/01):透明静息底(托盘淡染上不浮白片),
+   悬停才显;语义在按钮 aria-label */
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -494,6 +496,7 @@ button[type="submit"]:hover {
   padding: 0;
   border: none;
   border-radius: var(--r-sm);
+  background: transparent;
   color: var(--muted);
 }
 
@@ -609,28 +612,33 @@ button[type="submit"]:hover {
 /* ============================================================
    画布分组卡(ADR-0004 白板):x/y 坐标自由定位(JS 内联供给,
    坐标即布局、入库 schema v3),DOM 顺序仍保持组间逻辑 order 序;
-   组托盘 + 白卡三层表面;列内条目多时列内滚动;组宽随每行条数
-   推导(schema v6,group-width-tint),组内横条网格自动换行;
-   托盘淡染组色(色脊已退役,组色由底染 + 色点承担)。
+   组托盘 + 白卡三层表面;列内条目多时列内滚动;组宽档位与每行条数
+   两旋钮(schema v7,group-span-decouple),组内横条网格自动换行;
+   托盘淡染组色(色脊/组头色点均已退役,组色由底染 + 边框承担)。
    原 ADR-0003 瀑布流墙已退役(测高/RO 壳
    拆除,装箱算法降级为白板「自动整理」)
    ============================================================ */
 
 /* 组 = 托盘:比页面底沉一级的容器面,收藏卡浮在其上。
-   底染约 8% 组色(group-width-tint,原 3px 色脊退役)、边框微带色,
-   深浅色随 --tray/--border 令牌自动适配;位移过渡让拖拽落点/折叠后的
-   到位有连续性;宽不参与过渡 */
+   底染约 16% 组色(group-width-tint 后调校,原 3px 色脊与组头色点均已退役,
+   组色由底染 + 边框承担)、边框微带色,深浅色随 --tray/--border 令牌自动适配;
+   位移过渡让拖拽落点/折叠后的到位有连续性;底色进过渡让换色时变化可感;宽不参与过渡 */
 .group {
   position: absolute;
   overflow: hidden;
   min-width: 0;
-  background: color-mix(in srgb, var(--group-color, var(--fg)) 8%, var(--tray));
+  background: color-mix(
+    in srgb,
+    var(--group-color, var(--fg)) 16%,
+    var(--tray)
+  );
   border: 1px solid
-    color-mix(in srgb, var(--group-color, var(--fg)) 18%, var(--border));
+    color-mix(in srgb, var(--group-color, var(--fg)) 30%, var(--border));
   border-radius: var(--r-lg);
   padding: 6px 8px 10px;
   transition:
     border-color 120ms var(--ease-out),
+    background-color 160ms var(--ease-out),
     opacity 120ms var(--ease-out),
     top 180ms var(--ease-out),
     left 180ms var(--ease-out);
@@ -642,7 +650,7 @@ button[type="submit"]:hover {
 :root[data-start-background] .group {
   background: color-mix(
     in srgb,
-    var(--group-color, var(--fg)) 9%,
+    var(--group-color, var(--fg)) 16%,
     color-mix(in srgb, var(--bg) 72%, transparent)
   );
   backdrop-filter: blur(8px);
@@ -707,11 +715,19 @@ button[type="submit"]:hover {
 /* 分组移动走画布 Pointer 拖拽(白板模式内):grab 手性由画布层供给,
    组头不再携带原生 DnD(ADR-0004 墙退役) */
 
-/* 折叠钮(board-refresh/03):列头左缘,箭头旋转指向,不换图标 */
+/* 折叠钮(board-refresh/03):列头左缘,箭头旋转指向,不换图标。
+   静息态压低墨色(色点退役后列头只留它一个图标,过于聒噪),
+   悬停/聚焦时回到常规 icon-button 墨色,色彩过渡承接基类按钮 */
 .collapse-toggle {
   width: 22px;
   height: 22px;
   margin-left: -4px;
+  color: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+/* 键盘聚焦与悬停同权恢复墨色(静息态压低只让给指针悬停与聚焦环) */
+.collapse-toggle:focus-visible {
+  color: var(--fg);
 }
 
 .collapse-toggle svg {
@@ -726,15 +742,6 @@ button[type="submit"]:hover {
 .group[data-collapsed="true"] .group-header {
   margin-bottom: 0;
   padding-bottom: 6px;
-}
-
-.group-color-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 4px;
-  flex: none;
-  background: var(--group-color, var(--border-strong));
 }
 
 .group-name {

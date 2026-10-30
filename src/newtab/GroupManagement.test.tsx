@@ -120,8 +120,8 @@ describe("分组管理:重命名与换色", () => {
 
     const renamed = await screen.findByRole("region", { name: "办公" });
     expect(screen.queryByRole("region", { name: "工作" })).toBeNull();
-    const dot = renamed.querySelector(".group-color-dot");
-    expect(dot).toHaveStyle({ backgroundColor: "#9fe295" });
+    // 组头色点已退役,换色经托盘底染的 --group-color 变量生效
+    expect(renamed.style.getPropertyValue("--group-color")).toBe("#9fe295");
   });
 
   it("收集箱列头始终只读:编辑模式下也不提供改名/换色/删除入口", async () => {
@@ -263,10 +263,7 @@ describe("分组管理:每行条数(group-width-tint)", () => {
     const { work } = await renderSeeded();
     enterWhiteboardMode();
 
-    expect(parseFloat(work.style.width)).toBeCloseTo(
-      (1200 - 16 * 2) / 3,
-      5
-    );
+    expect(parseFloat(work.style.width)).toBeCloseTo((1200 - 16 * 2) / 3, 5);
 
     fireEvent.click(
       within(work).getByRole("button", { name: "编辑分组 工作" })
@@ -277,9 +274,7 @@ describe("分组管理:每行条数(group-width-tint)", () => {
     fireEvent.click(within(work).getByRole("button", { name: "保存" }));
 
     // W(3)=602:38 + 3×184 + 2×6
-    await waitFor(() =>
-      expect(parseFloat(work.style.width)).toBe(602)
-    );
+    await waitFor(() => expect(parseFloat(work.style.width)).toBe(602));
   });
 
   it("收集箱表单不出现:无改名/换色入口,每行条数同样只读", async () => {
@@ -303,16 +298,17 @@ describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () 
   }
 
   function gridTemplate(work: HTMLElement): string {
-    return (
-      work.querySelector(".group-grid") as HTMLElement
-    ).style.gridTemplateColumns;
+    return (work.querySelector(".group-grid") as HTMLElement).style
+      .gridTemplateColumns;
   }
 
   it("拖宽(span 4)后表单改一行 1 条:组宽保持 792,网格单列拉满整行", async () => {
     const work = await renderSpanned({ span: 4 });
     enterWhiteboardMode();
 
-    fireEvent.click(within(work).getByRole("button", { name: "编辑分组 工作" }));
+    fireEvent.click(
+      within(work).getByRole("button", { name: "编辑分组 工作" })
+    );
     fireEvent.change(within(work).getByLabelText("每行条数"), {
       target: { value: "1" },
     });
@@ -329,7 +325,9 @@ describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () 
     const work = await renderSpanned({ columns: 4 });
     enterWhiteboardMode();
 
-    fireEvent.click(within(work).getByRole("button", { name: "编辑分组 工作" }));
+    fireEvent.click(
+      within(work).getByRole("button", { name: "编辑分组 工作" })
+    );
     fireEvent.change(within(work).getByLabelText("每行条数"), {
       target: { value: "1" },
     });
@@ -345,7 +343,9 @@ describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () 
     const work = await renderSpanned({ span: 2, columns: 1 });
     enterWhiteboardMode();
 
-    fireEvent.click(within(work).getByRole("button", { name: "编辑分组 工作" }));
+    fireEvent.click(
+      within(work).getByRole("button", { name: "编辑分组 工作" })
+    );
     fireEvent.change(within(work).getByLabelText("每行条数"), {
       target: { value: "3" },
     });

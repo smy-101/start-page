@@ -22,7 +22,8 @@ type GroupHeaderProps = {
 };
 
 /**
- * 分组列头:折叠钮/色点/名字/计数;改名/换色/删除仅在白板模式出现
+ * 分组列头:折叠钮/名字/计数;组色由托盘底染+边框承担(组头色点已退役);
+ * 改名/换色/删除仅在白板模式出现
  * (board-whiteboard/03 门禁)。收集箱是保留分组,始终只读(可折叠)。
  * 组头不携带原生 DnD:分组移动由画布 Pointer 拖拽承担(ADR-0004,
  * 墙退役后仅收藏排序保留 HTML5 DnD)。
@@ -163,12 +164,8 @@ export function GroupHeader({
             }
             onClick={onToggleCollapse}
           >
-            <ChevronDownIcon size={14} />
+            <ChevronDownIcon size={12} />
           </button>
-          <span
-            className="group-color-dot"
-            style={{ backgroundColor: group.color }}
-          />
           <h2 className="group-name">{group.name}</h2>
           <span className="group-count">{bookmarkCount}</span>
           {!isInbox && whiteboardMode && (
