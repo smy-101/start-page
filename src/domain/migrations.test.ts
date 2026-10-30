@@ -559,3 +559,33 @@ describe("schema v7 组宽档位(group-span-decouple)", () => {
     expect(migrateState(state).groups[0]).toMatchObject({ span: 4, columns: 4 });
   });
 });
+
+describe("schema v7 防御补全(code-review):columns 非法值统一修复", () => {
+  it("已是 v7 的状态含非法 columns(小数/NaN)也在加载链被剥离", () => {
+    const base = {
+      schemaVersion: SCHEMA_VERSION,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    } satisfies BookmarkState;
+    const fractional = migrateState({
+      ...base,
+      groups: [{ ...base.groups[0], columns: 2.5 }],
+    });
+    expect(fractional.groups[0].columns).toBeUndefined();
+
+    const nan = migrateState({
+      ...base,
+      groups: [{ ...base.groups[0], columns: Number.NaN }],
+    });
+    expect(nan.groups[0].columns).toBeUndefined();
+  });
+});

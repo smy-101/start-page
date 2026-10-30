@@ -19,15 +19,15 @@ export const GAP = 16;
 /** 卡宽 = (1200 − 2×16)/3 ≈ 389.33(原型口径);schema v6 起为「单列基准宽」,
  * 也是缺省列数(1)下的组宽;多列组宽见 groupWidthOf(group-width-tint)。 */
 export const CARD_W = (DEFAULT_CANVAS_W - GAP * 2) / 3;
-/** 组内书签格宽(px,group-width-tint):CSS minmax(184px, 1fr) 同一口径。 */
+/** 组内收藏格宽(px,group-width-tint):CSS minmax(184px, 1fr) 同一口径。 */
 export const CELL_W = 184;
-/** 组内书签格间距(px):与 .group-grid gap 同源。 */
+/** 组内收藏格间距(px):与 .group-grid gap 同源。 */
 export const CELL_GAP = 6;
 /** 组宽推算的固定横向开销(px):组边框 1×2 + 组横 padding 8×2 + 网格横
  * padding 4×2 + 滚动槽 12(网格 scrollbar-gutter: stable 常驻预留;
  * Windows thin 实测 10,留 2 余量——不预留则列内容滚出时塌列)。 */
 export const GROUP_EDGE = 38;
-/** 每行条数上限(6 列宽 1142 ≤ 默认画布 1200,再多横条格过窄)。 */
+/** 每行条数/组宽档位共用上限(档 6 宽 1172 ≤ 默认画布 1200,再多横条格过窄)。 */
 export const MAX_GROUP_COLUMNS = 6;
 /** 默认三列 = 3×卡宽 + 2×间距 = 1200 恰好铺满(宽画布列数见 columnsFor)。 */
 export const CANVAS_COLUMNS = 3;
@@ -99,7 +99,7 @@ export function groupWidthOf(columns?: number): number {
   return GROUP_EDGE + c * CELL_W + (c - 1) * CELL_GAP;
 }
 
-/** 宽度 → 最近列数(拖柄松手吸附列边界,group-width-tint):1..上限,越界钳回。 */
+/** 宽度 → 最近档位(拖柄松手吸附档位边界,group-span-decouple):1..上限,越界钳回。 */
 export function nearestGroupSpan(widthPx: number): number {
   let best = 1;
   let bestDistance = Infinity;
@@ -149,7 +149,7 @@ export function groupCellsOf(group: {
   return cells === undefined ? span : Math.min(cells, span);
 }
 
-/** 画布内放得下的最大每行条数(至少 1):调列/缩画布的钳上界。 */
+/** 画布内放得下的最大组宽档位(至少 1):拖柄调宽/缩画布的钳上界。 */
 export function maxSpanForCanvas(canvasW: number): number {
   for (let c = MAX_GROUP_COLUMNS; c > 1; c--) {
     if (groupWidthOf(c) <= canvasW) return c;

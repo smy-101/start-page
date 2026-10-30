@@ -12,10 +12,10 @@
  * (缺省 = 1 = 存量宽行单列);仅剥离非法值(非有限/非整数/越 1..6)。
  * v6→v7 组宽档位(group-span-decouple):零数据改写——缺省档位从每行
  * 条数推导,v6 全部状态渲染逐字不变,仅升版本号。
- * 末尾统一修复:宽度存在但非法(NaN/越界)钳回;缺省 = 自动档,不补数值;
- * columns 存在但非法剥离(undefined 与 1 同义,不回填数值);span 非法
- * 剥离(缺省 = 从 columns 推导);合法 columns > 合法 span 时抬 span 到
- * columns(宽到装得下,不丢排版;手改 JSON 的兑底)。
+ * 末尾统一修复(任何版本,含已是当前版):宽度存在但非法(NaN/越界)钳回;
+ * 缺省 = 自动档,不补数值;columns/span 存在但非法一律剥离(缺省:
+ * columns 装满 / span 从 columns 推导);合法 columns > 合法 span 时抬 span
+ * 到 columns(宽到装得下,不丢排版;手改 JSON 的兑底)。
  * 幂等:已是当前版本且无需修复的状态原引用返回(不重排、不落盘)。
  */
 import type { BookmarkState } from "./types";
@@ -68,14 +68,18 @@ export function migrateState(state: BookmarkState): BookmarkState {
   ) {
     next = { ...next, canvasWidth: clampCanvasWidth(next.canvasWidth) };
   }
-  // v7 防御:span 非法剥离;合法 columns > 合法 span 抬 span(幂等:
-  // 干净状态 groups 引用不变,整体原引用返回)
-  if (next.groups.some((g) => needsSpanRepair(g))) {
+  // 统一修复(含已是当前版的状态):columns/span 非法一律剥离;
+  // 合法 columns > 合法 span 抬 span(幂等:干净状态 groups 引用不变,
+  // 整体原引用返回)
+  if (next.groups.some((g) => needsSizingRepair(g))) {
     next = {
       ...next,
       groups: next.groups.map((g) => {
-        if (!isValidStep(g.span)) return { ...g, span: undefined };
-        return needsSpanRepair(g) ? { ...g, span: g.columns } : g;
+        const columns = isValidStep(g.columns) ? g.columns : undefined;
+        const span = isValidStep(g.span) ? g.span : undefined;
+        return columns !== undefined && span !== undefined && columns > span
+          ? { ...g, columns, span: columns }
+          : { ...g, columns, span };
       }),
     };
   }
@@ -90,14 +94,15 @@ function isValidStep(value: number | undefined): boolean {
   );
 }
 
-/** span 需修复:非法,或被合法 columns 超出(抬到装得下)。 */
-function needsSpanRepair(g: { span?: number; columns?: number }): boolean {
-  if (!isValidStep(g.span)) return true;
-  const { span, columns } = g;
+/** 档位/每行条数需修复:任一非法,或合法 columns 超出合法 span。 */
+function needsSizingRepair(g: {
+  span?: number;
+  columns?: number;
+}): boolean {
+  if (!isValidStep(g.span) || !isValidStep(g.columns)) return true;
   return (
-    span !== undefined &&
-    columns !== undefined &&
-    isValidStep(columns) &&
-    columns > span
+    g.span !== undefined &&
+    g.columns !== undefined &&
+    g.columns > g.span
   );
 }

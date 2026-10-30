@@ -1153,6 +1153,22 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
     expect(state.groups[2]).toMatchObject({ span: 3, columns: 1 });
   });
 
+  it("小数 columns 备份(v7 同版绕过迁移):恢复时按缺省装满处理,不落小数", async () => {
+    const adapter = createMemoryStorage(null);
+    const fractional = v7Groups().map((g, i) =>
+      i === 1 ? { ...g, columns: 2.5 } : g
+    );
+
+    expect(
+      (await importStateFromJson(adapter, backup(fractional, 1200), "replace")).ok
+    ).toBe(true);
+
+    const state = (await adapter.load())!;
+    // 非整数 = 非法:恢复为缺省(装满随档位),不把 2.5 写进存储
+    expect(state.groups[1].columns).toBeUndefined();
+    expect(state.groups[1].span).toBe(6);
+  });
+
   it("宽画布原样往返:档位与每行条数逐字保留;缺省组不物化 span", async () => {
     const adapter = createMemoryStorage(null);
 

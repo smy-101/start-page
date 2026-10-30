@@ -41,8 +41,9 @@ Status: done
   [1, min(6, maxSpanForCanvas(界宽))];columns 存在且 > span 时自动降
   (=span;缺省保持装满);变宽后按新宽重钳 x;同义不落盘。
 - `setGroupColumns(id, columns)`(表单,语义升级):cells 钳同上;
-  **span' = max(spanEff, cells)——只升不降**(表单永不缩宽);span'
-  ≠ 原 spanEff 时物化写入;变宽重钳 x;同义不落盘。
+  **span' = max(spanEff, cells)——只升不降**(表单永不缩宽);写路径
+  统一物化 span(span = cells 时存否等价,物化保住后续降条数不缩宽);
+  变宽重钳 x;同义不落盘。
 - `setCanvasWidth` 缩宽:逐组 span = min(spanEff, maxSpanForCanvas)、
   columns = min(columns, span),按各自宽重钳 x。
 - `setGroupPositions`:x 按各组 spanEff 宽钳界;`statesEqual` 纳入 span。
@@ -86,6 +87,10 @@ Status: done
 - types.ts SCHEMA_VERSION 注释补 v7 行。
 
 ## Comments
+- 2026-12 code-review(两轴)后补:migrations 末尾修复段改为任何版本统一
+  剥离非法 columns/span(含已是 v7 的存量);restoreFrom 对非整数 columns
+  按缺省装满处理(v7 同版备份绕过迁移链的兑底);store 两写路径抽公共
+  `writeGroupSizing`;`columns` 键名以 GLOSSARY 豁免记录保留(兼容优先)。
 - 2026-12 实现:两票落地,tsc/eslint 干净,399 测试全绿。v6→v7 零改写
   迁移经引用相等锁定;回归用例覆盖「表单一行 1 条不缩宽」(含 v6 存量
   columns-only 路径)与「拖窄自动降条数」;preview 种子新增清单式样例组。

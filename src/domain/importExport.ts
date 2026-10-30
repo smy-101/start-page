@@ -380,8 +380,11 @@ function restoreFrom(backup: BookmarkState): {
   const groups: Group[] = backup.groups.map((g) => {
     const spanRaw = groupSpanOf(g);
     const spanClamped = Math.min(spanRaw, maxColumns);
+    // 非整数 = 非法(v7 同版备份绕过迁移链):按缺省装满处理,不落库
     const columns =
-      g.columns === undefined ? undefined : Math.min(g.columns, spanClamped);
+      g.columns === undefined || !Number.isInteger(g.columns)
+        ? undefined
+        : Math.min(g.columns, spanClamped);
     // 缺省组(span 未存且未超档)保持缺省,不物化;其余写钳后档位
     const span =
       g.span !== undefined || spanClamped !== spanRaw

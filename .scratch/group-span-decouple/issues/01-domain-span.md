@@ -14,7 +14,7 @@ canvas.ts:新增 `groupSpanOf(group)`(span ?? columns ?? 1,非法归 1)、
 store:`setGroupSpan(id, span)` 新增(拖柄路径;钳
 [1, min(6, maxSpanForCanvas)];columns > span 自动降 = span,缺省保持
 装满;按新宽重钳 x;同义不落盘);`setGroupColumns` 语义升级(表单路径;
-span' = max(spanEff, cells) 只升不降,物化条件 span' ≠ 原 spanEff;
+span' = max(spanEff, cells) 只升不降,写路径统一物化 span;
 变宽重钳 x;同义不落盘);`setCanvasWidth` 缩宽逐组
 span = min(spanEff, maxSpan)、columns = min(columns, span) + 重钳 x;
 `setGroupPositions` 按各组 spanEff 宽钳界。

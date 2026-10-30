@@ -229,6 +229,30 @@ export async function createBookmarkStore(
     return state.groups.some((g) => g.id === id);
   }
 
+  /**
+   * 组宽字段写回共用(group-span-decouple):物化档位/每行条数,按新宽
+   * 重钳 x 回画布内(y 只压非负),落盘并返回新组。同义判定由两条入口
+   * 各自完成(setGroupColumns 只升不降 / setGroupSpan 自动降条数)。
+   */
+  async function writeGroupSizing(
+    group: Group,
+    span: number,
+    columns: number | undefined
+  ): Promise<Result<Group>> {
+    const pos = clampToCanvas(
+      { x: group.x, y: group.y },
+      canvasBoundWidth(state),
+      groupWidthOf(span)
+    );
+    const resized: Group = { ...group, span, columns, x: pos.x, y: pos.y };
+    state = {
+      ...state,
+      groups: state.groups.map((g) => (g.id === group.id ? resized : g)),
+    };
+    await adapter.save(state);
+    return { ok: true, value: resized };
+  }
+
   function nextBookmarkOrder(groupId: GroupId): number {
     return nextOrder(
       state.bookmarks.filter((b) => b.groupId === groupId).map((b) => b.order)
@@ -477,31 +501,13 @@ export async function createBookmarkStore(
       // 表单永不缩宽(group-span-decouple):档位只升不降,拖出来的长度保持住
       const spanEff = groupSpanOf(group);
       const span = Math.max(spanEff, cells);
-      // 与当前生效值同义(含缺省装满)不落盘
+      // 与当前生效值同义(含缺省装满)不落盘;写则统一物化档位
+      // (span = cells 时存否等价,物化保住后续降条数不缩宽)
       const cellsEff = group.columns ?? spanEff;
       if (cells === cellsEff && span === spanEff) {
         return { ok: true, value: group };
       }
-      // 变宽后按新宽重钳 x 回画布内(y 只压非负不变)
-      const pos = clampToCanvas(
-        { x: group.x, y: group.y },
-        canvasBoundWidth(state),
-        groupWidthOf(span)
-      );
-      // 档位物化(脱离每行条数推导;span = cells 时存否等价,统一物化简单)
-      const resized: Group = {
-        ...group,
-        span,
-        columns: cells,
-        x: pos.x,
-        y: pos.y,
-      };
-      state = {
-        ...state,
-        groups: state.groups.map((g) => (g.id === id ? resized : g)),
-      };
-      await adapter.save(state);
-      return { ok: true, value: resized };
+      return writeGroupSizing(group, span, cells);
     },
 
     async setGroupSpan(id: GroupId, span: number): Promise<Result<Group>> {
@@ -527,25 +533,7 @@ export async function createBookmarkStore(
       ) {
         return { ok: true, value: group };
       }
-      // 变宽后按新宽重钳 x 回画布内(y 只压非负不变)
-      const pos = clampToCanvas(
-        { x: group.x, y: group.y },
-        canvasBoundWidth(state),
-        groupWidthOf(nextSpan)
-      );
-      const resized: Group = {
-        ...group,
-        span: nextSpan,
-        columns: nextColumns,
-        x: pos.x,
-        y: pos.y,
-      };
-      state = {
-        ...state,
-        groups: state.groups.map((g) => (g.id === id ? resized : g)),
-      };
-      await adapter.save(state);
-      return { ok: true, value: resized };
+      return writeGroupSizing(group, nextSpan, nextColumns);
     },
 
     async deleteGroup(id: GroupId): Promise<DeleteGroupResult> {
