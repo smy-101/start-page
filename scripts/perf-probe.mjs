@@ -43,7 +43,8 @@ async function connectPage() {
       ws0.onmessage = (ev) => {
         const m = JSON.parse(ev.data);
         if (m.id === id) {
-          m.error ? rej(new Error(JSON.stringify(m.error))) : res(m.result);
+          if (m.error) rej(new Error(JSON.stringify(m.error)));
+          else res(m.result);
         }
       };
       ws0.send(
