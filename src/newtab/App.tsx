@@ -41,7 +41,7 @@ import {
   DEFAULT_SETTINGS,
   loadSettings,
 } from "./settings";
-import type { Settings, SettingsAdapter } from "./settings";
+import type { BackgroundSetting, Settings, SettingsAdapter } from "./settings";
 import { getNativeBookmarkTree } from "./nativeBookmarks";
 import { importNativeBookmarks } from "../domain/nativeImport";
 import { importReportText } from "./messages";
@@ -59,6 +59,15 @@ import type { GroupPositionInput } from "../domain/store";
 
 const chromeStorage = createChromeStorage();
 const chromeSettingsStorage = createChromeSettingsStorage();
+
+/** 背景 → CSS background 值(写入 --start-background);默认背景返回 null(不设变量,跟随石墨/雾纸)。 */
+function backgroundCssValue(background: BackgroundSetting): string | null {
+  if (background.kind === "color") return background.color;
+  if (background.kind === "image") {
+    return `url("${background.dataUrl}") center / cover no-repeat fixed`;
+  }
+  return null;
+}
 
 /** 拖拽中的收藏卡片(组内排序/跨组移动;ADR-0004 墙退役后仅此一种
  * 拖拽源——分组移动走画布 Pointer 拖拽,不经 DnD 状态)。 */
@@ -421,25 +430,48 @@ export function App({
     ]
   );
 
-  /** 换引擎即存,回车立即生效(设置全量落盘,保留 iconFetch 开关) */
-  const handleEngineChange = useCallback(
-    async (engine: EngineId) => {
-      const next: Settings = { ...settingsRef.current, engine };
+  /** 设置局部变更的统一形状:合并落盘,保留其余项(引擎/图标开关/背景) */
+  const patchSettings = useCallback(
+    async (patch: Partial<Settings>) => {
+      const next: Settings = { ...settingsRef.current, ...patch };
       setSettings(next);
       await settingsAdapter.save(next);
     },
     [settingsAdapter]
   );
 
+  /** 换引擎即存,回车立即生效(设置全量落盘,保留 iconFetch 开关) */
+  const handleEngineChange = useCallback(
+    async (engine: EngineId) => patchSettings({ engine }),
+    [patchSettings]
+  );
+
   /** 图标抓取开关(设置页);重新打开后下次添加会再请求授权 */
   const handleToggleIconFetch = useCallback(
-    async (iconFetch: boolean) => {
-      const next: Settings = { ...settingsRef.current, iconFetch };
-      setSettings(next);
-      await settingsAdapter.save(next);
-    },
-    [settingsAdapter]
+    async (iconFetch: boolean) => patchSettings({ iconFetch }),
+    [patchSettings]
   );
+
+  /** 背景变更(设置页):全量落盘,保留引擎与图标开关 */
+  const handleBackgroundChange = useCallback(
+    async (background: BackgroundSetting) => patchSettings({ background }),
+    [patchSettings]
+  );
+
+  // 背景 → 视口底(GLOSSARY「背景」):仅初始页生效;纯色直填、
+  // 图片 cover 居中不随滚动。CSS 侧由 body 的 --start-background 回退 --bg 接收。
+  const backgroundCss = backgroundCssValue(settings.background);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (view === "start" && backgroundCss !== null) {
+      root.style.setProperty("--start-background", backgroundCss);
+    } else {
+      root.style.removeProperty("--start-background");
+    }
+    return () => {
+      root.style.removeProperty("--start-background");
+    };
+  }, [view, backgroundCss]);
 
   /** 回车:新开标签页按所选引擎搜索输入词;空白不跳转 */
   const handleSearch = useCallback((raw: string) => {
@@ -561,6 +593,8 @@ export function App({
         getBookmarkTree={getBookmarkTree}
         iconFetch={settings.iconFetch}
         onToggleIconFetch={(enabled) => void handleToggleIconFetch(enabled)}
+        background={settings.background}
+        onBackgroundChange={(next) => void handleBackgroundChange(next)}
       />
     );
   }

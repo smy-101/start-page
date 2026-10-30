@@ -34,6 +34,7 @@ describe("搜索胶囊:引擎切换(ui-refresh/03)", () => {
     expect(await settingsAdapter.load()).toEqual({
       engine: "google",
       iconFetch: true,
+      background: { kind: "default" },
     });
 
     fireEvent.change(screen.getByLabelText("搜索收藏"), {
@@ -57,6 +58,7 @@ describe("搜索胶囊:引擎切换(ui-refresh/03)", () => {
     expect(await settingsAdapter.load()).toEqual({
       engine: "baidu",
       iconFetch: true,
+      background: { kind: "default" },
     });
 
     render(

@@ -64,7 +64,9 @@ body {
     "HarmonyOS Sans SC",
     "Microsoft YaHei",
     sans-serif;
-  background: var(--bg);
+  /* 自定义背景(GLOSSARY「背景」):App 层写入 --start-background;
+   * 未设时回退石墨/雾纸(深浅色跟随系统的默认底) */
+  background: var(--start-background, var(--bg));
   color: var(--fg);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -1076,6 +1078,82 @@ button[type="submit"]:hover {
 .settings-toggle input {
   margin: 2px 0 0;
   accent-color: var(--fg);
+}
+
+/* ============================================================
+   背景设置(GLOSSARY「背景」):策展色板 + 自定义取色 + 图片上传;
+   图片背景由 App 层写入 --start-background(cover 居中、不随滚动)
+   ============================================================ */
+.background-swatches {
+  margin: 2px 0 12px;
+}
+
+.background-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.background-custom-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.background-custom-color input {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  cursor: pointer;
+}
+
+/* 上传入口:视觉对齐分区幽灵钮,原生文件输入隐藏(仅作交互载体) */
+.background-upload {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    transform 120ms var(--ease-out),
+    border-color 120ms var(--ease-out),
+    background-color 120ms var(--ease-out);
+}
+
+.background-upload:hover {
+  border-color: var(--border-strong);
+}
+
+.background-upload:active {
+  transform: scale(0.97);
+}
+
+.background-upload input {
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.background-preview {
+  display: block;
+  width: 220px;
+  height: 124px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  object-fit: cover;
 }
 
 /* ============================================================

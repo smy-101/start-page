@@ -23,6 +23,21 @@ describe("设置读取与持久化", () => {
     expect(await loadSettings(storage)).toEqual({
       engine: "baidu",
       iconFetch: true,
+      background: { kind: "default" },
+    });
+  });
+
+  it("旧版设置无 background 字段时取默认背景(石墨/雾纸)", async () => {
+    const storage = createMemorySettingsStorage();
+    await storage.save({
+      engine: "baidu",
+      iconFetch: false,
+    } as unknown as Parameters<typeof storage.save>[0]);
+
+    expect(await loadSettings(storage)).toEqual({
+      engine: "baidu",
+      iconFetch: false,
+      background: { kind: "default" },
     });
   });
 
@@ -34,6 +49,71 @@ describe("设置读取与持久化", () => {
     expect(await loadSettings(storage)).toEqual({
       engine: "bing",
       iconFetch: true,
+      background: { kind: "default" },
     });
+  });
+
+  it("旧版设置形状(仅 engine)读回时同样补默认背景", async () => {
+    const storage = createMemorySettingsStorage();
+    await storage.save({ engine: "baidu" } as unknown as Parameters<
+      typeof storage.save
+    >[0]);
+
+    expect((await loadSettings(storage)).background).toEqual({
+      kind: "default",
+    });
+  });
+
+  it("合法纯色背景原样读回(色值归一为小写)", async () => {
+    const storage = createMemorySettingsStorage({
+      engine: "bing",
+      iconFetch: true,
+      background: { kind: "color", color: "#8FA8C8" },
+    } as never);
+
+    expect((await loadSettings(storage)).background).toEqual({
+      kind: "color",
+      color: "#8fa8c8",
+    });
+  });
+
+  it("合法图片背景(data URL)原样读回", async () => {
+    const storage = createMemorySettingsStorage({
+      engine: "bing",
+      iconFetch: true,
+      background: {
+        kind: "image",
+        dataUrl: "data:image/webp;base64,QUJD",
+      },
+    } as never);
+
+    expect((await loadSettings(storage)).background).toEqual({
+      kind: "image",
+      dataUrl: "data:image/webp;base64,QUJD",
+    });
+  });
+
+  it("背景存值损坏(非法色/非图片 data URL/未知 kind)时回退默认,不抛错", async () => {
+    for (const bad of [
+      { kind: "color", color: "not-a-color" },
+      { kind: "color", color: "#abc" },
+      { kind: "image", dataUrl: "data:text/html;base64,QUJD" },
+      { kind: "image" },
+      { kind: "wallpaper" },
+      "blue",
+      null,
+    ]) {
+      const storage = createMemorySettingsStorage({
+        engine: "bing",
+        iconFetch: true,
+        background: bad,
+      } as never);
+
+      expect(await loadSettings(storage)).toEqual({
+        engine: "bing",
+        iconFetch: true,
+        background: { kind: "default" },
+      });
+    }
   });
 });
