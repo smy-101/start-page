@@ -1,5 +1,9 @@
 import { Fragment, memo, useEffect, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent, RefCallback } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  RefCallback,
+} from "react";
 import type {
   Bookmark,
   BookmarkId,
@@ -11,9 +15,15 @@ import type {
 import type { BookmarkPatch } from "../domain/store";
 import { BookmarkCard } from "./BookmarkCard";
 import { GroupHeader } from "./GroupHeader";
-import { groupCellsOf, groupSpanOf, groupWidthOf, nearestGroupSpan, CELL_W } from "../domain/canvas";
+import {
+  groupCellsOf,
+  groupSpanOf,
+  groupWidthOf,
+  nearestGroupSpan,
+  CELL_W,
+} from "../domain/canvas";
 import type { CanvasPos } from "../domain/canvas";
-import type { DragHandlers } from "./dragTypes";
+import type { DragHandlers } from "./useCardDnD";
 
 type GroupSectionProps = {
   group: Group;
@@ -49,7 +59,10 @@ type GroupSectionProps = {
   onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
-} & Omit<DragHandlers, "onBoardDragLeave">;
+  /** 收藏排序拖拽回调束(整束直透 BookmarkCard;memo 比较 6 函数引用 → 1 对象引用,
+   * 未消费成员惰性无害) */
+  handlers: DragHandlers;
+};
 
 /**
  * 画布上的分组卡(ui-refresh/04 → ADR-0004 白板):x/y 坐标自由定位,
@@ -76,12 +89,7 @@ export const GroupSection = memo(function GroupSection({
   onResizeSpan,
   onSetColumns,
   onDeleteGroup,
-  onCardDragStart,
-  onDragEnd,
-  onSectionDragOver,
-  onSectionDrop,
-  onCardDragOver,
-  onCardDrop,
+  handlers,
   onEdit,
   onDelete,
 }: GroupSectionProps) {
@@ -121,8 +129,7 @@ export const GroupSection = memo(function GroupSection({
     const settled =
       groupWidthOf(groupSpanOf(group)) === committedW ||
       (pending !== null &&
-        (group.span !== pending.atSpan ||
-          group.columns !== pending.atColumns));
+        (group.span !== pending.atSpan || group.columns !== pending.atColumns));
     if (settled) {
       setCommittedW(null);
       pendingRef.current = null;
@@ -188,8 +195,7 @@ export const GroupSection = memo(function GroupSection({
   const onHandleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const current =
-      committedW !== null ? nearestGroupSpan(committedW) : span;
+    const current = committedW !== null ? nearestGroupSpan(committedW) : span;
     const step = event.key === "ArrowRight" ? 1 : -1;
     const next = Math.min(
       Math.max(1, current + step),
@@ -220,8 +226,8 @@ export const GroupSection = memo(function GroupSection({
       ref={elementRef}
       // 分组色注入为 CSS 变量:托盘淡染/悬停边框/指示线等着色用(纯表现,不影响语义)
       style={{ "--group-color": group.color, ...canvasStyle } as CSSProperties}
-      onDragOver={(event) => onSectionDragOver(event, group.id)}
-      onDrop={(event) => onSectionDrop(event, group.id)}
+      onDragOver={(event) => handlers.onSectionDragOver(event, group.id)}
+      onDrop={(event) => handlers.onSectionDrop(event, group.id)}
     >
       <GroupHeader
         group={group}
@@ -257,10 +263,7 @@ export const GroupSection = memo(function GroupSection({
                   whiteboardMode={whiteboardMode}
                   onEdit={onEdit}
                   onDelete={onDelete}
-                  onDragStart={onCardDragStart}
-                  onDragEnd={onDragEnd}
-                  onDragOver={onCardDragOver}
-                  onDrop={onCardDrop}
+                  handlers={handlers}
                 />
               </Fragment>
             ))}

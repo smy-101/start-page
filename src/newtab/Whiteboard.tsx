@@ -32,7 +32,7 @@ import {
 } from "../domain/canvas";
 import type { AlignGuide, CanvasPos, Rect } from "../domain/canvas";
 import { GroupSection } from "./GroupSection";
-import type { DropHint, DragHandlers } from "./dragTypes";
+import type { DropHint, DragHandlers } from "./useCardDnD";
 import { useGroupedBookmarks } from "./useGroupedBookmarks";
 
 /** 松手吸附网格(px,ADR-0004 Q4)。 */
@@ -108,7 +108,10 @@ export type WhiteboardProps = {
   onSetGroupColumns(id: GroupId, columns: number): Promise<Result<Group>>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
-} & DragHandlers;
+  /** 收藏排序拖拽回调束(useCardDnD 出口,引用稳定):整束直透 GroupSection,
+   * 本组件只自用 onBoardDragLeave(滚动壳拖离清指示线) */
+  handlers: DragHandlers;
+};
 
 /** Pointer 拖拽会话的被拖卡跟手坐标(未吸附;松手才吸附写回)。 */
 type DragPos = { id: GroupId; x: number; y: number };
@@ -129,13 +132,7 @@ export function Whiteboard({
   onResizeCanvas,
   onResizeGroup,
   onSetGroupColumns,
-  onCardDragStart,
-  onDragEnd,
-  onSectionDragOver,
-  onSectionDrop,
-  onCardDragOver,
-  onCardDrop,
-  onBoardDragLeave,
+  handlers,
   onEdit,
   onDelete,
 }: WhiteboardProps) {
@@ -608,7 +605,7 @@ export function Whiteboard({
       <div
         className="whiteboard-scroll"
         ref={scrollRef}
-        onDragLeave={onBoardDragLeave}
+        onDragLeave={handlers.onBoardDragLeave}
       >
         <div
           className="whiteboard-canvas"
@@ -643,12 +640,7 @@ export function Whiteboard({
                 onResizeSpan={onResizeGroup}
                 onSetColumns={onSetGroupColumns}
                 onDeleteGroup={onDeleteGroup}
-                onCardDragStart={onCardDragStart}
-                onDragEnd={onDragEnd}
-                onSectionDragOver={onSectionDragOver}
-                onSectionDrop={onSectionDrop}
-                onCardDragOver={onCardDragOver}
-                onCardDrop={onCardDrop}
+                handlers={handlers}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 elementRef={itemRef(group.id)}

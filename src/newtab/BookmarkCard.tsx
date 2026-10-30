@@ -1,15 +1,10 @@
 import { memo, useState } from "react";
-import type {
-  Bookmark,
-  BookmarkId,
-  Group,
-  GroupId,
-  Result,
-} from "../domain/types";
+import type { Bookmark, BookmarkId, Group, Result } from "../domain/types";
 import type { BookmarkPatch } from "../domain/store";
 import { Favicon } from "./Favicon";
 import { domainErrorText } from "./messages";
 import { PencilIcon, TrashIcon } from "./Icon";
+import type { DragHandlers } from "./useCardDnD";
 
 type BookmarkCardProps = {
   bookmark: Bookmark;
@@ -20,17 +15,10 @@ type BookmarkCardProps = {
   whiteboardMode: boolean;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
-  /** 拖拽:卡片既可拖(组内排序/跨组移动)也可作为放置目标(插到目标之前/之后)。
-   * 共享回调(稳定身份):卡片以自身 bookmark 数据供给 id 与所属组;
-   * 事件对象透传给 App(effectAllowed / 指针坐标)。 */
-  onDragStart(
-    event: React.DragEvent,
-    bookmarkId: BookmarkId,
-    groupId: GroupId
-  ): void;
-  onDragEnd(): void;
-  onDragOver(event: React.DragEvent, targetBookmarkId: BookmarkId): void;
-  onDrop(event: React.DragEvent, targetBookmarkId: BookmarkId): void;
+  /** 拖拽回调束(useCardDnD 出口整束直入;卡片以自身 bookmark 数据供给 id 与
+   * 所属组,事件对象透传给 hook(effectAllowed / 指针坐标);memo 比较
+   * 4 函数引用 → 1 对象引用) */
+  handlers: DragHandlers;
 };
 
 /**
@@ -45,10 +33,7 @@ export const BookmarkCard = memo(function BookmarkCard({
   whiteboardMode,
   onEdit,
   onDelete,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDrop,
+  handlers,
 }: BookmarkCardProps) {
   const [editing, setEditing] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -148,14 +133,14 @@ export const BookmarkCard = memo(function BookmarkCard({
       data-dragging={dragging ? "true" : undefined}
       onDragStart={(event) => {
         setDragging(true);
-        onDragStart(event, bookmark.id, bookmark.groupId);
+        handlers.onCardDragStart(event, bookmark.id, bookmark.groupId);
       }}
       onDragEnd={() => {
         setDragging(false);
-        onDragEnd();
+        handlers.onDragEnd();
       }}
-      onDragOver={(event) => onDragOver(event, bookmark.id)}
-      onDrop={(event) => onDrop(event, bookmark.id)}
+      onDragOver={(event) => handlers.onCardDragOver(event, bookmark.id)}
+      onDrop={(event) => handlers.onCardDrop(event, bookmark.id)}
     >
       <a
         className="card-link"

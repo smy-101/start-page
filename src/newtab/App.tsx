@@ -54,7 +54,7 @@ import {
 import { domainErrorText } from "./messages";
 import { PlusIcon, SettingsIcon } from "./Icon";
 import { loadCollapsedGroups, saveCollapsedGroups } from "./collapsedGroups";
-import type { DragHandlers, DropHint } from "./dragTypes";
+import { useCardDnD } from "./useCardDnD";
 import type { GroupPositionInput } from "../domain/store";
 
 const chromeStorage = createChromeStorage();
@@ -69,9 +69,8 @@ function backgroundCssValue(background: BackgroundSetting): string | null {
   return null;
 }
 
-/** 拖拽中的收藏卡片(组内排序/跨组移动;ADR-0004 墙退役后仅此一种
- * 拖拽源——分组移动走画布 Pointer 拖拽,不经 DnD 状态)。 */
-type Drag = { id: BookmarkId; groupId: GroupId } | null;
+/** state 未就绪时供给拖拽 hook 的空收藏表(模块级常量,免每渲染新分配)。 */
+const NO_BOOKMARKS: Bookmark[] = [];
 
 type AppProps = {
   /** 注入存储适配器;缺省用 chrome.storage.local(测试注入内存适配器) */
@@ -103,9 +102,6 @@ export function App({
   // 编辑 UI 的门禁(ADR-0004);入口常驻头部,nudge 一键进入
   const [whiteboardMode, setWhiteboardMode] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [drag, setDrag] = useState<Drag>(null);
-  // 拖收藏中的插入指示线:目标组 + 渲染坐标槽位(指针移动时更新)
-  const [dropHint, setDropHint] = useState<DropHint>(null);
   // 折叠分组集(board-refresh/03):默认空集全部展开,localStorage 持久化
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupId>>(() =>
     loadCollapsedGroups()
@@ -117,11 +113,9 @@ export function App({
   const storeRef = useRef<BookmarkStore | null>(null);
   const stateRef = useRef<BookmarkState | null>(null);
   const settingsRef = useRef(settings);
-  const dragRef = useRef<Drag>(drag);
   storeRef.current = store;
   stateRef.current = state;
   settingsRef.current = settings;
-  dragRef.current = drag;
 
   useEffect(() => {
     let cancelled = false;
@@ -242,106 +236,13 @@ export function App({
     });
   }, []);
 
-  /** 放置前置条件:dragover 阻止默认行为并声明 move 光标,浏览器才允许 drop。 */
-  const allowDrop = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-  }, []);
-
-  /** 拖拽源声明:只允许移动(光标不出现复制加号)。jsdom 事件无 dataTransfer,守卫。 */
-  const markDragSource = useCallback((event: React.DragEvent) => {
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-  }, []);
-
-  /** 拖收藏悬停在某卡片上/下半:插入槽位(目标组坐标,不含被拖项)。 */
-  function cardInsertionIndex(
-    event: React.DragEvent,
-    target: Bookmark,
-    draggedId: BookmarkId
-  ): number {
-    const siblings = (stateRef.current?.bookmarks ?? [])
-      .filter((b) => b.groupId === target.groupId && b.id !== draggedId)
-      .sort(byOrder);
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    // jsdom 量高为 0:视为悬停上半(与既有「插到目标之前」行为一致)
-    const after = rect.height > 0 && event.clientY - rect.top > rect.height / 2;
-    const at = siblings.findIndex((b) => b.id === target.id);
-    if (at < 0) {
-      // 悬停在被拖卡片自身:前/后都是原位(无操作),指示线贴自身前/后
-      const full = (stateRef.current?.bookmarks ?? [])
-        .filter((b) => b.groupId === target.groupId)
-        .sort(byOrder);
-      const p = full.findIndex((b) => b.id === target.id);
-      return after ? p + 1 : p;
-    }
-    return at + (after ? 1 : 0);
-  }
-
-  /** 追加到目标组末尾的下标:按完整状态计算(搜索过滤视图下同样落到真实末尾)。 */
-  const appendIndex = useCallback(
-    (groupId: GroupId, draggedId: BookmarkId) =>
-      (stateRef.current?.bookmarks ?? []).filter(
-        (b) => b.groupId === groupId && b.id !== draggedId
-      ).length,
-    []
-  );
-
-  /** 更新插入指示线:槽位换算到目标组的渲染坐标(被拖项还在列内)。 */
-  const hintAt = useCallback((groupId: GroupId, insertion: number) => {
-    const current = dragRef.current;
-    setDropHint((prev) => {
-      let index = insertion;
-      if (current && current.groupId === groupId) {
-        const full = (stateRef.current?.bookmarks ?? [])
-          .filter((b) => b.groupId === groupId)
-          .sort(byOrder);
-        const p = full.findIndex((b) => b.id === current.id);
-        if (p >= 0 && p < insertion) index = insertion + 1;
-      }
-      return prev && prev.groupId === groupId && prev.index === index
-        ? prev
-        : { groupId, index };
-    });
-  }, []);
-
-  /** 分区放置:拖收藏→追加到目标组末尾。 */
-  const handleSectionDrop = useCallback(
-    (_event: React.DragEvent, targetGroupId: GroupId) => {
-      const current = dragRef.current;
-      setDrag(null);
-      setDropHint(null);
-      if (!current) return;
-      void run(() =>
-        storeRef.current!.moveBookmark(
-          current.id,
-          targetGroupId,
-          appendIndex(targetGroupId, current.id)
-        )
-      );
-    },
-    [run, appendIndex]
-  );
-
-  /** 卡片放置:按悬停上/下半插到目标之前/之后(组内排序与跨组移动共用)。 */
-  const handleCardDrop = useCallback(
-    (event: React.DragEvent, targetBookmarkId: BookmarkId) => {
-      const current = dragRef.current;
-      if (!current) return;
-      // 收藏拖放由卡片就地处理,不再冒泡给分区(避免二次追加)
-      event.stopPropagation();
-      setDrag(null);
-      setDropHint(null);
-      if (current.id === targetBookmarkId) return;
-      const target = stateRef.current?.bookmarks.find(
-        (b) => b.id === targetBookmarkId
-      );
-      if (!target) return;
-      const index = cardInsertionIndex(event, target, current.id);
-      void run(() =>
-        storeRef.current!.moveBookmark(current.id, target.groupId, index)
-      );
-    },
-    [run]
+  // 收藏排序拖拽深 module(card-dnd-deepen/01):插入几何、指示线与落位
+  // 写回全部内聚在 useCardDnD;App 只供给全量收藏(过滤视图落点按完整
+  // 状态算)与写回通道(错误翻译经 run:成功刷新/失败中文文案)
+  const { dropHint, handlers: dragHandlers } = useCardDnD(
+    state?.bookmarks ?? NO_BOOKMARKS,
+    (id, groupId, index) =>
+      void run(() => storeRef.current!.moveBookmark(id, groupId, index))
   );
 
   const handleCardEdit = useCallback(
@@ -393,56 +294,6 @@ export function App({
   const handleEnterWhiteboard = useCallback(() => {
     setWhiteboardMode(true);
   }, []);
-
-  // 拖拽回调束(DragHandlers):收藏卡片组内排序/跨组移动 + 插入指示线
-  const dragHandlers: DragHandlers = useMemo(
-    () => ({
-      onCardDragStart: (event, bookmarkId, groupId) => {
-        markDragSource(event);
-        setDrag({ id: bookmarkId, groupId });
-      },
-      onDragEnd: () => {
-        setDrag(null);
-        setDropHint(null);
-      },
-      onSectionDragOver: (event, targetGroupId) => {
-        allowDrop(event);
-        // 拖收藏悬停在非卡片区(列头/空白):指示追加到该组末尾
-        const current = dragRef.current;
-        if (!current) return;
-        hintAt(targetGroupId, appendIndex(targetGroupId, current.id));
-      },
-      onSectionDrop: handleSectionDrop,
-      onCardDragOver: (event, targetBookmarkId) => {
-        event.preventDefault();
-        const current = dragRef.current;
-        if (!current) return;
-        event.stopPropagation();
-        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-        const target = stateRef.current?.bookmarks.find(
-          (b) => b.id === targetBookmarkId
-        );
-        if (!target) return;
-        hintAt(target.groupId, cardInsertionIndex(event, target, current.id));
-      },
-      onCardDrop: handleCardDrop,
-      onBoardDragLeave: (event) => {
-        // 拖拽整块看板拖离才清指示线;组内/组间移动触发的 dragleave 不算
-        const to = event.relatedTarget;
-        if (!(to instanceof Node) || !event.currentTarget.contains(to)) {
-          setDropHint(null);
-        }
-      },
-    }),
-    [
-      allowDrop,
-      markDragSource,
-      hintAt,
-      handleSectionDrop,
-      handleCardDrop,
-      appendIndex,
-    ]
-  );
 
   /** 设置局部变更的统一形状:合并落盘,保留其余项(引擎/图标开关/背景) */
   const patchSettings = useCallback(
@@ -703,7 +554,7 @@ export function App({
         onResizeGroup={handleResizeGroup}
         onSetGroupColumns={handleSetGroupColumns}
         onEnterWhiteboard={handleEnterWhiteboard}
-        {...dragHandlers}
+        handlers={dragHandlers}
         onEdit={handleCardEdit}
         onDelete={handleCardDelete}
       />

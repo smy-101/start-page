@@ -96,6 +96,16 @@ function renderBoard(
     },
   }));
   const onEnterWhiteboard = vi.fn();
+  // 拖拽回调束:单对象 prop(稳定身份,与 App 经 useCardDnD 供给同形)
+  const handlers = {
+    onCardDragStart: vi.fn(),
+    onDragEnd: vi.fn(),
+    onSectionDragOver: vi.fn(),
+    onSectionDrop: vi.fn(),
+    onCardDragOver: vi.fn(),
+    onCardDrop: vi.fn(),
+    onBoardDragLeave: vi.fn(),
+  };
   const props: WhiteboardProps = {
     state: initial,
     groups: [...initial.groups].sort(byOrder),
@@ -112,13 +122,7 @@ function renderBoard(
     onResizeCanvas,
     onResizeGroup,
     onSetGroupColumns,
-    onCardDragStart: vi.fn(),
-    onDragEnd: vi.fn(),
-    onSectionDragOver: vi.fn(),
-    onSectionDrop: vi.fn(),
-    onCardDragOver: vi.fn(),
-    onCardDrop: vi.fn(),
-    onBoardDragLeave: vi.fn(),
+    handlers,
     onEdit: vi.fn(),
     onDelete: vi.fn(),
     ...overrides,

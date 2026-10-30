@@ -44,6 +44,16 @@ const noop = (): void => {};
 // 稳定处理器(模块级引用):内联箭头会每渲染新建引用,击穿被测的 memo
 const onEdit = async () => okBookmark;
 const onDelete = async () => ({ ok: true as const, value: bookmark.id });
+// 拖拽回调束(单对象 prop):与 useCardDnD 出口同形,模块级保稳定身份
+const handlers = {
+  onCardDragStart: noop,
+  onDragEnd: noop,
+  onSectionDragOver: noop,
+  onSectionDrop: noop,
+  onCardDragOver: noop,
+  onCardDrop: noop,
+  onBoardDragLeave: noop,
+};
 
 describe("memo 契约:BookmarkCard(真实组件)", () => {
   it("父级无关重渲染时卡片不重渲染", () => {
@@ -61,10 +71,7 @@ describe("memo 契约:BookmarkCard(真实组件)", () => {
             groups={groups}
             onEdit={onEdit}
             onDelete={onDelete}
-            onDragStart={noop}
-            onDragEnd={noop}
-            onDragOver={noop}
-            onDrop={noop}
+            handlers={handlers}
           />
         </>
       );
