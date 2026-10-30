@@ -80,9 +80,11 @@ body {
    页面骨架
    ============================================================ */
 .page {
-  max-width: 1760px;
+  /* 容器上限 = 画布上限 2400 + 两侧衬距(canvas.ts MAX_CANVAS_W):
+     超宽屏两侧对称留白,画布自动档(schema v5)恰能撑满容器内容宽 */
+  max-width: 2448px;
   margin: 0 auto;
-  padding: 32px 36px 56px;
+  padding: 32px 24px 48px;
 }
 
 .page-header {
@@ -1149,6 +1151,100 @@ button[type="submit"]:hover {
 
 .whiteboard-canvas {
   position: relative;
+}
+
+/* 画布边缘可见 + 点阵底纹(canvas-bounds-align):仅白板模式非锁定态。
+   描边用虚线区分于卡片实线;点阵 16px = 吸附网格,暗示可摆区域 */
+.whiteboard-canvas:not([data-locked="true"]) {
+  border: 1px dashed color-mix(in srgb, var(--fg) 28%, transparent);
+  border-radius: 8px;
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--fg) 14%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 16px 16px;
+}
+
+/* 调宽中:锁定选区,画布描边实线强调当前范围 */
+.whiteboard-canvas[data-wb-resizing="true"] {
+  user-select: none;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--fg) 45%, transparent);
+}
+
+/* 右缘调宽拖柄(canvas-bounds-align):整高热区贴在画布右缘内侧
+   (不能外挂:自动档画布宽恰等于滚动壳内容宽,外挂 7px 会凭空滚出横条),
+   中间一枚竖向握把胶囊;键盘可达(separator 角色) */
+.wb-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.wb-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  width: 4px;
+  height: 40px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 30%, transparent);
+  transition:
+    background 120ms ease-out,
+    height 120ms ease-out;
+}
+
+.wb-resize:hover::after,
+.wb-resize:focus-visible::after,
+.whiteboard-canvas[data-wb-resizing="true"] .wb-resize::after {
+  background: color-mix(in srgb, var(--fg) 60%, transparent);
+  height: 56px;
+}
+
+.wb-resize:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* 调宽读数徽章:拖柄顶部的宽度回显(仅调宽中) */
+.wb-resize-badge {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 18%, transparent);
+  pointer-events: none;
+}
+
+/* 对齐辅助线(canvas-bounds-align):拖中才存在;1px 墨线,深浅色随 --fg */
+.wb-guide {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.wb-guide-x {
+  width: 1px;
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+}
+
+.wb-guide-y {
+  height: 1px;
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
 }
 
 /* 可拖手性:卡片非交互区 grab,拖中 grabbing(交互控件自带光标);

@@ -16,7 +16,12 @@ import {
 } from "./types";
 import { normalizeUrl } from "./url";
 import { migrateState } from "./migrations";
-import { appendPositions, clampToCanvas } from "./canvas";
+import {
+  appendPositions,
+  canvasBoundWidth,
+  clampCanvasWidth,
+  clampToCanvas,
+} from "./canvas";
 
 export { INBOX_GROUP_COLOR, INBOX_GROUP_ID, SCHEMA_VERSION } from "./types";
 
@@ -71,12 +76,20 @@ export interface BookmarkStore {
   reorderGroups(groupIds: GroupId[]): Promise<Result<Group[]>>;
   /**
    * 白板落点批量写回(ADR-0004):拖拽单卡(一条)与「自动整理」(整批)
-   * 共用同一入口。坐标经 clampToCanvas 钳回(非负、不越右界);
-   * 任何未知 id 整批拒绝,无部分写入;坐标无变化不落盘。
+   * 共用同一入口。坐标经 clampToCanvas 钳回(非负、不越画布右界——固定宽按
+   * 固定值,自动档按上限,实际渲染宽由组件先行钳过);任何未知 id 整批拒绝,
+   * 无部分写入;坐标无变化不落盘。
    */
   setGroupPositions(
     positions: readonly GroupPositionInput[]
   ): Promise<Result<Group[]>>;
+  /**
+   * 画布宽写回(schema v4 起,canvas-bounds-align):右缘拖柄松手/键盘调整
+   * 调用,自动档由此钉住为固定宽。钳回 [720, 2400] 后落盘;缩宽时越界分组
+   * 坐标重钳到新右界;宽度与坐标均无实际变化不落盘(自动档无存储值,
+   * 钉任意值都算变化)。返回生效宽度。
+   */
+  setCanvasWidth(width: number): Promise<Result<number>>;
   /** 删除分组:组内收藏全部回收进收集箱(绝不连带删除)。 */
   deleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   /**
@@ -92,6 +105,7 @@ export interface BookmarkStore {
 }
 
 function initialState(): BookmarkState {
+  // 画布宽缺省 = 自动档(schema v5):不写数值,渲染时撑满可用宽
   return {
     schemaVersion: SCHEMA_VERSION,
     groups: [createInboxGroup(0)],
@@ -114,12 +128,14 @@ function ensureInbox(state: BookmarkState): BookmarkState {
 /**
  * 两状态是否语义相等(逐字段、含数组顺序)。
  * boot 回声抑制用:自身写入引发的 onChanged 回声携带与当前一致的状态,相等即可
- * 跳过重建;外部写入携带不同状态,不等即重建。数组顺序参与相等(顺序即语义)。
+ * 跳过重建;外部写入携带不同状态,不等即重建。数组顺序参与相等(顺序即语义);
+ * 画布宽逐字比较(schema v5:缺省自动档 ≠ 钉住的固定宽)。
  */
 export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
   if (a === b) return true;
   if (
     a.schemaVersion !== b.schemaVersion ||
+    a.canvasWidth !== b.canvasWidth ||
     a.groups.length !== b.groups.length ||
     a.bookmarks.length !== b.bookmarks.length
   ) {
@@ -361,9 +377,10 @@ export async function createBookmarkStore(
       if (positions.some((p) => !groupExists(p.id))) {
         return { ok: false, error: "group-not-found" };
       }
+      const width = canvasBoundWidth(state);
       const byId = new Map(
         positions.map((p) => {
-          const clamped = clampToCanvas({ x: p.x, y: p.y });
+          const clamped = clampToCanvas({ x: p.x, y: p.y }, width);
           return [p.id, clamped] as const;
         })
       );
@@ -379,6 +396,24 @@ export async function createBookmarkStore(
         await adapter.save(state);
       }
       return { ok: true, value: groups };
+    },
+
+    async setCanvasWidth(width: number): Promise<Result<number>> {
+      const clamped = clampCanvasWidth(width);
+      // 逐字比较:自动档(缺省)钉任意值都算变化(schema v5)
+      const widthChanged = clamped !== state.canvasWidth;
+      // 缩宽时越界分组重钳到新右界(宽化不变坐标);逐组判断,未动者原对象保留
+      let moved = false;
+      const groups = state.groups.map((g) => {
+        const pos = clampToCanvas({ x: g.x, y: g.y }, clamped);
+        if (pos.x === g.x && pos.y === g.y) return g;
+        moved = true;
+        return { ...g, x: pos.x, y: pos.y };
+      });
+      if (!widthChanged && !moved) return { ok: true, value: clamped };
+      state = { ...state, canvasWidth: clamped, groups };
+      await adapter.save(state);
+      return { ok: true, value: clamped };
     },
 
     async deleteGroup(id: GroupId): Promise<DeleteGroupResult> {

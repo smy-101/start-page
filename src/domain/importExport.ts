@@ -15,7 +15,13 @@ import {
   SCHEMA_VERSION,
 } from "./types";
 import { normalizeUrl } from "./url";
-import { appendPositions, clampToCanvas } from "./canvas";
+import {
+  MAX_CANVAS_W,
+  appendPositions,
+  canvasWidthOf,
+  clampCanvasWidth,
+  clampToCanvas,
+} from "./canvas";
 import { migrateState } from "./migrations";
 
 /**
@@ -166,6 +172,7 @@ interface IncomingGroup {
 }
 
 function emptyState(): BookmarkState {
+  // 画布宽缺省 = 自动档(schema v5):不写数值,渲染时撑满可用宽
   return {
     schemaVersion: SCHEMA_VERSION,
     groups: [createInboxGroup(0)],
@@ -230,7 +237,16 @@ function ingestInto(
   }
 
   return {
-    state: { schemaVersion: SCHEMA_VERSION, groups, bookmarks },
+    // 合并保留现有画布宽(merge 只并入收藏布局不动;备份宽仅 replace 生效):
+    // 固定宽钳回保留,自动档(缺省)保持自动(schema v5)
+    state: {
+      schemaVersion: SCHEMA_VERSION,
+      ...(base.canvasWidth !== undefined && {
+        canvasWidth: clampCanvasWidth(base.canvasWidth),
+      }),
+      groups,
+      bookmarks,
+    },
     report: { added, skipped },
   };
 }
@@ -332,18 +348,29 @@ function parseStateJson(raw: string): Result<BookmarkState> {
   ) {
     return { ok: false, error: "invalid-import" };
   }
+  // 画布宽(schema v4 起):可缺省(v3 及更早备份、v5 自动档),
+  // 给了就必须是数字(NaN/越界在恢复时钳回,不拒收)
+  if (s.canvasWidth !== undefined && typeof s.canvasWidth !== "number") {
+    return { ok: false, error: "invalid-import" };
+  }
   return { ok: true, value: s as unknown as BookmarkState };
 }
 
 /**
- * 替换全部:清空后恢复备份(id/顺序/颜色/备注/坐标逐字保留,坐标钳回画布),
+ * 替换全部:清空后恢复备份(id/顺序/颜色/备注/坐标逐字保留),画布宽随备份
+ * (固定宽钳回;缺省 = 自动档,坐标按上限钳界,与 store 自动档同口径),
  * 同时修复损坏备份:补回缺失收集箱、孤儿收藏收回收集箱、备份内重复 URL 只留首条。
  */
 function restoreFrom(backup: BookmarkState): {
   state: BookmarkState;
   report: ImportReport;
 } {
-  const groups = backup.groups.map((g) => ({ ...g, ...clampToCanvas(g) }));
+  const canvasWidth = canvasWidthOf(backup);
+  const bound = canvasWidth ?? MAX_CANVAS_W;
+  const groups = backup.groups.map((g) => ({
+    ...g,
+    ...clampToCanvas(g, bound),
+  }));
   if (!groups.some((g) => g.id === INBOX_GROUP_ID)) {
     groups.unshift(
       // 补缺落画布底部追加位(同 store.ensureInbox),不与既有分组重叠
@@ -370,7 +397,12 @@ function restoreFrom(backup: BookmarkState): {
     });
   }
   return {
-    state: { schemaVersion: SCHEMA_VERSION, groups, bookmarks },
+    state: {
+      schemaVersion: SCHEMA_VERSION,
+      ...(canvasWidth !== undefined && { canvasWidth }),
+      groups,
+      bookmarks,
+    },
     report: { added: bookmarks.length, skipped },
   };
 }

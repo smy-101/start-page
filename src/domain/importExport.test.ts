@@ -16,6 +16,7 @@ import chromeExportHtml from "../../tests/fixtures/chrome-bookmarks-export.html?
 export function literalState(): BookmarkState {
   return {
     schemaVersion: SCHEMA_VERSION,
+    canvasWidth: 1200,
     groups: [
       {
         id: INBOX_GROUP_ID,
@@ -698,14 +699,15 @@ describe("V3 画布坐标兼容(board-whiteboard/01)", () => {
     };
   }
 
-  it("v2 备份 replace 导入走同一迁移:分组装箱出坐标、版本升 v3", async () => {
+  it("v2 备份 replace 导入走同一迁移:分组装箱出坐标、版本升当前版", async () => {
     const adapter = createMemoryStorage(v3Base());
 
     const result = await importStateFromJson(adapter, v2Backup, "replace");
     expect(result.ok).toBe(true);
 
     const state = (await adapter.load())!;
-    expect(state.schemaVersion).toBe(3);
+    expect(state.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.canvasWidth).toBeUndefined(); // v3 及更早备份 → 自动档(schema v5)
     expect(state.groups.map((g) => [g.id, g.x, g.y])).toEqual([
       [INBOX_GROUP_ID, 0, 0],
       ["g-work", 405, 0],
@@ -780,10 +782,10 @@ describe("V3 画布坐标兼容(board-whiteboard/01)", () => {
     );
     expect(result.ok).toBe(true);
     const state = (await adapter.load())!;
-    // 右界 = 画布宽 − 卡宽 = 1200 − 1168/3
+    // 右界 = 上限 2400 − 卡宽(缺省自动档按上限钳,与 store 同口径)
     expect(state.groups[0].x).toBe(0);
     expect(state.groups[0].y).toBe(0);
-    expect(state.groups[1].x).toBeCloseTo(1200 - 1168 / 3, 10);
+    expect(state.groups[1].x).toBeCloseTo(2400 - 1168 / 3, 10);
     expect(state.groups[1].y).toBe(7);
   });
 
@@ -888,5 +890,193 @@ describe("restoreFrom 补缺收集箱的落位(board-whiteboard/01 spec 评审)"
     const state = (await adapter.load())!;
     const inbox = state.groups.find((g) => g.id === INBOX_GROUP_ID)!;
     expect([inbox.x, inbox.y]).toEqual([0, 48]);
+  });
+});
+
+describe("V4 画布宽兼容(canvas-bounds-align)", () => {
+  /** 宽 1760 的 v4 备份:一张卡在 1200 默认右界外(1380)。 */
+  const v4WideBackup = JSON.stringify({
+    schemaVersion: 4,
+    canvasWidth: 1760,
+    groups: [
+      {
+        id: INBOX_GROUP_ID,
+        name: "收集箱",
+        color: "#3b82f6",
+        order: 0,
+        x: 0,
+        y: 0,
+      },
+      {
+        id: "g-wide",
+        name: "宽外组",
+        color: "#e99695",
+        order: 1,
+        x: 1300,
+        y: 0,
+      },
+    ],
+    bookmarks: [],
+  });
+
+  it("v4 备份 replace:宽度随备份恢复,右界外坐标不被 1200 默认宽钳毁", async () => {
+    const adapter = createMemoryStorage(null);
+
+    const result = await importStateFromJson(adapter, v4WideBackup, "replace");
+    expect(result.ok).toBe(true);
+
+    const state = (await adapter.load())!;
+    expect(state.canvasWidth).toBe(1760);
+    expect(state.groups[1].x).toBe(1300);
+  });
+
+  it("v4 备份 merge:保留本地画布宽,不采纳备份宽", async () => {
+    const adapter = createMemoryStorage({
+      schemaVersion: 4,
+      canvasWidth: 1200,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    });
+
+    const result = await importStateFromJson(adapter, v4WideBackup, "merge");
+    expect(result.ok).toBe(true);
+    expect((await adapter.load())!.canvasWidth).toBe(1200);
+  });
+
+  it("备份宽非法不拒收:replace 时钳回界限;非数字拒收", async () => {
+    const badWidth = JSON.stringify({
+      schemaVersion: 4,
+      canvasWidth: 9999,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    });
+    const adapter = createMemoryStorage(null);
+
+    const result = await importStateFromJson(adapter, badWidth, "replace");
+    expect(result.ok).toBe(true);
+    const state = (await adapter.load())!;
+    expect(state.canvasWidth).toBe(2400);
+    // 出界坐标同时按 2400 重钳
+    expect(state.groups.every((g) => g.x <= 2400 - 1168 / 3 + 1e-9)).toBe(true);
+
+    const notNumber = JSON.stringify({
+      schemaVersion: 4,
+      canvasWidth: "1760",
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    });
+    expect(
+      (
+        await importStateFromJson(
+          createMemoryStorage(null),
+          notNumber,
+          "replace"
+        )
+      ).ok
+    ).toBe(false);
+  });
+
+  it("v3 备份 replace 升当前版:画布缺省 = 自动档(v3 库→当前版直接可用)", async () => {
+    const adapter = createMemoryStorage(null);
+    const v3Backup = JSON.stringify({
+      schemaVersion: 3,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    });
+
+    const result = await importStateFromJson(adapter, v3Backup, "replace");
+    expect(result.ok).toBe(true);
+
+    const state = (await adapter.load())!;
+    expect(state.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.canvasWidth).toBeUndefined();
+  });
+
+  it("v4 回填宽 1200 经 replace 剥离回自动档(v5 迁移与加载同口径)", async () => {
+    const adapter = createMemoryStorage(null);
+    const v4Backfill = JSON.stringify({
+      schemaVersion: 4,
+      canvasWidth: 1200,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    });
+
+    const result = await importStateFromJson(adapter, v4Backfill, "replace");
+    expect(result.ok).toBe(true);
+
+    const state = (await adapter.load())!;
+    expect(state.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.canvasWidth).toBeUndefined();
+  });
+
+  it("v5 自动档备份 replace 往返:缺省保留,不补数值", async () => {
+    const auto: BookmarkState = {
+      schemaVersion: SCHEMA_VERSION,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    };
+    const adapter = createMemoryStorage(null);
+
+    const result = await importStateFromJson(
+      adapter,
+      exportStateAsJson(auto),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    expect((await adapter.load())!.canvasWidth).toBeUndefined();
   });
 });

@@ -360,6 +360,12 @@ export function App({
     [run]
   );
 
+  /** 画布宽写回(canvas-bounds-align):右缘拖柄松手/键盘步进 → store 钳回落盘 */
+  const handleResizeCanvas = useCallback(
+    (width: number) => run(() => storeRef.current!.setCanvasWidth(width)),
+    [run]
+  );
+
   /** nudge 一键进入(board-whiteboard/03):只开不关,关闭走头部开关 */
   const handleEnterWhiteboard = useCallback(() => {
     setWhiteboardMode(true);
@@ -639,6 +645,7 @@ export function App({
         onRecolorGroup={handleRecolorGroup}
         onDeleteGroup={handleDeleteGroup}
         onSetGroupPositions={handleSetGroupPositions}
+        onResizeCanvas={handleResizeCanvas}
         onEnterWhiteboard={handleEnterWhiteboard}
         {...dragHandlers}
         onEdit={handleCardEdit}

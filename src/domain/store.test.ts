@@ -7,6 +7,7 @@ import {
   statesEqual,
 } from "./store";
 import { createMemoryStorage } from "../storage/memoryStorage";
+import { CARD_W } from "./canvas";
 import type { BookmarkState } from "./types";
 
 describe("收藏库初始化", () => {
@@ -32,6 +33,7 @@ describe("收藏库初始化", () => {
   it("读取既有状态时不破坏原始数据(schemaVersion 与分组保留)", async () => {
     const existing: BookmarkState = {
       schemaVersion: SCHEMA_VERSION,
+      canvasWidth: 1200,
       groups: [
         {
           id: INBOX_GROUP_ID,
@@ -491,6 +493,7 @@ describe("白板落点写回(board-whiteboard/02)", () => {
   async function board() {
     const base = createMemoryStorage({
       schemaVersion: SCHEMA_VERSION,
+      canvasWidth: 1200,
       groups: [
         {
           id: INBOX_GROUP_ID,
@@ -589,5 +592,146 @@ describe("白板落点写回(board-whiteboard/02)", () => {
 
     expect(result.ok).toBe(true);
     expect(save).not.toHaveBeenCalled();
+  });
+});
+
+describe("画布宽写回(canvas-bounds-align,schema v4)", () => {
+  /** 收集箱在 (0,0)、g-a 在 (810,0)(默认宽右界边)、g-b 在 (0,144) 的库。 */
+  async function wide() {
+    const base = createMemoryStorage({
+      schemaVersion: SCHEMA_VERSION,
+      canvasWidth: 1200,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        { id: "g-a", name: "A", color: "#e99695", order: 1, x: 810, y: 0 },
+        { id: "g-b", name: "B", color: "#81a2be", order: 2, x: 0, y: 144 },
+      ],
+      bookmarks: [],
+    });
+    const save = vi.fn(base.save.bind(base));
+    const adapter = Object.assign({}, base, { save });
+    const store = await createBookmarkStore(adapter);
+    return { store, adapter, save };
+  }
+
+  it("调宽:钳回界限后落盘,坐标不动", async () => {
+    const { store, adapter, save } = await wide();
+
+    const result = await store.setCanvasWidth(1760);
+
+    expect(result).toEqual({ ok: true, value: 1760 });
+    expect(store.getState().canvasWidth).toBe(1760);
+    // 宽化不重钳坐标
+    expect(store.getState().groups.map((g) => g.x)).toEqual([0, 810, 0]);
+    expect((await adapter.load())?.canvasWidth).toBe(1760);
+    expect(save).toHaveBeenCalled();
+  });
+
+  it("越界与非有限值钳回 [720, 2400] / 默认", async () => {
+    const { store } = await wide();
+
+    expect(await store.setCanvasWidth(100)).toEqual({ ok: true, value: 720 });
+    expect(store.getState().canvasWidth).toBe(720);
+    expect(await store.setCanvasWidth(9999)).toEqual({ ok: true, value: 2400 });
+    expect(await store.setCanvasWidth(Number.NaN)).toEqual({
+      ok: true,
+      value: 1200,
+    });
+  });
+
+  it("缩宽:越界分组重钳到新右界(默认宽缩 720 时 810 → 330.67…)", async () => {
+    const { store } = await wide();
+
+    await store.setCanvasWidth(720);
+
+    expect(store.getState().canvasWidth).toBe(720);
+    const groups = store.getState().groups;
+    expect(groups[1].x).toBe(720 - CARD_W);
+    expect(groups[2]).toMatchObject({ x: 0, y: 144 });
+  });
+
+  it("宽度与坐标均无变化不落盘", async () => {
+    const { store, save } = await wide();
+
+    await store.setCanvasWidth(1200);
+
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("后续拖拽落点钳回用新画布宽(宽化后右界放宽)", async () => {
+    const { store } = await wide();
+
+    await store.setCanvasWidth(2400);
+    const result = await store.setGroupPositions([
+      { id: "g-a", x: 2000, y: 0 },
+    ]);
+
+    expect(result.ok).toBe(true);
+    expect(store.getState().groups[1].x).toBe(2000);
+  });
+});
+
+describe("画布宽自动档(schema v5,canvas-bounds-align/04)", () => {
+  /** 无 canvasWidth(自动档)的库:固定宽钳界不再默认 1200,按上限。 */
+  async function auto() {
+    return createBookmarkStore(
+      createMemoryStorage({
+        schemaVersion: SCHEMA_VERSION,
+        groups: [
+          {
+            id: INBOX_GROUP_ID,
+            name: "收集箱",
+            color: "#3b82f6",
+            order: 0,
+            x: 0,
+            y: 0,
+          },
+          { id: "g-a", name: "A", color: "#e99695", order: 1, x: 0, y: 0 },
+        ],
+        bookmarks: [],
+      })
+    );
+  }
+
+  it("新建库不带 canvasWidth(自动档);落点按上限钳界,不钬回 1200 右界", async () => {
+    const store = await createBookmarkStore(createMemoryStorage());
+    expect(store.getState().canvasWidth).toBeUndefined();
+
+    const result = await store.setGroupPositions([
+      { id: INBOX_GROUP_ID, x: 2000, y: 0 },
+    ]);
+    expect(result.ok).toBe(true);
+    expect(store.getState().groups[0].x).toBe(2000);
+  });
+
+  it("自动档钉宽:任意值(含恰为 1200)都算变化并落盘", async () => {
+    const adapter = createMemoryStorage();
+    const save = vi.fn(adapter.save.bind(adapter));
+    const store = await createBookmarkStore(
+      Object.assign({}, adapter, { save })
+    );
+
+    const result = await store.setCanvasWidth(1200);
+
+    expect(result).toEqual({ ok: true, value: 1200 });
+    expect(store.getState().canvasWidth).toBe(1200);
+    expect(save).toHaveBeenCalled();
+  });
+
+  it("自动档钉窄后越界分组重钳(与固定宽同径)", async () => {
+    const store = await auto();
+    await store.setGroupPositions([{ id: "g-a", x: 2000, y: 0 }]);
+
+    await store.setCanvasWidth(1760);
+
+    expect(store.getState().canvasWidth).toBe(1760);
+    expect(store.getState().groups[1].x).toBe(1760 - CARD_W);
   });
 });

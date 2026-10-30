@@ -6,12 +6,14 @@ import type { WhiteboardProps } from "./Whiteboard";
 import { pointerEvent, queryNudge } from "./testUtils";
 import type { GroupPositionInput } from "../domain/store";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/store";
+import { CARD_W } from "../domain/canvas";
 import { byOrder } from "../domain/types";
 import type { BookmarkState, GroupId } from "../domain/types";
 
 /**
  * 白板(board-whiteboard/02):Pointer 拖拽落点吸附、自动整理装箱、
- * 新分组落位、编辑控件随白板模式(board-whiteboard/03 门禁)、画布杀组头原生 DnD。
+ * 新分组落位、编辑控件随白板模式(board-whiteboard/03 门禁)、画布杀组头原生 DnD;
+ * 画布边界三件套(canvas-bounds-align):拖中钳界、对齐辅助线、右缘调宽。
  *
  * jsdom 几何全 0(getBoundingClientRect/offsetHeight):拖拽的抓取
  * 偏移 = 指针坐标,自动整理退化为零高铺开(与迁移共用策略);
@@ -50,6 +52,7 @@ function seededState(): BookmarkState {
 
 type Board = {
   onSetGroupPositions: Mock;
+  onResizeCanvas: Mock;
   onEnterWhiteboard: Mock;
   rerender(next: BookmarkState, overrides?: Partial<WhiteboardProps>): void;
 };
@@ -61,6 +64,10 @@ function renderBoard(
   const onSetGroupPositions = vi.fn(async () => ({
     ok: true as const,
     value: [...initial.groups].sort(byOrder),
+  }));
+  const onResizeCanvas = vi.fn(async () => ({
+    ok: true as const,
+    value: 1200,
   }));
   const onEnterWhiteboard = vi.fn();
   const props: WhiteboardProps = {
@@ -76,6 +83,7 @@ function renderBoard(
     onRecolorGroup: vi.fn(),
     onDeleteGroup: vi.fn(),
     onSetGroupPositions,
+    onResizeCanvas,
     onCardDragStart: vi.fn(),
     onDragEnd: vi.fn(),
     onSectionDragOver: vi.fn(),
@@ -90,6 +98,7 @@ function renderBoard(
   const view = render(<Whiteboard {...props} />);
   return {
     onSetGroupPositions,
+    onResizeCanvas,
     onEnterWhiteboard,
     rerender(next, extra) {
       view.rerender(
@@ -134,7 +143,7 @@ function dragBy(
 }
 
 describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
-  it("拖动分组卡跟手移动,松手吸附 16px 网格并写回落点", () => {
+  it("拖动分组卡跟手移动,松手吸附 16px 网格并写回落点;吸附位等持久回流不闪回", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     const groupA = sectionOf("甲组");
 
@@ -151,26 +160,107 @@ describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
     });
-    // 松手:吸附(71→64, 50→48)写回;本地会话清场回到持久坐标
+    // 松手:吸附(71→64, 50→48)写回;卡停在吸附位等持久坐标回流(不闪回旧位)
     expect(board.onSetGroupPositions).toHaveBeenCalledWith([
       { id: "g-a", x: 64, y: 48 },
     ]);
+    expect(groupA).toHaveStyle({ left: "64px", top: "48px" });
+
+    // 持久坐标回流(存储往返):哨兵清场,卡仍在同位,拖拽态退场
+    const settled = seededState();
+    settled.groups = settled.groups.map((g) =>
+      g.id === "g-a" ? { ...g, x: 64, y: 48 } : g
+    );
+    board.rerender(settled);
     expect(groupA).not.toHaveAttribute("data-drag-active");
-    expect(groupA).toHaveStyle({ left: "405px", top: "0px" });
+    expect(groupA).toHaveStyle({ left: "64px", top: "48px" });
+    expect(document.querySelector(".whiteboard-canvas")).not.toHaveAttribute(
+      "data-wb-dragging"
+    );
   });
 
-  it("吸附后的越右界坐标由领域层钳回收口(组件只送吸附值)", () => {
+  it("拖中实时钳在画布内并吸到右缘辅助线,松手写钳内坐标(canvas-bounds-align)", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     const groupA = sectionOf("甲组");
 
-    // 拖到画布外右侧:吸附值(2992, 48)超出右界 810.67,原样送出
+    // 拖到画布外右侧:拖中即钳在右界 1200 − 卡宽(不再先逃逸后弹回)
     dragBy(groupA, { x: 0, y: 0 }, { x: 2997, y: 41 });
+    const left = parseFloat(groupA.style.left);
+    expect(left).toBeLessThanOrEqual(1200 - CARD_W);
+    expect(left).toBeGreaterThanOrEqual(1200 - CARD_W - 1);
+    // 卡右缘恰在画布右沿线 → 贯穿整幅的右缘辅助线亮起
+    const guide = document.querySelector(".wb-guide-x") as HTMLElement;
+    expect(guide).not.toBeNull();
+    expect(parseFloat(guide.style.left)).toBe(1200);
+
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 松手:对齐轴写精确对齐坐标(floor 810.67 → 810,越界的最终钳回收口在领域层)
+    const sent = board.onSetGroupPositions.mock
+      .calls[0][0] as GroupPositionInput[];
+    expect(sent[0]).toEqual({ id: "g-a", x: 810, y: 48 });
+    // 会话清场:辅助线消散
+    expect(document.querySelector(".wb-guide-x")).toBeNull();
+  });
+
+  it("对齐吸附:拖近甲组左线(4px 内)吸到精确对齐,松手跳网格吸附(405 非格点)", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const groupB = sectionOf("乙组");
+
+    // 乙组 (0,144) 拖到指针 (401,0):x=401 距甲组左线 405 为 4px ≤ 阈值 8,
+    // y=0 恰在收集箱顶线 → 两轴同吸
+    dragBy(groupB, { x: 0, y: 0 }, { x: 401, y: 0 });
+    expect(groupB).toHaveStyle({ left: "405px", top: "0px" });
+    // 卡片间辅助线亮起:x 线落在 405(跨被拖卡与甲组并集);y 线在 0
+    const guideX = document.querySelector(".wb-guide-x") as HTMLElement;
+    expect(parseFloat(guideX.style.left)).toBe(405);
+    expect(document.querySelector(".wb-guide-y")).not.toBeNull();
+
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 对齐轴写精确坐标(网格吸附会让 x 去 400/416——对象吸附优先)
+    const sent = board.onSetGroupPositions.mock
+      .calls[0][0] as GroupPositionInput[];
+    expect(sent[0]).toEqual({ id: "g-b", x: 405, y: 0 });
+  });
+
+  it("无对齐时松手仍 16px 网格吸附,辅助线不出场", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const groupB = sectionOf("乙组");
+
+    // (71,50) 距所有候选线均超 8px
+    dragBy(groupB, { x: 30, y: 40 }, { x: 101, y: 90 });
+    expect(document.querySelector(".wb-guide-x")).toBeNull();
+    expect(document.querySelector(".wb-guide-y")).toBeNull();
+
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
     });
     const sent = board.onSetGroupPositions.mock
       .calls[0][0] as GroupPositionInput[];
-    expect(sent[0]).toEqual({ id: "g-a", x: 2992, y: 48 });
+    expect(sent[0]).toEqual({ id: "g-b", x: 64, y: 48 });
+  });
+
+  it("钳回等价也结算:右界吸附写回后哨兵在持久坐标到位时清场", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const groupA = sectionOf("甲组");
+
+    // 拖中已钳在右界并吸右缘线,松手送 810(对齐轴 floor,≤ 右界不被改写)
+    dragBy(groupA, { x: 0, y: 0 }, { x: 2997, y: 41 });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    expect(groupA).toHaveAttribute("data-drag-active", "true"); // 等回流
+
+    const settled = seededState();
+    settled.groups = settled.groups.map((g) =>
+      g.id === "g-a" ? { ...g, x: 810, y: 48 } : g
+    );
+    board.rerender(settled);
+    expect(groupA).not.toHaveAttribute("data-drag-active");
+    expect(groupA).toHaveStyle({ left: "810px", top: "48px" });
   });
 
   it("指针按在交互控件上不发起拖拽(链接/按钮照常工作)", () => {
@@ -263,6 +353,39 @@ describe("白板:自动整理", () => {
       { id: "g-b", x: 810, y: 0 },
     ]);
   });
+
+  it("宽画布整理(1760):三组铺前三列,零高铺开随状态宽自适应", () => {
+    const state = seededState();
+    state.canvasWidth = 1760;
+    const board = renderBoard(state, { whiteboardMode: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "自动整理" }));
+
+    expect(board.onSetGroupPositions).toHaveBeenCalledWith([
+      { id: INBOX_GROUP_ID, x: 0, y: 0 },
+      { id: "g-a", x: 405, y: 0 },
+      { id: "g-b", x: 810, y: 0 },
+    ]);
+  });
+
+  it("宽画布整理(1760):第四组进第四列而非第二行", () => {
+    const four = seededState();
+    four.canvasWidth = 1760;
+    four.groups = [
+      ...seedGroups(),
+      { id: "g-c", name: "丙组", color: "#f0c674", order: 3, x: 0, y: 300 },
+    ];
+    const board = renderBoard(four, { whiteboardMode: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "自动整理" }));
+
+    expect(board.onSetGroupPositions).toHaveBeenCalledWith([
+      { id: INBOX_GROUP_ID, x: 0, y: 0 },
+      { id: "g-a", x: 405, y: 0 },
+      { id: "g-b", x: 810, y: 0 },
+      { id: "g-c", x: 1216, y: 0 },
+    ]);
+  });
 });
 
 describe("白板:落位与渲染", () => {
@@ -283,7 +406,7 @@ describe("白板:落位与渲染", () => {
     });
   });
 
-  it("画布固定 1200px 宽;高度随测得的内容底边增长", () => {
+  it("画布宽解析:jsdom 测不出可用宽退默认;钉住的固定宽随状态(高度随测得的内容底边增长)", () => {
     const board = renderBoard();
     withHeight(sectionOf("乙组"), 100); // 乙组 y=144 → 底边 244
     // jsdom 无 RO:重渲染重跑同步量高,把 mock 高度收进状态
@@ -292,6 +415,45 @@ describe("白板:落位与渲染", () => {
     const canvas = document.querySelector(".whiteboard-canvas")!;
     expect(canvas).toHaveStyle({ width: "1200px" });
     expect(canvas).toHaveStyle({ minHeight: "268px" }); // 244 + 底衬 24
+
+    const wide = seededState();
+    wide.canvasWidth = 1760;
+    board.rerender(wide);
+    expect(canvas).toHaveStyle({ width: "1760px" });
+  });
+
+  it("画布自动档(schema v5):未钉宽时撑满可用宽(随窗口变化重测),越上限钳回", () => {
+    const board = renderBoard();
+    const canvas = document.querySelector(".whiteboard-canvas")!;
+    // jsdom 测不出(clientWidth 0):退默认宽
+    expect(canvas).toHaveStyle({ width: "1200px" });
+
+    // 桩出可用宽 2000 + 派发 resize → 自动档撑满
+    const scroller = document.querySelector(".whiteboard-scroll")!;
+    Object.defineProperty(scroller, "clientWidth", {
+      configurable: true,
+      value: 2000,
+    });
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(canvas).toHaveStyle({ width: "2000px" });
+
+    // 超上限:钳回 2400
+    Object.defineProperty(scroller, "clientWidth", {
+      configurable: true,
+      value: 9999,
+    });
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(canvas).toHaveStyle({ width: "2400px" });
+
+    // 钉住的固定宽优先于自动档
+    const pinned = seededState();
+    pinned.canvasWidth = 1760;
+    board.rerender(pinned);
+    expect(canvas).toHaveStyle({ width: "1760px" });
   });
 
   it("搜索无命中给出空状态(与墙同口径)", () => {
@@ -455,5 +617,134 @@ describe("白板模式门禁(board-whiteboard/03)", () => {
       searching: true,
     });
     expect(screen.getByRole("button", { name: "自动整理" })).toBeDisabled();
+  });
+});
+
+describe("右缘调宽拖柄(canvas-bounds-align)", () => {
+  function resizeHandle(): HTMLElement {
+    return screen.getByRole("separator", { name: "调整画布宽度" });
+  }
+
+  it("门禁:仅白板模式且非搜索时出现(日常态/搜索态不可见)", () => {
+    const board = renderBoard();
+    expect(
+      screen.queryByRole("separator", { name: "调整画布宽度" })
+    ).not.toBeInTheDocument();
+
+    board.rerender(seededState(), { whiteboardMode: true });
+    expect(resizeHandle()).toBeInTheDocument();
+
+    board.rerender(seededState(), { whiteboardMode: true, searching: true });
+    expect(
+      screen.queryByRole("separator", { name: "调整画布宽度" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("拖柄拖动实时预览宽度,松手 16px 吸附后写回", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = resizeHandle();
+    const canvas = document.querySelector(".whiteboard-canvas")!;
+
+    // jsdom 画布 rect 全 0:预览宽 = 指针 clientX(拖到 1763 → 预览 1763)
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 1200, clientY: 30 })
+      );
+    });
+    expect(canvas).toHaveAttribute("data-wb-resizing", "true");
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 1763, clientY: 30 })
+      );
+    });
+    expect(canvas).toHaveStyle({ width: "1763px" });
+    // 调宽读数回显
+    expect(screen.getByText("1763 px")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 松手:吸附 16px 网格(1763 → 1760)写回,预览清场
+    expect(board.onResizeCanvas).toHaveBeenCalledWith(1760);
+    expect(canvas).not.toHaveAttribute("data-wb-resizing");
+  });
+
+  it("拖柄钳界:预览不越 [720, 2400],松手送出钳内值", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = resizeHandle();
+    const canvas = document.querySelector(".whiteboard-canvas")!;
+
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 1200, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 9999, clientY: 0 })
+      );
+    });
+    expect(canvas).toHaveStyle({ width: "2400px" });
+
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    expect(board.onResizeCanvas).toHaveBeenCalledWith(2400);
+  });
+
+  it("键盘:←/→ 按 16px 步进写回;锁定态不可聚焦", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = resizeHandle();
+
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(board.onResizeCanvas).toHaveBeenCalledWith(1216);
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(board.onResizeCanvas).toHaveBeenCalledWith(1184);
+  });
+
+  it("指针取消:只清预览不写回", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = resizeHandle();
+    const canvas = document.querySelector(".whiteboard-canvas")!;
+
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 1200, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 1760, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointercancel"));
+    });
+
+    expect(board.onResizeCanvas).not.toHaveBeenCalled();
+    expect(canvas).not.toHaveAttribute("data-wb-resizing");
+    expect(canvas).toHaveStyle({ width: "1200px" });
+  });
+
+  it("调宽不劫持分组拖拽:拖柄 pointerdown 不发起分组拖拽会话", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    const handle = resizeHandle();
+
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 1200, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 1300, clientY: 0 })
+      );
+    });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+
+    expect(board.onSetGroupPositions).not.toHaveBeenCalled();
+    expect(sectionOf("甲组")).toHaveStyle({ left: "405px", top: "0px" });
   });
 });

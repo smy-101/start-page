@@ -17,8 +17,18 @@ import type {
   Result,
 } from "../domain/types";
 import type { BookmarkPatch, GroupPositionInput } from "../domain/store";
-import { CANVAS_W, appendPositions, packCanvas } from "../domain/canvas";
-import type { CanvasPos } from "../domain/canvas";
+import {
+  CARD_W,
+  MAX_CANVAS_W,
+  MIN_CANVAS_W,
+  appendPositions,
+  canvasBoundWidth,
+  clampCanvasWidth,
+  effectiveCanvasWidth,
+  packCanvas,
+  snapAlignment,
+} from "../domain/canvas";
+import type { AlignGuide, CanvasPos, Rect } from "../domain/canvas";
 import { GroupSection } from "./GroupSection";
 import type { DropHint, DragHandlers } from "./dragTypes";
 import { useGroupedBookmarks } from "./useGroupedBookmarks";
@@ -31,23 +41,36 @@ const INTENT_PX = 5;
 const NUDGE_MS = 4000;
 /** 画布底衬:内容底边之外再留的呼吸位。 */
 const CANVAS_PAD = 24;
+/** 拖拽中贴近滚动壳内缘的自动滚动区宽(px,canvas-bounds-align)。 */
+const AUTOSCROLL_ZONE = 36;
+/** 自动滚动单帧最大步长(px)。 */
+const AUTOSCROLL_STEP = 12;
 
 /**
- * 白板(ADR-0004,board-whiteboard/02):分组卡在固定 1200px 画布上
- * x/y 自由定位(坐标即布局,入库 schema v3),窗口更窄横向滚动不重排。
+ * 白板(ADR-0004,board-whiteboard/02):分组卡在画布上 x/y 自由定位
+ * (坐标即布局,入库 schema v3),窗口更窄横向滚动不重排;
+ * 画布宽可调、入库(schema v4,canvas-bounds-align):白板模式画布描边
+ * + 点阵底纹可见,右缘拖柄调宽(松手 16px 吸附、钳回 [720, 2400])。
+ * 缺省为自动档(schema v5,canvas-bounds-align/04):画布撑满可用宽
+ * (实测滚动壳内容宽),拖柄调宽后钉住为固定宽。
  *
  * - 组位移走 Pointer 事件:画布级委托 pointerdown(交互控件放行),
- *   move/up 挂 window;拖中关位移过渡跟手 1:1,松手吸附 16px 网格
- *   后经 onSetGroupPositions 写回(clamp 由领域层收口)。
+ *   move/up 挂 window;拖中关位移过渡跟手 1:1,且**实时钳在画布内**
+ *   (x ≤ 画布宽 − 卡宽;不再先逃逸后弹回,边缘可见后钳回可预期);
+ *   对齐吸附(canvas-bounds-align):拖中与其余卡/画布边线的 左/中/右、
+ *   上/中/下 边线比对,阈值 8px 内吸到精确对齐并显示辅助线
+ *   (`.wb-guide-x/y`),已对齐轴松手跳过网格吸附(对象吸附优先)。
+ * - 画布宽于视口时,拖分组/调宽中指针贴近滚动壳左右内缘自动滚动
+ *   (rAF 循环),否则右缘在宽画布上永远够不着。
  * - 画布捕获阶段拦非收藏卡的原生 dragstart(组头文字选区等,免劫持
  *   pointermove);组内收藏排序仍走 HTML5 DnD(DropHint 体系),收藏卡
  * (.card)的 dragstart 放行。
- * - 「自动整理」:量高贪心装箱回 packCanvas 落点;测不出高度(零高,
- *   jsdom)退化零高铺开——与 v2→v3 迁移共用 spreadPositions。
+ * - 「自动整理」:量高贪心装箱回 packCanvas 落点(列数随画布宽自适应);
+ *   测不出高度(零高,jsdom)退化零高铺开——与 v2→v3 迁移共用 spreadPositions。
  * - 本票门禁(board-whiteboard/03):白板模式(原编辑模式)是唯一拖拽入口。
  *   日常态不进拖拽会话,按住分组卡移动超 5px 出 nudge 引导
  *   (一键进入,4s 自动消隐);搜索过滤态禁拖也不出 nudge
- *   (过滤态坐标无意义),「自动整理」同因禁用。
+ *   (过滤态坐标无意义),「自动整理」「调宽」同因禁用。
  * - 墙退役后(board-whiteboard/04)是 App 的唯一看板视图。
  */
 /** 白板 props(渲染测试的 harness 供外部注入用)。 */
@@ -75,6 +98,8 @@ export type WhiteboardProps = {
   onSetGroupPositions(
     positions: GroupPositionInput[]
   ): Promise<Result<Group[]>>;
+  /** 画布宽写回(右缘拖柄松手/键盘调整;钳回与重钳越界分组在 store 收口) */
+  onResizeCanvas(width: number): Promise<Result<number>>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
 } & DragHandlers;
@@ -95,6 +120,7 @@ export function Whiteboard({
   onRecolorGroup,
   onDeleteGroup,
   onSetGroupPositions,
+  onResizeCanvas,
   onCardDragStart,
   onDragEnd,
   onSectionDragOver,
@@ -113,11 +139,50 @@ export function Whiteboard({
   const grouped = useGroupedBookmarks(state.bookmarks, groupsByOrder);
   const { itemRef, idOf, heightOf, heights } = useCardRegistry(ids);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<DragPos | null>(null);
+  // 拖拽对齐辅助线(canvas-bounds-align):拖中存在,松手/取消即清
+  const [guides, setGuides] = useState<AlignGuide[]>([]);
+  // 调宽预览(右缘拖柄拖中):null = 非调宽中;数值为预览宽(连续,松手才吸附)
+  const [resizePreview, setResizePreview] = useState<number | null>(null);
+  // 松手后的本地已提交宽:等持久状态回流再清,免松手闪回旧宽一帧
+  const [canvasOverride, setCanvasOverride] = useState<number | null>(null);
+  // 预览宽 ref 镜像:松手收口在稳定订阅的监听器里,不吃渲染期旧账
+  const resizePreviewRef = useRef<number | null>(null);
   // 日常态拖动意图:位移超 INTENT_PX 出 nudge(board-whiteboard/03 门禁的发现性补偿)
   const [nudge, setNudge] = useState(false);
   // 拖拽禁用态(光标/锁定标记):非白板模式或搜索过滤中
   const locked = searching || !whiteboardMode;
+
+  // 画布自动档(schema v5):实测滚动壳内容宽(画布的可用宽),RO 跟踪
+  // 窗口变化;无 RO(jsdom)退 resize 监听。搜索空态提前返回不挂滚动壳,
+  // 依赖随搜索/收藏数变化重跑补测。
+  const [shellW, setShellW] = useState(0);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setShellW(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [searching, state.bookmarks.length]);
+
+  // 画布宽(自动档见 effectiveCanvasWidth):调宽中用预览宽,松手后未回流前
+  // 用已提交宽——两级本地宽都不吃存储往返延迟;未钉宽时撑满可用宽
+  const canvasW =
+    resizePreview ??
+    canvasOverride ??
+    effectiveCanvasWidth(state.canvasWidth, shellW);
+  // 渲染期 ref 镜像:window 监听器(稳定订阅)读最新值
+  const canvasWRef = useRef(canvasW);
+  canvasWRef.current = canvasW;
+  const heightsRef = useRef(heights);
+  heightsRef.current = heights;
 
   // ---- 落点表:坐标来自分组数据(持久);引用稳定(memo 契约),
   // 数值未变的格子沿用旧对象,无关渲染不打断 GroupSection 的 memo。
@@ -164,9 +229,9 @@ export function Whiteboard({
       );
   }
 
-  // ---- Pointer 拖拽 ----
+  // ---- Pointer 拖拽 / 右缘调宽(canvas-bounds-align)----
   // 抓取偏移与会话坐标存 ref(会话坐标的 state 只为驱动重渲染);
-  // 监听器挂 window、只读 ref,不随渲染重订阅。
+  // 监听器挂 window、只随稳定回调重订阅,几何经渲染期 ref 镜像取最新。
   // intentRef 是日常态的拖动意图起点(board-whiteboard/03):不 preventDefault、
   // 不进拖拽会话,位移超阈即出 nudge 后即弃。
   const grabRef = useRef<{
@@ -175,7 +240,117 @@ export function Whiteboard({
     grabY: number;
   } | null>(null);
   const dragPosRef = useRef<{ x: number; y: number } | null>(null);
+  // 松手跳网格的轴记账:对齐吸附活跃的轴写精确对齐坐标(对象吸附优先)
+  const alignedRef = useRef<{ x: boolean; y: boolean }>({ x: false, y: false });
+  // 拖拽松手后的落位回流哨兵:持久坐标到位即清拖拽态(免松手闪回旧位)
+  const dropPendingRef = useRef<DragPos | null>(null);
   const intentRef = useRef<{ x: number; y: number } | null>(null);
+  // 调宽会话:标记活跃即可(预览宽实时算,松手吸附写回)
+  const resizingRef = useRef(false);
+  // 最新指针位置(window 坐标):自动滚动后重算跟手坐标用
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+
+  /** 拖拽一步:钳画布界 → 对齐吸附 → 跟手坐标 + 辅助线。 */
+  function applyDrag(clientX: number, clientY: number): void {
+    const grab = grabRef.current;
+    const canvas = canvasRef.current;
+    if (!grab || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const width = canvasWRef.current;
+    // 拖中钳在画布内(右界 = 宽 − 卡宽;画布向下无界只压非负)——
+    // 不再先逃逸后弹回,边缘可见后钳回可预期
+    const x = Math.min(
+      Math.max(0, clientX - rect.left - grab.grabX),
+      width - CARD_W
+    );
+    const y = Math.max(0, clientY - rect.top - grab.grabY);
+    // 对齐吸附:与其余卡(持久落点 + 已测高)和画布边线比对
+    const others: Rect[] = [];
+    for (const [id, pos] of placementsRef.current) {
+      if (id === grab.id) continue;
+      others.push({
+        x: pos.x,
+        y: pos.y,
+        w: CARD_W,
+        h: heightsRef.current[id] ?? 0,
+      });
+    }
+    const snap = snapAlignment(
+      { x, y, w: CARD_W, h: heightsRef.current[grab.id] ?? 0 },
+      others,
+      width
+    );
+    const pos = { x: snap.x ?? x, y: snap.y ?? y };
+    alignedRef.current = { x: snap.x !== null, y: snap.y !== null };
+    dragPosRef.current = pos;
+    setDrag((prev) => (prev ? { ...prev, ...pos } : prev));
+    setGuides(snap.guides);
+  }
+
+  /** 调宽一步:预览宽连续跟手,钳回界限(吸附留到松手)。 */
+  function applyResize(clientX: number): void {
+    const canvas = canvasRef.current;
+    if (!canvas || !resizingRef.current) return;
+    const rect = canvas.getBoundingClientRect();
+    const preview = clampCanvasWidth(clientX - rect.left);
+    resizePreviewRef.current = preview;
+    setResizePreview(preview);
+  }
+
+  // 指针被系统取消(切窗/触控打断):只清会话,不落吸附坐标/预览宽,
+  // 取消即回持久坐标与宽(与松手的「等回流」不同:没有提交,无须哨兵)
+  function cancelSession(): void {
+    stopAutoScroll();
+    grabRef.current = null;
+    dragPosRef.current = null;
+    intentRef.current = null;
+    resizingRef.current = false;
+    pointerRef.current = null;
+    resizePreviewRef.current = null;
+    dropPendingRef.current = null;
+    setDrag(null);
+    setGuides([]);
+    setResizePreview(null);
+    setCanvasOverride(null);
+  }
+
+  // ---- 自动滚动(canvas-bounds-align):会话活跃期间 rAF 循环,
+  // 指针贴近滚动壳左右内缘即按超出量比例滚动;滚动改变了画布视口,
+  // 跟手坐标/预览宽用最新指针重算(指针不动画布在动,卡也要跟)。 ----
+  const rafRef = useRef(0);
+  function stopAutoScroll(): void {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+  }
+  function startAutoScroll(): void {
+    stopAutoScroll();
+    const step = () => {
+      const scroller = scrollRef.current;
+      const pointer = pointerRef.current;
+      if (scroller && pointer && scroller.clientWidth > 0) {
+        const rect = scroller.getBoundingClientRect();
+        const before = scroller.scrollLeft;
+        const overRight = pointer.x - (rect.right - AUTOSCROLL_ZONE);
+        const overLeft = rect.left + AUTOSCROLL_ZONE - pointer.x;
+        if (overRight > 0) {
+          scroller.scrollLeft = Math.min(
+            before + Math.min(AUTOSCROLL_STEP, 2 + overRight * 0.25),
+            scroller.scrollWidth
+          );
+        } else if (overLeft > 0) {
+          scroller.scrollLeft = Math.max(
+            before - Math.min(AUTOSCROLL_STEP, 2 + overLeft * 0.25),
+            0
+          );
+        }
+        if (scroller.scrollLeft !== before && grabRef.current) {
+          applyDrag(pointer.x, pointer.y);
+        }
+      }
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+  }
 
   const onPointerDown = (event: React.PointerEvent) => {
     if (event.button !== 0) return;
@@ -199,26 +374,41 @@ export function Whiteboard({
     if (searching) return;
     event.preventDefault();
     const rect = section.getBoundingClientRect();
+    dropPendingRef.current = null;
     grabRef.current = {
       id,
       grabX: event.clientX - rect.left,
       grabY: event.clientY - rect.top,
     };
+    alignedRef.current = { x: false, y: false };
     dragPosRef.current = { x: pos.x, y: pos.y };
+    pointerRef.current = { x: event.clientX, y: event.clientY };
     setDrag({ id, x: pos.x, y: pos.y });
+    startAutoScroll();
+  };
+
+  // 右缘拖柄:整高热区,pointerdown 起调宽会话(键盘走 onKeyDown);
+  // 不起自动滚动——视口内拖柄跟手即可,超视口宽度用键盘步进
+  // (自动滚动会因 rect 左移把预览宽滚飞,实测教训)
+  const onResizePointerDown = (event: React.PointerEvent) => {
+    if (event.button !== 0 || locked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resizingRef.current = true;
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+    resizePreviewRef.current = canvasWRef.current;
+    setResizePreview(canvasWRef.current);
   };
 
   useEffect(() => {
     const move = (event: PointerEvent) => {
-      const grab = grabRef.current;
-      const canvas = canvasRef.current;
-      if (grab && canvas) {
-        const rect = canvas.getBoundingClientRect();
-        // 拖中只压非负(右界由松手吸附后的领域钳回收口)
-        const x = Math.max(0, event.clientX - rect.left - grab.grabX);
-        const y = Math.max(0, event.clientY - rect.top - grab.grabY);
-        dragPosRef.current = { x, y };
-        setDrag((prev) => (prev ? { ...prev, x, y } : prev));
+      pointerRef.current = { x: event.clientX, y: event.clientY };
+      if (grabRef.current) {
+        applyDrag(event.clientX, event.clientY);
+        return;
+      }
+      if (resizingRef.current) {
+        applyResize(event.clientX);
         return;
       }
       // 日常态拖动意图(board-whiteboard/03):位移超阈即出 nudge,一次性
@@ -235,32 +425,81 @@ export function Whiteboard({
     const finish = () => {
       const grab = grabRef.current;
       const pos = dragPosRef.current;
+      const resizing = resizingRef.current;
+      const preview = resizePreviewRef.current;
+      // 会话引用先行清场;拖拽位与调宽宽的显示留到持久回流再清(免闪回旧值)
+      stopAutoScroll();
       grabRef.current = null;
       dragPosRef.current = null;
       intentRef.current = null;
-      setDrag(null);
-      if (!grab || !pos) return;
-      // 松手吸附:16px 网格取整;越右界的钳回交给 store(clampToCanvas)
-      const x = Math.round(pos.x / SNAP) * SNAP;
-      const y = Math.round(pos.y / SNAP) * SNAP;
-      void onSetGroupPositions([{ id: grab.id, x, y }]);
-    };
-    // 指针被系统取消(切窗/触控打断):只清会话,不落吸附坐标
-    const cancel = () => {
-      grabRef.current = null;
-      dragPosRef.current = null;
-      intentRef.current = null;
+      resizingRef.current = false;
+      pointerRef.current = null;
+      resizePreviewRef.current = null;
+      setGuides([]);
+      setResizePreview(null);
+      if (grab && pos) {
+        // 松手吸附:对齐活跃轴写精确对齐坐标(floor 收整 px),
+        // 其余轴 16px 网格取整;越右界的钳回交给 store(clampToCanvas)。
+        // 松手后卡停在吸附位等持久坐标回流(拖拽态保留到那一刻)
+        const x = alignedRef.current.x
+          ? Math.floor(pos.x)
+          : Math.round(pos.x / SNAP) * SNAP;
+        const y = alignedRef.current.y
+          ? Math.floor(pos.y)
+          : Math.round(pos.y / SNAP) * SNAP;
+        dropPendingRef.current = { id: grab.id, x, y };
+        setDrag({ id: grab.id, x, y });
+        void onSetGroupPositions([{ id: grab.id, x, y }]);
+        return;
+      }
+      if (resizing) {
+        // 调宽:.松手 16px 网格吸附(界限钳回收口在 store);
+        // 已提交宽留到持久回流再清,预览宽立即退场
+        const width = Math.round((preview ?? canvasWRef.current) / SNAP) * SNAP;
+        setCanvasOverride(width);
+        void onResizeCanvas(width);
+        return;
+      }
       setDrag(null);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("pointercancel", cancelSession);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("pointercancel", cancelSession);
+      stopAutoScroll();
     };
-  }, [onSetGroupPositions]);
+  }, [onSetGroupPositions, onResizeCanvas]);
+
+  // 卸载清 rAF(会话监听器由上方 effect 的清理承担)
+  useEffect(() => stopAutoScroll, []);
+
+  // 松手后的回流哨兵:拖拽态/已提交宽保留到持久状态追上本地值再清
+  // (存储往返 1–2 帧里卡与画布停在提交位,不闪回旧值)。
+  // 坐标「追上」容忍右界钳回的等价值(store 唯一的坐标变换)。
+  useEffect(() => {
+    const pending = dropPendingRef.current;
+    if (pending) {
+      const pos = placements.get(pending.id);
+      // 右界哨兵与 store 同口径:固定宽按固定值,自动档按上限
+      const bound = canvasBoundWidth(state) - CARD_W;
+      const settled =
+        pos &&
+        pos.y === pending.y &&
+        (pos.x === pending.x || (pending.x >= bound && pos.x === bound));
+      if (settled) {
+        dropPendingRef.current = null;
+        setDrag(null);
+      }
+      return;
+    }
+    // 已提交宽留到持久回流再清(逐字比较;自动档钉宽后即携带数值)
+    if (canvasOverride !== null && state.canvasWidth === canvasOverride) {
+      setCanvasOverride(null);
+    }
+  }, [placements, canvasOverride, state]);
 
   // nudge 生命周期(board-whiteboard/03):出笼 4s 自动消隐;进白板模式或进搜索
   // 即撤(前者使命完成,后者场景失效——过滤态不出引导)
@@ -275,10 +514,13 @@ export function Whiteboard({
   }, [whiteboardMode, searching]);
 
   // ---- 自动整理:量高 → packCanvas 贪心装箱回坐标(零高退化已内聚
-  // 在领域模块,与 v2→v3 迁移共用 spreadPositions 策略)。 ----
+  // 在领域模块,与 v2→v3 迁移共用 spreadPositions 策略;列数随画布宽自适应)。 ----
   const pack = useCallback(() => {
     if (ids.length === 0) return;
-    const positions = packCanvas(ids.map((id) => heightOf(id)));
+    const positions = packCanvas(
+      ids.map((id) => heightOf(id)),
+      canvasWRef.current
+    );
     void onSetGroupPositions(
       ids.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }))
     );
@@ -293,6 +535,14 @@ export function Whiteboard({
       event.preventDefault();
       event.stopPropagation();
     }
+  };
+
+  // 调宽键盘支持:←/→ 按 16px 网格步进(钳回界限在 store 收口)
+  const onResizeKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.key === "ArrowRight" ? SNAP : -SNAP;
+    void onResizeCanvas(canvasWRef.current + step);
   };
 
   if (searching && state.bookmarks.length === 0) {
@@ -321,7 +571,7 @@ export function Whiteboard({
           <span className="whiteboard-hint">
             {searching
               ? "搜索过滤中,拖拽与整理暂不可用"
-              : `拖动分组卡任意摆放 · 松手吸附 ${SNAP}px 网格`}
+              : `拖动分组卡任意摆放 · 对齐自动吸附 · 画布自动撑满,拖右缘固定宽(${MIN_CANVAS_W}–${MAX_CANVAS_W}px)`}
           </span>
           <button
             type="button"
@@ -333,13 +583,18 @@ export function Whiteboard({
           </button>
         </div>
       )}
-      <div className="whiteboard-scroll" onDragLeave={onBoardDragLeave}>
+      <div
+        className="whiteboard-scroll"
+        ref={scrollRef}
+        onDragLeave={onBoardDragLeave}
+      >
         <div
           className="whiteboard-canvas"
           ref={canvasRef}
           data-wb-dragging={drag ? "true" : undefined}
+          data-wb-resizing={resizePreview !== null ? "true" : undefined}
           data-locked={locked ? "true" : undefined}
-          style={{ width: CANVAS_W, minHeight: canvasMinH }}
+          style={{ width: canvasW, minHeight: canvasMinH }}
           onPointerDown={onPointerDown}
           onDragStartCapture={onCanvasDragStart}
         >
@@ -369,6 +624,61 @@ export function Whiteboard({
               elementRef={itemRef(group.id)}
             />
           ))}
+          {/* 对齐辅助线(canvas-bounds-align):拖中才有;画布线贯穿整幅 */}
+          {guides.map((guide, i) =>
+            guide.axis === "x" ? (
+              <div
+                key={`x${i}`}
+                className="wb-guide wb-guide-x"
+                aria-hidden="true"
+                style={
+                  guide.canvas
+                    ? { left: guide.at, top: 0, bottom: 0 }
+                    : {
+                        left: guide.at,
+                        top: guide.from,
+                        height: guide.to - guide.from,
+                      }
+                }
+              />
+            ) : (
+              <div
+                key={`y${i}`}
+                className="wb-guide wb-guide-y"
+                aria-hidden="true"
+                style={
+                  guide.canvas
+                    ? { top: guide.at, left: 0, right: 0 }
+                    : {
+                        top: guide.at,
+                        left: guide.from,
+                        width: guide.to - guide.from,
+                      }
+                }
+              />
+            )
+          )}
+          {/* 右缘调宽拖柄:白板模式且非搜索;调宽中显示宽度读数 */}
+          {!locked && (
+            <div
+              className="wb-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整画布宽度"
+              aria-valuenow={Math.round(canvasW)}
+              aria-valuemin={MIN_CANVAS_W}
+              aria-valuemax={MAX_CANVAS_W}
+              tabIndex={0}
+              onPointerDown={onResizePointerDown}
+              onKeyDown={onResizeKeyDown}
+            >
+              {resizePreview !== null && (
+                <span className="wb-resize-badge" role="status">
+                  {Math.round(resizePreview)} px
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
