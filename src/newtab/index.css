@@ -675,15 +675,46 @@ button[type="submit"]:hover {
   }
 }
 
-/* 列内滚动:视口高度铺开时上限约 18 行,窄屏不低于 280px */
+/* 列内滚动:视口高度铺开时上限约 18 行,窄屏不低于 280px。
+   滚动槽常驻预留(与领域 GROUP_EDGE 同源):内容滚出时列数不塌,
+   滑块显隐也不占/让布局 */
 .group-grid,
 .group-empty {
   max-height: clamp(280px, calc(100vh - 330px), 560px);
   overflow-y: auto;
-  /* 滚动槽常驻预留(与领域 GROUP_EDGE 同源):内容滚出时列数不塌 */
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* 组内滚动条:静息完全隐没(scrollbar-fix)。Windows 经典滚动条不会
+   自动隐藏,常驻细条在托盘上是噪点;滚动能力不变(滚轮/触控)。
+   悬停/拖拽滑块时显形:必须是 ::-webkit-scrollbar-thumb 部件自身的
+   :hover/:active——Chromium 合成滚动条不认祖先元素的 :hover 状态
+   (实测 .group-grid:hover 部件不重绘),标准 scrollbar-width/color
+   又会压制自定义伪元素,均不可用。宽 8px 在 GROUP_EDGE 预算 12 内 */
+.group-grid::-webkit-scrollbar,
+.group-empty::-webkit-scrollbar {
+  width: 8px;
+}
+
+.group-grid::-webkit-scrollbar-track,
+.group-empty::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.group-grid::-webkit-scrollbar-thumb,
+.group-empty::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.group-grid::-webkit-scrollbar-thumb:hover,
+.group-empty::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+}
+
+.group-grid::-webkit-scrollbar-thumb:active,
+.group-empty::-webkit-scrollbar-thumb:active {
+  background: color-mix(in srgb, var(--fg) 38%, transparent);
 }
 
 .group:dragover {
@@ -1245,6 +1276,252 @@ button[type="submit"]:hover {
   background: color-mix(in srgb, var(--bg) 84%, var(--fg));
 }
 
+/* ============================================================
+   待办卡(ADR-0006,todo-card):画布第二种卡片——中性纸面浮起卡,
+   与下沉的组托盘分层区别(组色是收藏容器的视觉语言,待办不沾);
+   定宽 CARD_W;日常态仅勾选开放,编辑控件只在白板模式挂载
+   ============================================================ */
+
+/* 卡面:浮起一级的白卡(组托盘沉、白卡浮,同收藏卡的分层语言) */
+.todo {
+  position: absolute;
+  overflow: hidden;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  padding: 6px 8px 10px;
+  transition:
+    border-color 120ms var(--ease-out),
+    background-color 160ms var(--ease-out),
+    opacity 120ms var(--ease-out),
+    top 180ms var(--ease-out),
+    left 180ms var(--ease-out);
+}
+
+/* 自定义背景下的磨砂:与组托盘同口径(canvas-bounds-align/05) */
+:root[data-start-background] .todo {
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+/* 卡头:标题 + 未完成计数(安静灰字,同组头计数),白板模式附删卡钮 */
+.todo-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 6px;
+  margin-bottom: 2px;
+}
+
+.todo-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 550;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 白板模式:标题可点击改名,给山手性与悬停反馈(日常态纯文本) */
+.whiteboard-canvas:not([data-locked="true"]) .todo-title {
+  cursor: text;
+  border-radius: var(--r-sm);
+}
+
+.todo-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-title-input,
+.todo-text-input {
+  min-width: 0;
+  flex: 1;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid color-mix(in srgb, var(--fg) 45%, transparent);
+  padding: 0 0 1px;
+  border-radius: 0;
+}
+
+.todo-title-input:focus-visible,
+.todo-text-input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--fg);
+}
+
+/* 条目列表:同组内滚动口径(上限约 18 行,静息隐没滚动槽) */
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: clamp(280px, calc(100vh - 330px), 560px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.todo-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.todo-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.todo-list::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.todo-list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+}
+
+.todo-list::-webkit-scrollbar-thumb:active {
+  background: color-mix(in srgb, var(--fg) 38%, transparent);
+}
+
+/* 行:勾选框 + 文本 + 悬停删除钮;白板模式行可拖(手性在行上) */
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+}
+
+.todo-item:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+/* 勾选框:墨色承担(中性卡无组色);完成态收墨底白勾 */
+.todo-check {
+  appearance: none;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
+}
+
+.todo-check:checked {
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
+.todo-check:checked::after {
+  content: "✓";
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.todo-check:active {
+  transform: scale(0.92);
+}
+
+/* 完成态:划线置灰沉底(顺序由 store 维护) */
+.todo-item[data-done="true"] .todo-text {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+
+.todo-item[data-done="true"] .todo-check {
+  border-color: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.todo-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 120ms var(--ease-out);
+}
+
+/* 白板模式:文本可点击就地编辑 */
+.whiteboard-canvas:not([data-locked="true"]) .todo-text {
+  cursor: text;
+}
+
+/* 白板模式行可拖 + 删除钮悬停/聚焦现身(日常态不挂载,无此钮) */
+.todo-item[draggable="true"] {
+  cursor: grab;
+}
+
+.todo-item:active {
+  cursor: grabbing;
+}
+
+.todo-item-delete {
+  opacity: 0;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.todo-item:hover .todo-item-delete,
+.todo-item-delete:focus-visible,
+.todo-item:focus-within .todo-item-delete {
+  opacity: 1;
+}
+
+/* 卡内排序插入指示:墨线同收藏指示线语言(无组色) */
+.todo-drop-indicator {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg) 14%, transparent);
+  pointer-events: none;
+  animation: drop-hint-in 120ms var(--ease-out);
+}
+
+/* 底部添加行:白板模式挂载;回车即加,静默清空 */
+.todo-add {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 6px;
+  font-size: 13.5px;
+  color: inherit;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-sm);
+}
+
+.todo-add::placeholder {
+  color: var(--muted);
+}
+
+.todo-add:focus-visible {
+  outline: none;
+  border: 1px solid var(--fg);
+}
+
+/* 日常态空卡占位(白板模式有添加行,不再叠一句) */
+.todo-empty {
+  margin: 2px 6px 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* 白板工具行(board-whiteboard/03 起仅白板模式出现):口径提示 + 自动整理 */
 .whiteboard-toolbar {
   display: flex;
@@ -1438,8 +1715,10 @@ button[type="submit"]:hover {
 }
 
 /* 可拖手性:卡片非交互区 grab,拖中 grabbing(交互控件自带光标);
-   锁定态(非白板模式/搜索中,board-whiteboard/03)无 grab 暗示 */
-.whiteboard-canvas:not([data-locked="true"]) .group {
+   锁定态(非白板模式/搜索中,board-whiteboard/03)无 grab 暗示。
+   待办卡同口径(待办移动同走画布 Pointer 拖拽,ADR-0006) */
+.whiteboard-canvas:not([data-locked="true"]) .group,
+.whiteboard-canvas:not([data-locked="true"]) .todo {
   cursor: grab;
 }
 
@@ -1447,12 +1726,14 @@ button[type="submit"]:hover {
   user-select: none;
 }
 
-.whiteboard-canvas[data-wb-dragging="true"] .group {
+.whiteboard-canvas[data-wb-dragging="true"] .group,
+.whiteboard-canvas[data-wb-dragging="true"] .todo {
   cursor: grabbing;
 }
 
-/* 被拖卡:关位移过渡跟手 1:1,提升一层浮起(深浅色随 --fg 自适) */
-.group[data-drag-active="true"] {
+/* 被拖卡:关位移过渡跟手 1:1,提升一层浮起(深浅色随 --fg 自适);待办卡同款 */
+.group[data-drag-active="true"],
+.todo[data-drag-active="true"] {
   transition: none;
   z-index: 1;
   border-color: var(--border-strong);
