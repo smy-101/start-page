@@ -29,7 +29,12 @@ CRXJS dev 会话只把 **JS** 写入 `dist/`、**CSS 走 HMR 内存注入**—�
    ```
    完成标准:`powershell.exe` 侧 `Invoke-WebRequest http://127.0.0.1:8777/` 返回 200。
 3. MCP `new_page` 打开 `http://127.0.0.1:8777/`,用 `evaluate_script` 做数值断言(几何、aria、点击回调)。完成标准:每个被测行为有一处断言输出。
-4. 清理:kill 8777 监听进程 + 删 `$W` 目录 + 杀 WSL 侧残留 vite 进程(`ps aux | grep "[v]ite"`)。完成标准:8777 不再监听。
+4. 清理:杀 serve.ps1 宿主 + 删 `$W` 目录 + 删 WSL 侧 `sp-preview-build/` + 杀 WSL 侧残留 vite 进程(`ps aux | grep "[v]ite"`)。完成标准:8777 不再监听,`sp-preview-build/` 与 `$W` 均不存在。
+   - **HttpListener 假 PID**:8777 的 LISTEN 归属是 PID 4(http.sys 内核代理),`Stop-Process` 杀不动 System——真正宿主是隐藏 powershell,按命令行找再杀:
+     ```bash
+     powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name like 'powershell%'\" | Where-Object { \$_.CommandLine -like '*serve.ps1*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }"
+     ```
+     一次杀出多个宿主属正常:上轮残留的死监听会被一并清掉。
 
 ## serve.ps1 模板
 
@@ -63,6 +68,7 @@ while ($listener.IsListening) {
 
 - 调用必须带 `pageId`。
 - React `useEffect` 挂 window 监听在 paint 之后:**同一同步块里连发 pointerdown/move/up 会丢事件**——派发之间 `await new Promise(r => setTimeout(r, 50))` 留间隔。
+- 键盘/指针 handler 绑在柄元素(如 `tabIndex={0}` 的拖柄)而非卡容器:派发到容器是静默 no-op,状似功能坏了。**派发前先 grep 源码确认绑定目标**,别按容器猜。
 - `getBoundingClientRect` 是视口相对坐标:**先滚动、后量测**,且对比的两侧矩形同帧量。
 - `take_screenshot` 偶发超时;数值断言优先,截图是补充。
 
