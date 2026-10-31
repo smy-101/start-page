@@ -1,9 +1,5 @@
-import { Fragment, memo, useEffect, useRef, useState } from "react";
-import type {
-  CSSProperties,
-  PointerEvent as ReactPointerEvent,
-  RefCallback,
-} from "react";
+import { Fragment, memo } from "react";
+import type { CSSProperties, RefCallback } from "react";
 import type {
   Bookmark,
   BookmarkId,
@@ -23,6 +19,7 @@ import {
   CELL_W,
 } from "../domain/canvas";
 import type { CanvasPos } from "../domain/canvas";
+import { useAxisResize } from "./useAxisResize";
 import type { DragHandlers } from "./useCardDnD";
 
 type GroupSectionProps = {
@@ -96,119 +93,47 @@ export const GroupSection = memo(function GroupSection({
   // ---- 组右缘调宽(group-span-decouple):拖中连续预览宽;松手吸附档位后
   // 已提交宽留到持久档位回流再清(同画布 canvasOverride 口径,免闪回)。
   // delta 制(起点宽 + 指针位移),不依赖 rect——jsdom 里几何全 0 亦可测。
-  const [previewW, setPreviewW] = useState<number | null>(null);
-  const [committedW, setCommittedW] = useState<number | null>(null);
-  const sessionRef = useRef<{ startX: number; startW: number } | null>(null);
-  // 提交时的请求档位与当时的持久档位/每行条数:哨兵辨别「回流到位」与
-  // 「store 钳回了不同值」(如窄画布降档)两幂数据(均应解除本地宽)
-  const pendingRef = useRef<{
-    requested: number;
-    atSpan: number | undefined;
-    atColumns: number | undefined;
-  } | null>(null);
-
+  // 预览/已提交双态 + 回流哨兵 + 指针/键盘接线收敛进 useAxisResize
+  // (todo-review-followups/01),此处只供档位域配置。
   const span = groupSpanOf(group);
-  const width = previewW ?? committedW ?? groupWidthOf(span);
   const minW = groupWidthOf(1);
   const maxW = groupWidthOf(resizeMaxSpan);
+
+  /** 档位域键盘步进:先归档再 ±1 档(钳界 hook 做;1..resizeMaxSpan)。 */
+  function stepSpan(current: number, dir: 1 | -1): number {
+    const next = Math.min(
+      Math.max(1, nearestGroupSpan(current) + dir),
+      Math.max(1, resizeMaxSpan)
+    );
+    return groupWidthOf(next);
+  }
+
+  const resize = useAxisResize<{
+    atSpan: number | undefined;
+    atColumns: number | undefined;
+  }>({
+    axis: "x",
+    min: minW,
+    max: maxW,
+    base: () => groupWidthOf(span),
+    // 松手吸附档位:宽 → 最近档 → 档宽(ladder 单调,二次归档无损)
+    snap: (v) => groupWidthOf(nearestGroupSpan(v)),
+    step: stepSpan,
+    commit: (w) => void onResizeSpan(group.id, nearestGroupSpan(w)),
+    snapshot: () => ({ atSpan: group.span, atColumns: group.columns }),
+    // 持久档位的推导宽追上已提交即清;store 钳回不同值(窄画布降档)或
+    // 档位/每行条数被外部改动(表单/缩画布)时快照偏离,同样解除本地宽
+    settled: (committedW, pending) =>
+      groupWidthOf(groupSpanOf(group)) === committedW ||
+      (pending !== null &&
+        (group.span !== pending.atSpan || group.columns !== pending.atColumns)),
+    watch: group,
+  });
+  const width = resize.preview ?? resize.committed ?? groupWidthOf(span);
   // 组内网格模板:每行条数生效值(缺省 = 装满);与 CSS minmax 同口径,
   // 条数 < 档位时条目拉满整行(清单式)
   const gridTemplate = {
     gridTemplateColumns: `repeat(${groupCellsOf(group)}, minmax(${CELL_W}px, 1fr))`,
-  };
-
-  // 回流哨兵:持久档位的推导宽追上已提交宽即清(存储往返 1–2 帧
-  // 不闪回旧宽);store 钳回不同值(窄画布降档)或档位/每行条数被外部
-  // 改动(表单/缩画布)时持久值偏离提交时快照,同样解除本地宽
-  useEffect(() => {
-    if (committedW === null) {
-      pendingRef.current = null;
-      return;
-    }
-    const pending = pendingRef.current;
-    const settled =
-      groupWidthOf(groupSpanOf(group)) === committedW ||
-      (pending !== null &&
-        (group.span !== pending.atSpan || group.columns !== pending.atColumns));
-    if (settled) {
-      setCommittedW(null);
-      pendingRef.current = null;
-    }
-  }, [committedW, group]);
-
-  function applyResize(clientX: number): void {
-    const session = sessionRef.current;
-    if (!session) return;
-    const next = session.startW + (clientX - session.startX);
-    setPreviewW(Math.min(Math.max(next, minW), maxW));
-  }
-
-  function finishResize(): void {
-    const session = sessionRef.current;
-    const preview = previewW;
-    sessionRef.current = null;
-    setPreviewW(null);
-    if (!session || preview === null) return;
-    // 松手吸附档位(最近 W(k)),已提交宽留到持久回流再清
-    const nextSpan = nearestGroupSpan(preview);
-    pendingRef.current = {
-      requested: nextSpan,
-      atSpan: group.span,
-      atColumns: group.columns,
-    };
-    setCommittedW(groupWidthOf(nextSpan));
-    void onResizeSpan(group.id, nextSpan);
-  }
-
-  function cancelResize(): void {
-    sessionRef.current = null;
-    setPreviewW(null);
-  }
-
-  useEffect(() => {
-    if (sessionRef.current === null && previewW === null) return;
-    const move = (event: PointerEvent) => {
-      if (sessionRef.current) applyResize(event.clientX);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finishResize);
-    window.addEventListener("pointercancel", cancelResize);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finishResize);
-      window.removeEventListener("pointercancel", cancelResize);
-    };
-    // 会话回调读的是渲染期最新闭包;挂仅发生在会话期间
-  });
-
-  const onHandlePointerDown = (event: ReactPointerEvent) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    // 不劫持分组移动会话(画布级 pointerdown 委托)
-    event.stopPropagation();
-    sessionRef.current = { startX: event.clientX, startW: width };
-    setPreviewW(width);
-  };
-
-  // 键盘:←/→ 步进一档(钳 1..resizeMaxSpan;store 收口重复钳)。
-  // 当前值吃本地已提交宽(回流前连按可累计,同画布调宽口径)
-  const onHandleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const current = committedW !== null ? nearestGroupSpan(committedW) : span;
-    const step = event.key === "ArrowRight" ? 1 : -1;
-    const next = Math.min(
-      Math.max(1, current + step),
-      Math.max(1, resizeMaxSpan)
-    );
-    if (next === current) return;
-    pendingRef.current = {
-      requested: next,
-      atSpan: group.span,
-      atColumns: group.columns,
-    };
-    setCommittedW(groupWidthOf(next));
-    void onResizeSpan(group.id, next);
   };
 
   const canvasStyle = placement
@@ -222,7 +147,7 @@ export const GroupSection = memo(function GroupSection({
       data-collapsed={collapsed ? "true" : undefined}
       data-drag-active={dragActive ? "true" : undefined}
       data-drop-hint={dropIndex !== null ? "true" : undefined}
-      data-resizing={previewW !== null ? "true" : undefined}
+      data-resizing={resize.preview !== null ? "true" : undefined}
       ref={elementRef}
       // 分组色注入为 CSS 变量:托盘淡染/悬停边框/指示线等着色用(纯表现,不影响语义)
       style={{ "--group-color": group.color, ...canvasStyle } as CSSProperties}
@@ -285,13 +210,12 @@ export const GroupSection = memo(function GroupSection({
           aria-valuemax={resizeMaxSpan}
           title="拖动调整组宽"
           tabIndex={0}
-          onPointerDown={onHandlePointerDown}
-          onKeyDown={onHandleKeyDown}
+          {...resize.handleProps}
         >
-          {previewW !== null && (
+          {resize.preview !== null && (
             <span className="group-resize-badge" role="status">
               {(() => {
-                const nextSpan = nearestGroupSpan(previewW);
+                const nextSpan = nearestGroupSpan(resize.preview);
                 // 每行条数随预览同口径:缺省 = 装满(随档位),显式值钳
                 // 不越预览档(同 store setGroupSpan 的自动降)
                 const cells =

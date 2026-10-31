@@ -1623,84 +1623,86 @@ button[type="submit"]:hover {
   user-select: none;
 }
 
-/* 卡右缘调宽拖柄(todo-card-size-color):白板模式且非搜索时由组件挂载;
-   整高热区贴卡右缘内侧(卡 overflow:hidden 裁平),中间一枚竖向握把胶囊;
-   键盘可达(separator 角色);与 .group-resize 同语言 */
-.todo-resize {
+/* 卡缘轴向拖柄(todo-review-followups/01 合并孪生):调宽右缘竖柄
+   (todo-card-size-color)与调高底缘横柄(todo-height-archive)同语言;
+   白板模式且非搜索时由组件挂载,键盘可达(separator 角色)。
+   共用:绝对定位热区贴卡缘内侧、中央握把胶囊、悬停/聚焦/拖中加亮。
+   变体:热区几何与 cursor、握把朝向(下两块)。与 .group-resize 同语言 */
+.todo-resize,
+.todo-resize-b {
   position: absolute;
+  touch-action: none;
+  z-index: 2;
+}
+
+.todo-resize {
   top: 0;
   bottom: 0;
   right: 0;
   width: 12px;
   cursor: ew-resize;
-  touch-action: none;
-  z-index: 2;
 }
 
-.todo-resize::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: 3px;
-  width: 3px;
-  height: 28px;
-  transform: translateY(-50%);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--fg) 22%, transparent);
-  transition:
-    background 120ms ease-out,
-    height 120ms ease-out;
-}
-
-.todo-resize:hover::after,
-.todo-resize:focus-visible::after,
-.todo[data-resizing="true"] .todo-resize::after {
-  background: color-mix(in srgb, var(--fg) 55%, transparent);
-  height: 44px;
-}
-
-.todo-resize:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
-  outline-offset: -2px;
-  border-radius: 4px;
-}
-
-/* 卡底缘定长调高拖柄(todo-height-archive):与 .todo-resize 同语言;
-   整宽热区贴卡底缘内侧(卡底 padding 10px 恰容热区,不压添加行),
-   中间一枚横向握把胶囊;键盘 ↑/↓ 步进 */
+/* 卡底缘:整宽热区贴卡底缘内侧(卡底 padding 10px 恰容热区,不压添加行) */
 .todo-resize-b {
-  position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   height: 10px;
   cursor: ns-resize;
-  touch-action: none;
-  z-index: 2;
 }
 
+.todo-resize::after,
 .todo-resize-b::after {
   content: "";
   position: absolute;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+  transition:
+    background 120ms ease-out,
+    height 120ms ease-out,
+    width 120ms ease-out;
+}
+
+.todo-resize::after {
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 28px;
+  transform: translateY(-50%);
+}
+
+.todo-resize-b::after {
   bottom: 3px;
   left: 50%;
   width: 28px;
   height: 3px;
   transform: translateX(-50%);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--fg) 22%, transparent);
-  transition:
-    background 120ms ease-out,
-    width 120ms ease-out;
+}
+
+.todo-resize:hover::after,
+.todo-resize:focus-visible::after,
+.todo[data-resizing="true"] .todo-resize::after,
+.todo-resize-b:hover::after,
+.todo-resize-b:focus-visible::after,
+.todo[data-resizing="true"] .todo-resize-b::after {
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+}
+
+/* 加亮同时拉长握把:竖柄长高、横柄长宽(方向即差异所在) */
+.todo-resize:hover::after,
+.todo-resize:focus-visible::after,
+.todo[data-resizing="true"] .todo-resize::after {
+  height: 44px;
 }
 
 .todo-resize-b:hover::after,
 .todo-resize-b:focus-visible::after,
 .todo[data-resizing="true"] .todo-resize-b::after {
-  background: color-mix(in srgb, var(--fg) 55%, transparent);
   width: 44px;
 }
 
+.todo-resize:focus-visible,
 .todo-resize-b:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
   outline-offset: -2px;

@@ -1,9 +1,5 @@
-import { Fragment, memo, useEffect, useRef, useState } from "react";
-import type {
-  CSSProperties,
-  PointerEvent as ReactPointerEvent,
-  RefCallback,
-} from "react";
+import { Fragment, memo, useRef, useState } from "react";
+import type { CSSProperties, RefCallback } from "react";
 import type { Result, TodoCard, TodoId } from "../domain/types";
 import {
   TODO_H_MAX,
@@ -20,6 +16,7 @@ import {
   TrashIcon,
 } from "./Icon";
 import { ColorSwatches } from "./ColorSwatches";
+import { useAxisResize } from "./useAxisResize";
 
 type TodoSectionProps = {
   todo: TodoCard;
@@ -107,148 +104,30 @@ export const TodoSection = memo(function TodoSection({
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const draggingRef = useRef(false);
 
-  // ---- 卡右缘调宽(todo-card-size-color 自由宽):镜像分组的 preview/
-  // committed 双状态 + 回流哨兵(松手 16px 网格吸附,已提交宽留到持久
-  // 回流再清,免闪回)。delta 制(起点宽 + 指针位移),不依赖 rect——
-  // jsdom 里几何全 0 亦可测。
-  const [previewW, setPreviewW] = useState<number | null>(null);
-  const [committedW, setCommittedW] = useState<number | null>(null);
-  const sessionRef = useRef<{ startX: number; startW: number } | null>(null);
-  // 提交时的持久宽快照:store 钳回不同值(窄画布收窄)时持久值偏离快照,
-  // 同样解除本地宽(两幂数据均应清)
-  const pendingRef = useRef<{ atWidth: number | undefined } | null>(null);
   // 卡头选色(todo-card-size-color):白板模式展开卡内色板行
   const [pickingColor, setPickingColor] = useState(false);
 
-  // ---- 卡底缘定长调高(todo-height-archive):镜像调宽的 preview/
-  // committed 双状态 + 回流哨兵(松手 16px 网格吸附,已提交高留到持久
-  // 回流再清)。高不随画布宽收窄(画布向下无界,无 resizeMaxH 之需)。
-  const [previewH, setPreviewH] = useState<number | null>(null);
-  const [committedH, setCommittedH] = useState<number | null>(null);
-  const sessionHRef = useRef<{ startY: number; startH: number } | null>(null);
-  // 提交时的持久高快照:store 写回或高被外部改动时解除本地高
-  const pendingHRef = useRef<{ atHeight: number | undefined } | null>(null);
-
-  const undoneCount = todo.items.filter((i) => !i.done).length;
-  const hasDone = todo.items.some((i) => i.done);
-
-  const width = previewW ?? committedW ?? todoWidthOf(todo);
+  // ---- 卡右缘调宽(todo-card-size-color 自由宽)+ 卡底缘定长调高
+  // (todo-height-archive):两份孪生的 preview/committed 双态 + 回流
+  // 哨兵 + 指针/键盘接线收敛进 useAxisResize(todo-review-followups/01),
+  // 本组件只供配置。松手 16px 网格吸附;宽上界随画布宽收窄
+  // (Whiteboard 供给 resizeMaxW),高不收窄(画布向下无界)。
   const minW = TODO_W_MIN;
   const maxW = Math.max(minW, resizeMaxW ?? minW);
-
   const minH = TODO_H_MIN;
   const maxH = TODO_H_MAX;
-  // 生效定长高:预览 > 已提交 > 持久;undefined = 自适应(不定位高)
-  const fixedH = previewH ?? committedH ?? todo.height;
 
-  // 回流哨兵:持久宽追上已提交宽即清;store 钳回不同值(窄画布收窄)
-  // 或宽被外部改动(缩画布)时持久值偏离提交时快照,同样解除本地宽
-  useEffect(() => {
-    if (committedW === null) {
-      pendingRef.current = null;
-      return;
-    }
-    const pending = pendingRef.current;
-    const settled =
-      todoWidthOf(todo) === committedW ||
-      (pending !== null && todo.width !== pending.atWidth);
-    if (settled) {
-      setCommittedW(null);
-      pendingRef.current = null;
-    }
-  }, [committedW, todo]);
-
-  // 调高回流哨兵:镜像调宽——持久高追上已提交高即清;高被外部改动
-  // (理论上仅手改 JSON)时持久值偏离提交快照,同样解除本地高
-  useEffect(() => {
-    if (committedH === null) {
-      pendingHRef.current = null;
-      return;
-    }
-    const pending = pendingHRef.current;
-    const settled =
-      todo.height === committedH ||
-      (pending !== null && todo.height !== pending.atHeight);
-    if (settled) {
-      setCommittedH(null);
-      pendingHRef.current = null;
-    }
-  }, [committedH, todo]);
-
-  /** 调宽一步:连续预览宽,钳 [minW, maxW](网格吸附留到松手)。 */
-  function applyResize(clientX: number): void {
-    const session = sessionRef.current;
-    if (!session) return;
-    const next = session.startW + (clientX - session.startX);
-    setPreviewW(Math.min(Math.max(next, minW), maxW));
+  /** 16px 网格吸附(同画布宽/拖位松手口径;吸附取最近格点合法)。 */
+  function snapGrid(v: number): number {
+    return Math.round(v / 16) * 16;
   }
 
-  /** 宽度吸附 16px 网格(同画布宽/拖位松手口径;CODING_STANDARDS:吸附
-   * 取最近格点合法)。 */
-  function snapGrid(w: number): number {
-    return Math.round(w / 16) * 16;
+  /** 键盘一步:从当前值的上/下一格网格起(store 收口重复钳)。 */
+  function stepGrid(current: number, dir: 1 | -1): number {
+    return dir > 0
+      ? (Math.floor(current / 16) + 1) * 16
+      : (Math.ceil(current / 16) - 1) * 16;
   }
-
-  function finishResize(): void {
-    const session = sessionRef.current;
-    const preview = previewW;
-    sessionRef.current = null;
-    setPreviewW(null);
-    if (!session || preview === null) return;
-    // 松手吸附 16px 网格后再钳界限;已提交宽留到持久回流再清
-    const next = Math.min(Math.max(snapGrid(preview), minW), maxW);
-    pendingRef.current = { atWidth: todo.width };
-    setCommittedW(next);
-    void onResizeWidth(todo.id, next);
-  }
-
-  function cancelResize(): void {
-    sessionRef.current = null;
-    setPreviewW(null);
-  }
-
-  useEffect(() => {
-    if (sessionRef.current === null && previewW === null) return;
-    const move = (event: PointerEvent) => {
-      if (sessionRef.current) applyResize(event.clientX);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finishResize);
-    window.addEventListener("pointercancel", cancelResize);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finishResize);
-      window.removeEventListener("pointercancel", cancelResize);
-    };
-    // 会话回调读的是渲染期最新闭包;挂仅发生在会话期间
-  });
-
-  const onHandlePointerDown = (event: ReactPointerEvent) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    // 不劫持卡移动会话(画布级 pointerdown 委托)
-    event.stopPropagation();
-    sessionRef.current = { startX: event.clientX, startW: width };
-    setPreviewW(width);
-  };
-
-  // 键盘:←/→ 步进一格 16px 网格(从当前宽的上/下一格起,钳界限;
-  // store 收口重复钳)。当前值吃本地已提交宽(回流前连按可累计)
-  const onHandleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const step = event.key === "ArrowRight" ? 1 : -1;
-    const base = committedW ?? width;
-    const nextGrid =
-      step > 0
-        ? (Math.floor(base / 16) + 1) * 16
-        : (Math.ceil(base / 16) - 1) * 16;
-    const next = Math.min(Math.max(nextGrid, minW), maxW);
-    if (Math.abs(next - base) < 0.5) return;
-    pendingRef.current = { atWidth: todo.width };
-    setCommittedW(next);
-    void onResizeWidth(todo.id, next);
-  };
 
   /** 自适应卡的调高基数:实测高(事件时即时量高,读 DOM 同步口径;
    * jsdom/未挂载为 0 → 下界兜底)。 */
@@ -258,74 +137,42 @@ export const TodoSection = memo(function TodoSection({
     return Math.max(minH, Math.floor(h));
   }
 
-  /** 调高一步:连续预览高,钳 [minH, maxH](网格吸附留到松手)。 */
-  function applyResizeH(clientY: number): void {
-    const session = sessionHRef.current;
-    if (!session) return;
-    const next = session.startH + (clientY - session.startY);
-    setPreviewH(Math.min(Math.max(next, minH), maxH));
-  }
-
-  function finishResizeH(): void {
-    const session = sessionHRef.current;
-    const preview = previewH;
-    sessionHRef.current = null;
-    setPreviewH(null);
-    if (!session || preview === null) return;
-    const next = Math.min(Math.max(snapGrid(preview), minH), maxH);
-    pendingHRef.current = { atHeight: todo.height };
-    setCommittedH(next);
-    void onResizeHeight(todo.id, next);
-  }
-
-  function cancelResizeH(): void {
-    sessionHRef.current = null;
-    setPreviewH(null);
-  }
-
-  useEffect(() => {
-    if (sessionHRef.current === null && previewH === null) return;
-    const move = (event: PointerEvent) => {
-      if (sessionHRef.current) applyResizeH(event.clientY);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finishResizeH);
-    window.addEventListener("pointercancel", cancelResizeH);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finishResizeH);
-      window.removeEventListener("pointercancel", cancelResizeH);
-    };
+  const resizeW = useAxisResize<{ atWidth: number | undefined }>({
+    axis: "x",
+    min: minW,
+    max: maxW,
+    base: () => todoWidthOf(todo),
+    snap: snapGrid,
+    step: stepGrid,
+    commit: (width) => void onResizeWidth(todo.id, width),
+    snapshot: () => ({ atWidth: todo.width }),
+    settled: (committedW, pending) =>
+      todoWidthOf(todo) === committedW ||
+      (pending !== null && todo.width !== pending.atWidth),
+    watch: todo,
   });
 
-  const onHHandlePointerDown = (event: ReactPointerEvent) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    // 不劫持卡移动会话(画布级 pointerdown 委托)
-    event.stopPropagation();
-    const base = todo.height ?? measuredBaseOf(event.currentTarget);
-    sessionHRef.current = { startY: event.clientY, startH: base };
-    setPreviewH(base);
-  };
+  const resizeH = useAxisResize<{ atHeight: number | undefined }>({
+    axis: "y",
+    min: minH,
+    max: maxH,
+    base: (target) => todo.height ?? measuredBaseOf(target),
+    snap: snapGrid,
+    step: stepGrid,
+    commit: (height) => void onResizeHeight(todo.id, height),
+    snapshot: () => ({ atHeight: todo.height }),
+    settled: (committedH, pending) =>
+      todo.height === committedH ||
+      (pending !== null && todo.height !== pending.atHeight),
+    watch: todo,
+  });
 
-  // 键盘:↓/↑ 步进一格 16px 网格(从当前高的下/上一格起,钳界限);
-  // 自适应卡基数取实测高(↓ 首步从实测高长起,不从下界跳变)
-  const onHHandleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    const step = event.key === "ArrowDown" ? 1 : -1;
-    const base =
-      committedH ?? todo.height ?? measuredBaseOf(event.currentTarget);
-    const nextGrid =
-      step > 0
-        ? (Math.floor(base / 16) + 1) * 16
-        : (Math.ceil(base / 16) - 1) * 16;
-    const next = Math.min(Math.max(nextGrid, minH), maxH);
-    if (Math.abs(next - base) < 0.5) return;
-    pendingHRef.current = { atHeight: todo.height };
-    setCommittedH(next);
-    void onResizeHeight(todo.id, next);
-  };
+  const undoneCount = todo.items.filter((i) => !i.done).length;
+  const hasDone = todo.items.some((i) => i.done);
+
+  const width = resizeW.preview ?? resizeW.committed ?? todoWidthOf(todo);
+  // 生效定长高:预览 > 已提交 > 持久;undefined = 自适应(不定位高)
+  const fixedH = resizeH.preview ?? resizeH.committed ?? todo.height;
 
   /** 钉住/解除定长(todo-height-archive):白板模式卡头切换两种高度模式;
    * 钉住 = 以实测高吸附 16px 网格落定长,解除 = undefined 回自适应 */
@@ -441,7 +288,9 @@ export const TodoSection = memo(function TodoSection({
       data-drag-active={dragActive ? "true" : undefined}
       data-dragging-item={dragItemId !== null ? "true" : undefined}
       data-resizing={
-        previewW !== null || previewH !== null ? "true" : undefined
+        resizeW.preview !== null || resizeH.preview !== null
+          ? "true"
+          : undefined
       }
       data-fixed-height={fixedH !== undefined ? "true" : undefined}
       data-todo-colored={todo.color ? "true" : undefined}
@@ -653,12 +502,11 @@ export const TodoSection = memo(function TodoSection({
           aria-valuetext={`${Math.round(width)} px`}
           title="拖动调整宽度"
           tabIndex={0}
-          onPointerDown={onHandlePointerDown}
-          onKeyDown={onHandleKeyDown}
+          {...resizeW.handleProps}
         >
-          {previewW !== null && (
+          {resizeW.preview !== null && (
             <span className="todo-resize-badge" role="status">
-              {Math.round(previewW)} px
+              {Math.round(resizeW.preview)} px
             </span>
           )}
         </div>
@@ -680,12 +528,11 @@ export const TodoSection = memo(function TodoSection({
           }
           title="拖动调整高度"
           tabIndex={0}
-          onPointerDown={onHHandlePointerDown}
-          onKeyDown={onHHandleKeyDown}
+          {...resizeH.handleProps}
         >
-          {previewH !== null && (
+          {resizeH.preview !== null && (
             <span className="todo-resize-badge" role="status">
-              {Math.round(previewH)} px
+              {Math.round(resizeH.preview)} px
             </span>
           )}
         </div>
