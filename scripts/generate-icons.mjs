@@ -1,10 +1,10 @@
 // 生成扩展图标(PNG,manifest 仅支持位图)。零第三方依赖:手工编码 PNG + zlib。
 // 运行:node scripts/generate-icons.mjs
 // - icon-{16,32,48,128}.png   扩展图标:圆角靛蓝底 + 白色书签丝带
-// - outline-{16,32}.png       工具栏「未收藏」态:透明底 + 灰色书签描边
-// - filled-{16,32}.png        工具栏「已收藏」态:圆角靛蓝方块 + 大号白勾(ui-refresh/01)
-// - disabled-{16,32}.png      工具栏「不可收藏」态:浅灰书签描边(叠加 × 徽标)
-// 工具栏状态图标(outline/filled)另写入 public/icons/:它们只被运行时
+// - outline-{16,32}.png       工具栏可收藏态(未收藏/已收藏同用):透明底 + 灰色书签描边;
+//                              已收藏的勾由 badge 叠加在右下角(类 AdGuard),不换图标本体
+// - disabled-{16,32}.png      工具栏「不可收藏」态:浅灰书签描边
+// 工具栏状态图标(outline/disabled)另写入 public/icons/:它们只被运行时
 // setIcon 引用、不在 manifest 中;Vite 仅将 public/ 原样复制进 dist,
 // 否则 dist/icons 缺文件导致 setIcon 404。
 import { deflateSync } from "node:zlib";
@@ -101,17 +101,6 @@ function distToPolygonEdge(poly, px, py) {
   return d;
 }
 
-function distToPolyline(pts, px, py) {
-  let d = Infinity;
-  for (let i = 0; i + 1 < pts.length; i++) {
-    d = Math.min(
-      d,
-      distToSegment(px, py, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
-    );
-  }
-  return d;
-}
-
 function insideRoundedRect(px, py, size, radius) {
   const x = Math.min(px, size - px);
   const y = Math.min(py, size - py);
@@ -179,45 +168,7 @@ function renderOutline(size, stroke) {
   return rgba;
 }
 
-// 大勾:已收藏态的图标本体即勾(工单 ui-refresh/01)——
-// 靛蓝圆角方块底 + 白勾占主体,16px 下与描边态一眼可辨
-const CHECK_HERO = [
-  [0.26, 0.52],
-  [0.44, 0.7],
-  [0.75, 0.28],
-];
-
-/** 已收藏态:靛蓝圆角方块 + 大白勾(勾不裁剪,可及方块边缘)。 */
-function renderCheckSquare(size) {
-  const rgba = Buffer.alloc(size * size * 4);
-  const radius = Math.round(size * 0.22);
-  const w = 0.14 * size;
-  for (let py = 0; py < size; py++) {
-    for (let px = 0; px < size; px++) {
-      let bgHit = 0;
-      let chkHit = 0;
-      for (let sy = 0; sy < SS; sy++) {
-        for (let sx = 0; sx < SS; sx++) {
-          const x = px + (sx + 0.5) / SS;
-          const y = py + (sy + 0.5) / SS;
-          if (!insideRoundedRect(x, y, size, radius)) continue;
-          bgHit++;
-          if (distToPolyline(CHECK_HERO, x / size, y / size) * size <= w)
-            chkHit++;
-        }
-      }
-      if (bgHit === 0) continue;
-      const i = (py * size + px) * 4;
-      const bgCov = bgHit / (SS * SS);
-      const chkMix = Math.min(1, chkHit / bgHit);
-      rgba[i] = Math.round(INDIGO[0] * (1 - chkMix) + WHITE[0] * chkMix);
-      rgba[i + 1] = Math.round(INDIGO[1] * (1 - chkMix) + WHITE[1] * chkMix);
-      rgba[i + 2] = Math.round(INDIGO[2] * (1 - chkMix) + WHITE[2] * chkMix);
-      rgba[i + 3] = Math.round(255 * bgCov);
-    }
-  }
-  return rgba;
-}
+// 大勾方块已退休:已收藏态改用 badge ✓(类 AdGuard),图标本体保持描边
 
 // —— 输出 ——
 const INDIGO = [79, 70, 229]; // #4f46e5
@@ -236,10 +187,6 @@ const outputs = [
     encodePng(s, renderOutline(s, GRAY)),
   ]),
   ...[16, 32].map((s) => [
-    `filled-${s}.png`,
-    encodePng(s, renderCheckSquare(s)),
-  ]),
-  ...[16, 32].map((s) => [
     `disabled-${s}.png`,
     encodePng(s, renderOutline(s, GRAY_DISABLED)),
   ]),
@@ -251,8 +198,6 @@ mkdirSync(publicIconsDir, { recursive: true });
 for (const name of [
   "outline-16.png",
   "outline-32.png",
-  "filled-16.png",
-  "filled-32.png",
   "disabled-16.png",
   "disabled-32.png",
 ]) {

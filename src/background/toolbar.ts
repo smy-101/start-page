@@ -1,5 +1,7 @@
 /**
- * 工具栏一键收藏接线:图标状态(空心=未收藏/实心勾=已收藏/× 徽标=不可收藏)+ 点击收藏/取消。
+ * 工具栏一键收藏接线:图标状态(描边=未收藏/描边+右下角绿底✓徽标=已收藏/浅灰=不可收藏,点击无效果)
+ * + 点击收藏/取消。已收藏的勾用 badge 呈现(类 AdGuard:叠在原图标右下角),
+ * 图标本体不变;点击反馈首选页面内浮动条(toast),不可注入页面回退徽标文字一闪。
  * 事件驱动:taps.onActivated / tabs.onUpdated / action.onClicked / storage.onChanged。
  * 收藏判定与写入全部走领域层;本模块不重复实现 URL 校验。
  */
@@ -8,22 +10,24 @@ import type { BookmarkStore } from "../domain/store";
 import type { Bookmark } from "../domain/types";
 import { createChromeStorage } from "../storage/chromeStorage";
 import { enrichBookmarkIcon } from "./enrichIcon";
+import { showTabToast, toastTextFor } from "./toast";
 
 /** 图标路径相对扩展根;manifest 之外引用的位图经 public/icons 原样进 dist。 */
 const ICON_PATHS = {
   outline: { "16": "icons/outline-16.png", "32": "icons/outline-32.png" },
-  filled: { "16": "icons/filled-16.png", "32": "icons/filled-32.png" },
   disabled: { "16": "icons/disabled-16.png", "32": "icons/disabled-32.png" },
 } as const;
 
-/** 工具栏三态位图选择(纯函数,ui-refresh/01):已收藏=大勾方块,未收藏=描边,不可收藏=浅灰。 */
+/**
+ * 工具栏位图选择(纯函数):已收藏与未收藏同用描边书签——已收藏的勾
+ * 由右下角 ✓ 徽标表达(AdGuard 式叠加),图标本体不变;不可收藏=浅灰。
+ */
 export function iconPathsFor(state: ToolbarState): {
   "16": string;
   "32": string;
 } {
   switch (state.kind) {
     case "favorited":
-      return ICON_PATHS.filled;
     case "unfavorited":
       return ICON_PATHS.outline;
     case "unbookmarkable":
@@ -31,10 +35,10 @@ export function iconPathsFor(state: ToolbarState): {
   }
 }
 
-const UNBOOKMARKABLE_BADGE = "×";
 const FLASH_MS = 1200;
+/** 已收藏常驻徽标:绿底白勾,叠在描边图标右下角(AdGuard 式)。 */
+const FAVORITED_BADGE = "✓";
 const BADGE_COLORS = {
-  unbookmarkable: "#d1242f",
   favorited: "#1a7f37",
   unfavorited: "#68707a",
 } as const;
@@ -84,7 +88,7 @@ export function initToolbar(): void {
     await chrome.action.setTitle({ tabId, title: iconTitleFor(state) });
   }
 
-  /** 徽标配色:× 用警示红,瞬时提示用语义色(文字白,Chrome 自动)。 */
+  /** 徽标配色:瞬时提示用语义色(文字白,Chrome 自动)。 */
   async function setBadge(
     tabId: number,
     text: string,
@@ -107,11 +111,12 @@ export function initToolbar(): void {
     const resolved = url ?? (await chrome.tabs.get(tabId)).url;
     const state = toolbarStateFor(resolved, await store());
     await applyIcon(tabId, state);
+    // 已收藏 = 描边图标 + 右下角绿底✓徽标;其余态无徽标(不可收藏含初始页,点击无效果)
     if (touchBadge) {
       await setBadge(
         tabId,
-        state.kind === "unbookmarkable" ? UNBOOKMARKABLE_BADGE : "",
-        BADGE_COLORS.unbookmarkable
+        state.kind === "favorited" ? FAVORITED_BADGE : "",
+        state.kind === "favorited" ? BADGE_COLORS.favorited : undefined
       );
     }
   }
@@ -131,7 +136,8 @@ export function initToolbar(): void {
     const state = toolbarStateFor(tab.url, s);
     // 不可收藏页面:点击不产生数据
     if (state.kind === "unbookmarkable") return;
-    if (state.kind === "favorited") {
+    const wasFavorited = state.kind === "favorited";
+    if (wasFavorited) {
       await s.removeBookmark(state.bookmark.id);
     } else {
       const added = await s.addBookmark({
@@ -141,15 +147,15 @@ export function initToolbar(): void {
       // 异步补图标:不阻塞图标状态切换(board-refresh/05)
       if (added.ok) void enrichBookmarkIcon(s, added.value);
     }
-    // 即时反馈:图标立即切换到新状态 + 徽标瞬时提示后自行恢复
     const tabId = tab.id;
+    // 首选反馈:页面内浮动提示条(贴视线);不可注入页面回退徽标文字一闪
+    const toasted = await showTabToast(tabId, toastTextFor(wasFavorited));
     await refreshTabIcon(tabId, tab.url);
+    if (toasted) return;
     await setBadge(
       tabId,
-      state.kind === "favorited" ? "已取消" : "已收藏",
-      state.kind === "favorited"
-        ? BADGE_COLORS.unfavorited
-        : BADGE_COLORS.favorited
+      wasFavorited ? "已取消" : "已收藏",
+      wasFavorited ? BADGE_COLORS.unfavorited : BADGE_COLORS.favorited
     );
     setTimeout(() => {
       void refreshTabIcon(tabId);

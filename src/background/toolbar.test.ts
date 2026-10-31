@@ -6,38 +6,34 @@ import { createMemoryStorage } from "../storage/memoryStorage";
 import { iconPathsFor, toolbarStateFor } from "./toolbar";
 
 describe("工具栏图标选择(iconPathsFor)", () => {
-  it("三态各用一套位图:已收藏=大勾方块,未收藏=描边,不可收藏=浅灰 disabled", () => {
-    const store = createBookmarkStore(createMemoryStorage());
+  it("已收藏与未收藏同用描边位图(勾走右下角✓徽标),不可收藏用浅灰 disabled", async () => {
+    const store = await createBookmarkStore(createMemoryStorage());
+    const added = await store.addBookmark({
+      url: "https://example.com",
+      title: "x",
+    });
+    if (!added.ok) throw new Error("fixture setup failed");
 
-    const unfavorited = iconPathsFor({ kind: "unfavorited" });
-    expect(unfavorited["16"]).toBe("icons/outline-16.png");
-    expect(unfavorited["32"]).toBe("icons/outline-32.png");
+    const outline = {
+      "16": "icons/outline-16.png",
+      "32": "icons/outline-32.png",
+    };
+    expect(iconPathsFor({ kind: "unfavorited" })).toEqual(outline);
+    // 已收藏:图标本体不变(类 AdGuard 的勾由 badge 叠加)
+    expect(iconPathsFor({ kind: "favorited", bookmark: added.value })).toEqual(
+      outline
+    );
 
     const unbookmarkable = iconPathsFor({ kind: "unbookmarkable" });
     expect(unbookmarkable["16"]).toBe("icons/disabled-16.png");
     expect(unbookmarkable["32"]).toBe("icons/disabled-32.png");
-
-    return store.then((s) => {
-      const added = s.addBookmark({ url: "https://example.com", title: "x" });
-      return added.then((r) => {
-        if (!r.ok) throw new Error("fixture setup failed");
-        const favorited = iconPathsFor({
-          kind: "favorited",
-          bookmark: r.value,
-        });
-        expect(favorited["16"]).toBe("icons/filled-16.png");
-        expect(favorited["32"]).toBe("icons/filled-32.png");
-      });
-    });
   });
 
-  it("generate-icons 产物齐全:三态位图均在 public/icons(供 dist 构建复制)", () => {
+  it("generate-icons 产物齐全:状态位图均在 public/icons(供 dist 构建复制)", () => {
     const publicIcons = join(__dirname, "../../public/icons");
     for (const name of [
       "outline-16.png",
       "outline-32.png",
-      "filled-16.png",
-      "filled-32.png",
       "disabled-16.png",
       "disabled-32.png",
     ]) {
