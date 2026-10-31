@@ -349,6 +349,16 @@ export async function createBookmarkStore(
     );
   }
 
+  /** 待办卡查找守卫(todo-card):六条卡级操作共用的取卡 + 未找到错误。 */
+  function findTodoCard(id: TodoId): TodoCard | undefined {
+    return (state.todos ?? []).find((t) => t.id === id);
+  }
+
+  /** 待办条目存在性守卫:edit/remove/toggle 共用的条目级判定。 */
+  function todoItemExists(card: TodoCard, itemId: TodoId): boolean {
+    return card.items.some((i) => i.id === itemId);
+  }
+
   /** 待办卡整卡替换后落盘并返回新卡(todo-card 写路径共用形状)。 */
   async function writeTodo(updated: TodoCard): Promise<Result<TodoCard>> {
     state = {
@@ -724,7 +734,7 @@ export async function createBookmarkStore(
     },
 
     async renameTodo(id: TodoId, title: string): Promise<Result<TodoCard>> {
-      const card = state.todos?.find((t) => t.id === id);
+      const card = findTodoCard(id);
       if (!card) return { ok: false, error: "todo-not-found" };
       // inline 快改语义:空文本回退缺省标题,不报错(与分组表单报错分道)
       const next = title.trim() || DEFAULT_TODO_TITLE;
@@ -743,7 +753,7 @@ export async function createBookmarkStore(
     },
 
     async addTodoItem(todoId: TodoId, text: string): Promise<Result<TodoCard>> {
-      const card = state.todos?.find((t) => t.id === todoId);
+      const card = findTodoCard(todoId);
       if (!card) return { ok: false, error: "todo-not-found" };
       const trimmed = text.trim();
       if (!trimmed) return { ok: false, error: "empty-todo-text" };
@@ -767,9 +777,9 @@ export async function createBookmarkStore(
       itemId: TodoId,
       text: string
     ): Promise<Result<TodoCard>> {
-      const card = state.todos?.find((t) => t.id === todoId);
+      const card = findTodoCard(todoId);
       if (!card) return { ok: false, error: "todo-not-found" };
-      if (!card.items.some((i) => i.id === itemId))
+      if (!todoItemExists(card, itemId))
         return { ok: false, error: "todo-item-not-found" };
       const trimmed = text.trim();
       if (!trimmed) return { ok: false, error: "empty-todo-text" };
@@ -785,7 +795,7 @@ export async function createBookmarkStore(
       todoId: TodoId,
       itemId: TodoId
     ): Promise<Result<TodoCard>> {
-      const card = state.todos?.find((t) => t.id === todoId);
+      const card = findTodoCard(todoId);
       if (!card) return { ok: false, error: "todo-not-found" };
       const target = card.items.find((i) => i.id === itemId);
       if (!target) return { ok: false, error: "todo-item-not-found" };
@@ -809,9 +819,9 @@ export async function createBookmarkStore(
       todoId: TodoId,
       itemId: TodoId
     ): Promise<Result<TodoCard>> {
-      const card = state.todos?.find((t) => t.id === todoId);
+      const card = findTodoCard(todoId);
       if (!card) return { ok: false, error: "todo-not-found" };
-      if (!card.items.some((i) => i.id === itemId))
+      if (!todoItemExists(card, itemId))
         return { ok: false, error: "todo-item-not-found" };
       return writeTodo({
         ...card,
@@ -823,7 +833,7 @@ export async function createBookmarkStore(
       todoId: TodoId,
       itemIds: readonly TodoId[]
     ): Promise<Result<TodoCard>> {
-      const card = state.todos?.find((t) => t.id === todoId);
+      const card = findTodoCard(todoId);
       if (!card) return { ok: false, error: "todo-not-found" };
       if (itemIds.some((id) => !card.items.some((i) => i.id === id)))
         return { ok: false, error: "todo-item-not-found" };

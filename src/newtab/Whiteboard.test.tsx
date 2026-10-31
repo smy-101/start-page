@@ -608,7 +608,7 @@ describe("白板模式门禁(board-whiteboard/03)", () => {
       dragBy(groupA, { x: 30, y: 40 }, { x: 101, y: 90 });
       expect(queryNudge()).toBeInTheDocument();
       expect(
-        screen.getByText("布局已锁定,进入白板模式后才能拖动分组")
+        screen.getByText("布局已锁定,进入白板模式后才能拖动分组和待办卡")
       ).toBeInTheDocument();
 
       // 松手不清引导,由 4s 计时消隐

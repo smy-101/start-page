@@ -174,7 +174,7 @@ describe("白板画布门禁 + nudge(board-whiteboard/03)", () => {
     });
     expect(queryNudge()).toBeInTheDocument();
     expect(
-      screen.getByText("布局已锁定,进入白板模式后才能拖动分组")
+      screen.getByText("布局已锁定,进入白板模式后才能拖动分组和待办卡")
     ).toBeInTheDocument();
 
     // 一键进入:头部开关翻到「完成」,编辑控件出现,nudge 消隐

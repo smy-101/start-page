@@ -671,7 +671,7 @@ export function Whiteboard({
     <div className="whiteboard">
       {nudge && (
         <p className="whiteboard-nudge" role="status">
-          布局已锁定,进入白板模式后才能拖动分组
+          布局已锁定,进入白板模式后才能拖动分组和待办卡
           <button
             type="button"
             className="whiteboard-nudge-enter"

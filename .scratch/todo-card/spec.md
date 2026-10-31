@@ -1,6 +1,6 @@
 # 待办卡:画布第二种卡片(todo-card)
 
-Status: in-progress
+Status: done
 
 > 四工单全部落地(2026-10-30)。
 
@@ -68,9 +68,11 @@ interface TodoCard {
 - 新组件 `TodoSection`(memo,同 GroupSection 契约):卡头标题 + 条目列表;
   `.todo` 区块类(Pointer 拖拽委托选择器扩为 `.group, .todo`)。
 - 日常态:勾选框可点;无删除/编辑/添加控件、无 grab。
-- 白板模式:条目悬停删除钮、点文字就地编辑、卡底输入框回车添加、
+- 白板模式:条目悬停删除钮(卡内)、点文字就地编辑、卡底输入框回车添加、
   点标题改名、条目 HTML5 DnD 卡内排序(自含实现,不动 useCardDnD——
-  那是收藏专用深 module)。
+  那是收藏专用深 module);删卡钮在卡头(非工具行;创建入口在工具行)。
+- 卡头「未完成 N 项」计数与空态文案「暂无待办」:与组头计数/「还没有收藏」
+  同语言(code-review 补记,2026-10-30);nudge 文案覆盖待办卡。
 - Whiteboard:登记表纳入待办 id(量高/画布高/吸附 others/自动整理装箱,
   宽恒 `CARD_W`);工具行加「新建待办」;搜索过滤态隐藏待办卡
   (`filterState` 丢 todos,同「无命中分组隐藏」口径)。
