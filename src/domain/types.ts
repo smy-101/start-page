@@ -156,6 +156,9 @@ export const INBOX_GROUP_NAME = "收集箱";
 /** 收集箱的默认颜色(浅色蓝,深浅色下均可辨识)。 */
 export const INBOX_GROUP_COLOR = "#3b82f6";
 
+/** 待办卡缺省标题(ADR-0006):新建缺省、改名空文本回退。 */
+export const DEFAULT_TODO_TITLE = "待办";
+
 /**
  * 收集箱分组唯一构造:初始状态、损坏修复(补缺,order -1 排最前)、
  * 导入空态等全部引导处共用同一形状,不再各自手写字面量。

@@ -7,7 +7,7 @@ import {
   statesEqual,
 } from "./store";
 import { createMemoryStorage } from "../storage/memoryStorage";
-import { CARD_W } from "./canvas";
+import { CARD_W, MAX_CANVAS_W } from "./canvas";
 import type { BookmarkState } from "./types";
 
 describe("收藏库初始化", () => {
@@ -1137,5 +1137,211 @@ describe("待办卡:初始化、状态相等与初始态判定(schema v8,todo-ca
 
   it("isFreshInstallState:仅收集箱、零收藏、但有待办卡 → 非初始态", () => {
     expect(isFreshInstallState(freshWith([todoCard()]))).toBe(false);
+  });
+});
+
+describe("待办卡 CRUD 与落点写回(todo-card/02)", () => {
+  /** 预置库:收集箱 (0,0) + 待办卡 t-1「采购」(咖啡豆未完成、滤纸已完成)。 */
+  async function todoed() {
+    const base = createMemoryStorage({
+      schemaVersion: SCHEMA_VERSION,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+      todos: [
+        {
+          id: "t-1",
+          title: "采购",
+          order: 0,
+          x: 405,
+          y: 0,
+          items: [
+            { id: "ti-1", text: "买咖啡豆", done: false, order: 0 },
+            { id: "ti-2", text: "买滤纸", done: true, order: 1 },
+          ],
+        },
+      ],
+    });
+    const save = vi.fn(base.save.bind(base));
+    const adapter = Object.assign({}, base, { save });
+    const store = await createBookmarkStore(adapter);
+    return { store, save, adapter };
+  }
+
+  /** 卡内条目序的紧凑断言形状:[[id, done, order], …](数组序即展示序)。 */
+  function itemRows(card: {
+    items: { id: string; done: boolean; order: number }[];
+  }) {
+    return card.items.map((i) => [i.id, i.done, i.order]);
+  }
+
+  it("createTodo:缺省标题「待办」、空条目、落画布底部追加、order 递增、落盘", async () => {
+    const { store } = await todoed();
+    const created = await store.createTodo();
+    expect(created).toMatchObject({
+      ok: true,
+      value: { title: "待办", items: [], order: 1 },
+    });
+    // 收集箱 (0,0) 代理高 48 + t-1 (y=0) → 底部 48;追加位 x=0
+    expect(created.ok && created.value).toMatchObject({ x: 0, y: 48 });
+    const second = await store.createTodo();
+    expect(second).toMatchObject({ ok: true, value: { order: 2, y: 96 } });
+  });
+
+  it("renameTodo:修剪;空文本回退「待办」;未知 id 拒", async () => {
+    const { store } = await todoed();
+    expect(await store.renameTodo("t-1", "  補貨  ")).toMatchObject({
+      ok: true,
+      value: { title: "補貨" },
+    });
+    expect(await store.renameTodo("t-1", "   ")).toMatchObject({
+      ok: true,
+      value: { title: "待办" },
+    });
+    expect(await store.renameTodo("t-x", "x")).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("deleteTodo:删除无痕(不进收集箱、其余不动);未知 id 拒", async () => {
+    const { store } = await todoed();
+    expect(await store.deleteTodo("t-1")).toEqual({ ok: true, value: "t-1" });
+    expect(store.getState().todos).toEqual([]);
+    expect(store.getState().groups).toHaveLength(1);
+    expect(await store.deleteTodo("t-1")).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("addTodoItem:插到未完成区末(完成区让位);空文本拒;未知卡拒", async () => {
+    const { store } = await todoed();
+    const added = await store.addTodoItem("t-1", "  买奶  ");
+    if (!added.ok) throw new Error("预置失败");
+    const milk = added.value.items.find((i) => i.text === "买奶")!;
+    expect(itemRows(added.value)).toEqual([
+      ["ti-1", false, 0],
+      [milk.id, false, 1],
+      ["ti-2", true, 2],
+    ]);
+    expect(await store.addTodoItem("t-1", "   ")).toEqual({
+      ok: false,
+      error: "empty-todo-text",
+    });
+    expect(await store.addTodoItem("t-x", "x")).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("toggleTodoItem:未完成→完成沉底(完成区末);完成→未完成回升(未完成区末)", async () => {
+    const { store } = await todoed();
+    const added = await store.addTodoItem("t-1", "买奶");
+    if (!added.ok) throw new Error("预置失败");
+    const milk = added.value.items.find((i) => i.text === "买奶")!.id;
+    const sunk = await store.toggleTodoItem("t-1", "ti-1");
+    expect(sunk.ok && itemRows(sunk.value)).toEqual([
+      [milk, false, 0],
+      ["ti-2", true, 1],
+      ["ti-1", true, 2],
+    ]);
+    const raised = await store.toggleTodoItem("t-1", "ti-2");
+    expect(raised.ok && itemRows(raised.value)).toEqual([
+      [milk, false, 0],
+      ["ti-2", false, 1],
+      ["ti-1", true, 2],
+    ]);
+    expect(await store.toggleTodoItem("t-1", "ti-x")).toEqual({
+      ok: false,
+      error: "todo-item-not-found",
+    });
+  });
+
+  it("editTodoItem:修剪;空文本拒;未知条目/卡拒", async () => {
+    const { store } = await todoed();
+    expect(await store.editTodoItem("t-1", "ti-1", " 买豆子 ")).toMatchObject({
+      ok: true,
+      value: {
+        items: [expect.objectContaining({ text: "买豆子" }), expect.anything()],
+      },
+    });
+    expect(await store.editTodoItem("t-1", "ti-1", " ")).toEqual({
+      ok: false,
+      error: "empty-todo-text",
+    });
+    expect(await store.editTodoItem("t-1", "ti-x", "x")).toEqual({
+      ok: false,
+      error: "todo-item-not-found",
+    });
+    expect(await store.editTodoItem("t-x", "ti-1", "x")).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("removeTodoItem:删除后重排 0..n−1;未知拒", async () => {
+    const { store } = await todoed();
+    const removed = await store.removeTodoItem("t-1", "ti-1");
+    expect(removed.ok && itemRows(removed.value)).toEqual([["ti-2", true, 0]]);
+    expect(await store.removeTodoItem("t-1", "ti-x")).toEqual({
+      ok: false,
+      error: "todo-item-not-found",
+    });
+  });
+
+  it("reorderTodoItems:按给定序重排(自由摆放,完成项可越未完成);非法排列拒", async () => {
+    const { store } = await todoed();
+    const reordered = await store.reorderTodoItems("t-1", ["ti-2", "ti-1"]);
+    expect(reordered.ok && itemRows(reordered.value)).toEqual([
+      ["ti-2", true, 0],
+      ["ti-1", false, 1],
+    ]);
+    expect(await store.reorderTodoItems("t-1", ["ti-1"])).toEqual({
+      ok: false,
+      error: "invalid-todo-order",
+    });
+    expect(await store.reorderTodoItems("t-1", ["ti-1", "ti-1"])).toEqual({
+      ok: false,
+      error: "invalid-todo-order",
+    });
+    expect(await store.reorderTodoItems("t-1", ["ti-1", "ti-x"])).toEqual({
+      ok: false,
+      error: "todo-item-not-found",
+    });
+  });
+
+  it("setTodoPositions:钳界写回;未知整批拒;无变化不落盘;空批成功", async () => {
+    const { store, save } = await todoed();
+    save.mockClear();
+
+    const moved = await store.setTodoPositions([{ id: "t-1", x: 5000, y: -3 }]);
+    expect(moved).toMatchObject({
+      ok: true,
+      value: [{ x: MAX_CANVAS_W - CARD_W, y: 0 }],
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    const before = store.getState();
+    await store.setTodoPositions([
+      { id: "t-1", x: MAX_CANVAS_W - CARD_W, y: 0 },
+    ]);
+    expect(store.getState()).toBe(before);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    expect(await store.setTodoPositions([{ id: "t-x", x: 0, y: 0 }])).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+    expect(await store.setTodoPositions([])).toMatchObject({ ok: true });
+    expect(save).toHaveBeenCalledTimes(1);
   });
 });

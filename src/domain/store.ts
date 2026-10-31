@@ -7,9 +7,13 @@ import type {
   GroupId,
   Result,
   StorageAdapter,
+  TodoCard,
+  TodoId,
+  TodoItem,
 } from "./types";
 import {
   createInboxGroup,
+  DEFAULT_TODO_TITLE,
   INBOX_GROUP_ID,
   nextOrder,
   SCHEMA_VERSION,
@@ -17,6 +21,7 @@ import {
 import { normalizeUrl } from "./url";
 import { migrateState } from "./migrations";
 import {
+  CARD_W,
   MAX_GROUP_COLUMNS,
   appendPositions,
   canvasBoundWidth,
@@ -58,6 +63,13 @@ export interface NewGroupInput {
 /** 白板落点写回条目:分组 id + 画布坐标(px)。 */
 export interface GroupPositionInput {
   id: GroupId;
+  x: number;
+  y: number;
+}
+
+/** 待办卡落点写回条目(todo-card):与分组同形状,钳界按定宽 CARD_W。 */
+export interface TodoPositionInput {
+  id: TodoId;
   x: number;
   y: number;
 }
@@ -119,6 +131,42 @@ export interface BookmarkStore {
     groupId?: GroupId,
     index?: number
   ): Promise<Result<Bookmark>>;
+
+  // ---- 待办卡(todo-card,ADR-0006;日常态仅勾选开放,其余编辑锁白板模式) ----
+
+  /** 新建待办卡:缺省标题「待办」、空条目,落画布底部追加(推算含分组+待办)。 */
+  createTodo(): Promise<Result<TodoCard>>;
+  /** 改标题:修剪;空文本回退「待办」(inline 快改,不报错);同名不落盘。 */
+  renameTodo(id: TodoId, title: string): Promise<Result<TodoCard>>;
+  /** 删卡:直接删,不进收集箱、无确认。 */
+  deleteTodo(id: TodoId): Promise<Result<TodoId>>;
+  /** 加条目:修剪后非空;插到未完成区末(完成区整体让位到其后)。 */
+  addTodoItem(todoId: TodoId, text: string): Promise<Result<TodoCard>>;
+  /** 改条目文本:修剪;空拒;位置/完成态不动。 */
+  editTodoItem(
+    todoId: TodoId,
+    itemId: TodoId,
+    text: string
+  ): Promise<Result<TodoCard>>;
+  /**
+   * 勾选/取消:翻转后归入对应区末——完成→完成区末(沉底),
+   * 取消→未完成区末(回升);toggle 是唯一沉底执行者,手工排序自由。
+   */
+  toggleTodoItem(todoId: TodoId, itemId: TodoId): Promise<Result<TodoCard>>;
+  /** 删条目:余下重排 0..n−1。 */
+  removeTodoItem(todoId: TodoId, itemId: TodoId): Promise<Result<TodoCard>>;
+  /** 卡内排序:给定全量条目 id 新序(自由摆放,可越完成/未完成界),重排 0..n−1。 */
+  reorderTodoItems(
+    todoId: TodoId,
+    itemIds: readonly TodoId[]
+  ): Promise<Result<TodoCard>>;
+  /**
+   * 待办卡落点批量写回(白板拖拽松手/自动整理):坐标经 clampToCanvas
+   * 钳回(右界按定宽 CARD_W);任何未知 id 整批拒绝;无变化不落盘。
+   */
+  setTodoPositions(
+    positions: readonly TodoPositionInput[]
+  ): Promise<Result<TodoCard[]>>;
 }
 
 function initialState(): BookmarkState {
@@ -239,6 +287,16 @@ export function isFreshInstallState(state: BookmarkState): boolean {
   );
 }
 
+/**
+ * 待办条目重排(todo-card):按数组序重写 order 为 0..n−1
+ * (数组序即展示序,未变项保持原对象引用);一切写路径的收尾其同步。
+ */
+function renumberTodoItems(items: readonly TodoItem[]): TodoItem[] {
+  return items.map((item, i) =>
+    item.order === i ? item : { ...item, order: i }
+  );
+}
+
 export async function createBookmarkStore(
   adapter: StorageAdapter
 ): Promise<BookmarkStore> {
@@ -289,6 +347,18 @@ export async function createBookmarkStore(
     return nextOrder(
       state.bookmarks.filter((b) => b.groupId === groupId).map((b) => b.order)
     );
+  }
+
+  /** 待办卡整卡替换后落盘并返回新卡(todo-card 写路径共用形状)。 */
+  async function writeTodo(updated: TodoCard): Promise<Result<TodoCard>> {
+    state = {
+      ...state,
+      todos: (state.todos ?? []).map((t) =>
+        t.id === updated.id ? updated : t
+      ),
+    };
+    await adapter.save(state);
+    return { ok: true, value: updated };
   }
 
   function nextGroupOrder(): number {
@@ -634,6 +704,170 @@ export async function createBookmarkStore(
       state = { ...state, bookmarks };
       await adapter.save(state);
       return { ok: true, value: byId.get(id)! };
+    },
+
+    // ---- 待办卡(todo-card,ADR-0006)----
+
+    async createTodo(): Promise<Result<TodoCard>> {
+      const todos = state.todos ?? [];
+      const card: TodoCard = {
+        id: crypto.randomUUID(),
+        title: DEFAULT_TODO_TITLE,
+        items: [],
+        order: nextOrder(todos.map((t) => t.order)),
+        // 默认落位:画布底部左侧追加(推算含分组与既有待办,同新建分组口径)
+        ...appendPositions([...state.groups, ...todos])[0],
+      };
+      state = { ...state, todos: [...todos, card] };
+      await adapter.save(state);
+      return { ok: true, value: card };
+    },
+
+    async renameTodo(id: TodoId, title: string): Promise<Result<TodoCard>> {
+      const card = state.todos?.find((t) => t.id === id);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      // inline 快改语义:空文本回退缺省标题,不报错(与分组表单报错分道)
+      const next = title.trim() || DEFAULT_TODO_TITLE;
+      if (next === card.title) return { ok: true, value: card };
+      return writeTodo({ ...card, title: next });
+    },
+
+    async deleteTodo(id: TodoId): Promise<Result<TodoId>> {
+      const todos = state.todos ?? [];
+      if (!todos.some((t) => t.id === id))
+        return { ok: false, error: "todo-not-found" };
+      // 直接删,不进收集箱(收集箱语义专属收藏,ADR-0006)
+      state = { ...state, todos: todos.filter((t) => t.id !== id) };
+      await adapter.save(state);
+      return { ok: true, value: id };
+    },
+
+    async addTodoItem(todoId: TodoId, text: string): Promise<Result<TodoCard>> {
+      const card = state.todos?.find((t) => t.id === todoId);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      const trimmed = text.trim();
+      if (!trimmed) return { ok: false, error: "empty-todo-text" };
+      // 新条目恒未完成:插到未完成区末(完成区整体让位到其后)
+      const undone = card.items.filter((i) => !i.done);
+      const done = card.items.filter((i) => i.done);
+      const item: TodoItem = {
+        id: crypto.randomUUID(),
+        text: trimmed,
+        done: false,
+        order: 0,
+      };
+      return writeTodo({
+        ...card,
+        items: renumberTodoItems([...undone, item, ...done]),
+      });
+    },
+
+    async editTodoItem(
+      todoId: TodoId,
+      itemId: TodoId,
+      text: string
+    ): Promise<Result<TodoCard>> {
+      const card = state.todos?.find((t) => t.id === todoId);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      if (!card.items.some((i) => i.id === itemId))
+        return { ok: false, error: "todo-item-not-found" };
+      const trimmed = text.trim();
+      if (!trimmed) return { ok: false, error: "empty-todo-text" };
+      return writeTodo({
+        ...card,
+        items: card.items.map((i) =>
+          i.id === itemId ? { ...i, text: trimmed } : i
+        ),
+      });
+    },
+
+    async toggleTodoItem(
+      todoId: TodoId,
+      itemId: TodoId
+    ): Promise<Result<TodoCard>> {
+      const card = state.todos?.find((t) => t.id === todoId);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      const target = card.items.find((i) => i.id === itemId);
+      if (!target) return { ok: false, error: "todo-item-not-found" };
+      // 沉底/回升:翻转后归入对应区末——完成→完成区末(整体沉底),
+      // 取消→未完成区末(回升到完成区之前);其余相对序不动
+      const others = card.items.filter((i) => i.id !== itemId);
+      const undone = others.filter((i) => !i.done);
+      const done = others.filter((i) => i.done);
+      const flipped: TodoItem = { ...target, done: !target.done };
+      return writeTodo({
+        ...card,
+        items: renumberTodoItems(
+          flipped.done
+            ? [...undone, ...done, flipped]
+            : [...undone, flipped, ...done]
+        ),
+      });
+    },
+
+    async removeTodoItem(
+      todoId: TodoId,
+      itemId: TodoId
+    ): Promise<Result<TodoCard>> {
+      const card = state.todos?.find((t) => t.id === todoId);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      if (!card.items.some((i) => i.id === itemId))
+        return { ok: false, error: "todo-item-not-found" };
+      return writeTodo({
+        ...card,
+        items: renumberTodoItems(card.items.filter((i) => i.id !== itemId)),
+      });
+    },
+
+    async reorderTodoItems(
+      todoId: TodoId,
+      itemIds: readonly TodoId[]
+    ): Promise<Result<TodoCard>> {
+      const card = state.todos?.find((t) => t.id === todoId);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      if (itemIds.some((id) => !card.items.some((i) => i.id === id)))
+        return { ok: false, error: "todo-item-not-found" };
+      if (
+        itemIds.length !== card.items.length ||
+        new Set(itemIds).size !== itemIds.length
+      )
+        return { ok: false, error: "invalid-todo-order" };
+      // 自由摆放:完成/未完成可交错(下一次 toggle 才重新沉底)
+      const byId = new Map(card.items.map((i) => [i.id, i] as const));
+      return writeTodo({
+        ...card,
+        items: renumberTodoItems(itemIds.map((id) => byId.get(id)!)),
+      });
+    },
+
+    async setTodoPositions(
+      positions: readonly TodoPositionInput[]
+    ): Promise<Result<TodoCard[]>> {
+      const todos = state.todos ?? [];
+      if (positions.length === 0) return { ok: true, value: todos };
+      if (positions.some((p) => !todos.some((t) => t.id === p.id)))
+        return { ok: false, error: "todo-not-found" };
+      // 定宽 CARD_W 钳右界(自动档按上限,实际渲染宽由组件先行钳过)
+      const width = canvasBoundWidth(state);
+      const byId = new Map(
+        positions.map((p) => {
+          const clamped = clampToCanvas({ x: p.x, y: p.y }, width, CARD_W);
+          return [p.id, clamped] as const;
+        })
+      );
+      let changed = false;
+      const next = todos.map((t) => {
+        const pos = byId.get(t.id);
+        if (pos && (pos.x !== t.x || pos.y !== t.y)) {
+          changed = true;
+          return { ...t, ...pos };
+        }
+        return t;
+      });
+      if (!changed) return { ok: true, value: todos };
+      state = { ...state, todos: next };
+      await adapter.save(state);
+      return { ok: true, value: next };
     },
   };
 }
