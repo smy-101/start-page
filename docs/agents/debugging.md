@@ -19,50 +19,25 @@ CRXJS dev 会话只把 **JS** 写入 `dist/`、**CSS 走 HMR 内存注入**—�
 ## 视觉走查流程(静态构建 → Windows HTTP → MCP 断言)
 
 1. `npx vite build --config vite.preview.config.ts`——`preview/` harness 含 chrome-shim + 内存存储 + 中文种子数据(场景卡在 `preview/main.tsx` 里按需增改),不依赖扩展 API。完成标准:产物出现在 `sp-preview-build/`。
-2. 产物拷到 Windows 可见目录,并写入静态服务脚本(模板见下):
+2. 产物拷到 Windows 可见目录,并把 `scripts/serve-preview.ps1`(权威实现,带请求/错误日志)一并拷入;**拷文件,不要从文档转写**——转写笔误 + 空 catch 吞错曾把 1 秒的启动失败变成无限悬挂,症状是 curl 000 + CLOSE_WAIT 堆积:
    ```bash
    W=/mnt/c/Users/Lenovo/Downloads/sp-preview
    mkdir -p "$W"
-   cp -r sp-preview-build/preview/index.html sp-preview-build/assets "$W"/
-   # serve.ps1 模板写入 $W/serve.ps1(见下节)
-   powershell.exe -NoProfile -Command "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\Lenovo\Downloads\sp-preview\serve.ps1'"
+   cp -r sp-preview-build/preview/index.html sp-preview-build/assets scripts/serve-preview.ps1 "$W"/
+   powershell.exe -NoProfile -Command "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\Lenovo\Downloads\sp-preview\serve-preview.ps1'"
    ```
-   完成标准:`powershell.exe` 侧 `Invoke-WebRequest http://127.0.0.1:8777/` 返回 200。
+   完成标准:探活返回 200。探活一律用 `curl.exe`(PS5 的 `Invoke-WebRequest` 无 `-UseBasicParsing` 时走 IE 解析会悬挂,别用);排障先读 `$W/serve.log`。
 3. MCP `new_page` 打开 `http://127.0.0.1:8777/`,用 `evaluate_script` 做数值断言(几何、aria、点击回调)。完成标准:每个被测行为有一处断言输出。
 4. 清理:杀 serve.ps1 宿主 + 删 `$W` 目录 + 删 WSL 侧 `sp-preview-build/` + 杀 WSL 侧残留 vite 进程(`ps aux | grep "[v]ite"`)。完成标准:8777 不再监听,`sp-preview-build/` 与 `$W` 均不存在。
-   - **HttpListener 假 PID**:8777 的 LISTEN 归属是 PID 4(http.sys 内核代理),`Stop-Process` 杀不动 System——真正宿主是隐藏 powershell,按命令行找再杀:
+   - **HttpListener 假 PID**:8777 的 LISTEN 归属是 PID 4(http.sys 内核代理),`Stop-Process` 杀不动 System——真正宿主是隐藏 powershell,按命令行找再杀;**查找命令自身的命令行含 `serve` 字样会自匹配**(多算 1 个,不是双宿主),排除自身或忽略末位:
      ```bash
-     powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name like 'powershell%'\" | Where-Object { \$_.CommandLine -like '*serve.ps1*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }"
+     powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name like 'powershell%'\" | Where-Object { \$_.CommandLine -like '*serve*.ps1*' -and \$_.ProcessId -ne \$PID } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }"
      ```
      一次杀出多个宿主属正常:上轮残留的死监听会被一并清掉。
 
 ## serve.ps1 模板
 
-```powershell
-$root = "C:\Users\Lenovo\Downloads\sp-preview"
-$listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add("http://127.0.0.1:8777/")
-$listener.Start()
-while ($listener.IsListening) {
-  try {
-    $ctx = $listener.GetContext()
-    $path = $ctx.Request.Url.AbsolutePath
-    if ($path -eq "/") { $path = "/index.html" }
-    $file = Join-Path $root ($path -replace "/", "\")
-    if (Test-Path $file -PathType Leaf) {
-      $bytes = [IO.File]::ReadAllBytes($file)
-      $mime = switch ([IO.Path]::GetExtension($file)) {
-        ".html" {"text/html"} ".js" {"text/javascript"} ".css" {"text/css"}
-        ".svg" {"image/svg+xml"} ".png" {"image/png"} default {"application/octet-stream"}
-      }
-      $ctx.Response.ContentType = $mime
-      $ctx.Response.ContentLength64 = $bytes.Length
-      $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-    } else { $ctx.Response.StatusCode = 404 }
-    $ctx.Response.Close()
-  } catch { }
-}
-```
+模板已升格为仓库文件 `scripts/serve-preview.ps1`(参数化端口/根目录、带 serve.log 请求与错误日志)。本节仅存档指向,勿在此转录副本——两份副本必漂移。
 
 ## evaluate_script 坑
 

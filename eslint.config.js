@@ -18,6 +18,17 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node, chrome: "readonly" } },
   },
   {
+    files: ["src/**"],
+    rules: {
+      // `_` 前缀 = 有意弃用的解构余量(如 normalizeTodoCard 剥字段),
+      // 与 @typescript-eslint 通行约定对齐(2026-10-31 retro)
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { varsIgnorePattern: "^_", argsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
     files: ["src/domain/**"],
     rules: {
       "no-restricted-syntax": [
