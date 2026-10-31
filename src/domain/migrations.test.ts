@@ -793,6 +793,22 @@ describe("迁移 v9→v10:待办卡自由宽(todo-card-size-color 调校)", () =
       migrated.todos!.every((t) => (t as { span?: number }).span === undefined)
     ).toBe(true);
   });
+
+  it("修复:非数值宽(字符串/null)归缺省 389——迁移路径不走恢复式 min 强转(todo-review-followups/02)", () => {
+    const broken = {
+      ...v9State([], SCHEMA_VERSION),
+      todos: [
+        { id: "t1", title: "a", order: 0, x: 0, y: 0, items: [], width: "400" },
+        { id: "t2", title: "b", order: 1, x: 0, y: 0, items: [], width: null },
+      ],
+    } as unknown as BookmarkState;
+    const migrated = migrateState(broken);
+    // 与抽取前逐字一致:clampTodoWidth 的 isFinite 分支兜底,不因
+    // normalizeTodoCard 的 bound 参数引入 Math.min 隐式强转
+    expect(migrated.todos!.map((t) => (t as { width?: number }).width)).toEqual(
+      [389, 389]
+    );
+  });
 });
 
 describe("迁移 v10→v11:待办卡定长高(todo-height-archive)", () => {

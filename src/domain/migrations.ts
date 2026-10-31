@@ -201,10 +201,17 @@ export function normalizeTodoCard<S extends TodoCard>(
   delete rest.width;
   delete rest.color;
   delete rest.height;
+  // bound 只在恢复路径给出:Math.min 仅数值宽参与,保持两条旧路径各自的
+  // 垃圾宽口径——迁移(无 bound)直入 clampTodoWidth(非有限→389);
+  // 恢复(有 bound)沿旧式先 min(字符串等垃圾随旧语义隐式强转)
   const clampedWidth =
     width === undefined
       ? undefined
-      : clampTodoWidth(Math.min(width as number, opts?.bound ?? Infinity));
+      : clampTodoWidth(
+          typeof width === "number" && opts?.bound !== undefined
+            ? Math.min(width, opts.bound)
+            : (width as number)
+        );
   const clampedHeight =
     typeof height === "number" && Number.isFinite(height)
       ? clampTodoHeight(height)

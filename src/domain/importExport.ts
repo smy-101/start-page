@@ -495,10 +495,8 @@ function restoreFrom(backup: BookmarkState): {
         tRaw.width ??
         (tRaw.span !== undefined ? legacySpanWidth(tRaw.span) : undefined);
       const normalized = normalizeTodoCard({ ...tRaw, width: raw }, { bound });
-      const width =
-        (normalized as { width?: number }).width === undefined
-          ? CARD_W
-          : (normalized as { width?: number }).width;
+      // 宽缺省时钳界参按 CARD_W(仅作 clampToCanvas 入参,不物化进状态)
+      const width = (normalized as { width?: number }).width ?? CARD_W;
       return { ...normalized, ...clampToCanvas(tRaw, bound, width) };
     }
   );
