@@ -9,7 +9,7 @@ type TodoSectionProps = {
   todo: TodoCard;
   /** 画布坐标(ADR-0006):与分组卡同语义,x/y 入库;null 时不定位 */
   placement: CanvasPos | null;
-  /** 白板模式:唯一开增删改/改名/拖拽的门禁(ADR-0004);日常态仅勾选开放 */
+  /** 白板模式:开删改/改名/拖拽的门禁(ADR-0004);日常态开勾选与添加两洞 */
   whiteboardMode: boolean;
   /** 白板 Pointer 拖拽中且本卡是被拖卡:拖中关位移过渡(同分组卡) */
   dragActive?: boolean;
@@ -35,8 +35,8 @@ type TodoSectionProps = {
 /**
  * 待办卡(ADR-0006,todo-card):画布上与分组卡并排的清单卡——
  * 标题 + 可勾选条目;完成项划线沉卡底(顺序由 store 维护,组件纯展示)。
- * 门禁:日常态仅勾选/取消可点(唯一开放的交互);添加/删除/改文本/改名/
- * 卡内拖拽排序只在白板模式。中性配色不用分组色(收藏容器的视觉语言),
+ * 门禁:日常态开勾选/取消与添加条目两个洞(ADR-0006 补记);删除/改文本/
+ * 改名/卡内拖拽排序只在白板模式。中性配色不用分组色(收藏容器的视觉语言),
  * 定宽 CARD_W 无档位。memo:props 未变时跳过重渲染(同 GroupSection)。
  * 条目排序为 HTML5 DnD(自含实现,与收藏的 useCardDnD 分立——
  * 那是跨组移动的深 module,卡内单容器不背它的形状)。
@@ -270,23 +270,19 @@ export const TodoSection = memo(function TodoSection({
           <li className="todo-drop-indicator" aria-hidden="true" />
         )}
       </ul>
-      {todo.items.length === 0 && !whiteboardMode && (
-        <p className="todo-empty">暂无待办</p>
-      )}
-      {whiteboardMode && (
-        <input
-          className="todo-add"
-          type="text"
-          placeholder="添加待办…"
-          value={addText}
-          onChange={(e) => setAddText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void submitAdd();
-          }}
-          aria-label="添加待办"
-          autoComplete="off"
-        />
-      )}
+      {/* 卡尾常驻添加行(ADR-0006 补记,两态同款):回车即加,静默清空;空卡无占位提示,输入框即是 */}
+      <input
+        className="todo-add"
+        type="text"
+        placeholder="添加待办…"
+        value={addText}
+        onChange={(e) => setAddText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void submitAdd();
+        }}
+        aria-label="添加待办"
+        autoComplete="off"
+      />
     </section>
   );
 });

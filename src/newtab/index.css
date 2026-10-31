@@ -1493,7 +1493,7 @@ button[type="submit"]:hover {
   animation: drop-hint-in 120ms var(--ease-out);
 }
 
-/* 底部添加行:白板模式挂载;回车即加,静默清空 */
+/* 底部添加行(ADR-0006 补记起两态常驻);回车即加,静默清空 */
 .todo-add {
   display: block;
   width: 100%;
@@ -1513,13 +1513,6 @@ button[type="submit"]:hover {
 .todo-add:focus-visible {
   outline: none;
   border: 1px solid var(--fg);
-}
-
-/* 日常态空卡占位(白板模式有添加行,不再叠一句) */
-.todo-empty {
-  margin: 2px 6px 4px;
-  color: var(--muted);
-  font-size: 13px;
 }
 
 /* 白板工具行(board-whiteboard/03 起仅白板模式出现):口径提示 + 自动整理 */

@@ -1,12 +1,19 @@
-import { fireEvent, render, screen, act } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TodoSection } from "./TodoSection";
 import { CARD_W } from "../domain/canvas";
 import type { Result, TodoCard, TodoId } from "../domain/types";
 
 /**
- * 待办卡组件(todo-card/03):渲染 + 门禁(ADR-0006)——
- * 日常态仅勾选开放;增删改/改名/拖拽排序只在白板模式出现。
+ * 待办卡组件(todo-card/03):渲染 + 门禁(ADR-0006 及补记)——
+ * 日常态开勾选与添加两个洞(todo-daily-add);删改/改名/拖拽排序
+ * 只在白板模式出现。
  * 拖拽事件同 DropHint.test 的 MouseEvent 方案(jsdom 无 DragEvent 构造器)。
  */
 
@@ -38,15 +45,13 @@ function callbacks() {
     onDeleteTodo: vi
       .fn()
       .mockImplementation(async (id: TodoId) => ({ ok: true, value: id })),
-    onAddItem: vi
-      .fn()
-      .mockImplementation(async (id: TodoId, text: string) =>
-        ok({
-          ...card(),
-          id,
-          items: [...card().items, { id: "new", text, done: false, order: 2 }],
-        })
-      ),
+    onAddItem: vi.fn().mockImplementation(async (id: TodoId, text: string) =>
+      ok({
+        ...card(),
+        id,
+        items: [...card().items, { id: "new", text, done: false, order: 2 }],
+      })
+    ),
     onEditItem: vi
       .fn()
       .mockImplementation(
@@ -132,11 +137,16 @@ describe("TodoSection:渲染与日常态门禁", () => {
     expect(rowOf("买咖啡豆").dataset.done).toBeUndefined();
   });
 
-  it("日常态:勾选可点并回调;添加输入/删除/编辑/拖拽一律不出现", () => {
+  it("日常态:勾选与添加开放;删除/编辑/拖拽仍不出现(todo-daily-add)", async () => {
     const { cbs } = renderTodo();
     fireEvent.click(screen.getByRole("checkbox", { name: "买咖啡豆" }));
     expect(cbs.onToggleItem).toHaveBeenCalledWith("t-1", "ti-1");
-    expect(screen.queryByPlaceholderText("添加待办…")).toBeNull();
+    // 门禁第二洞(ADR-0006 补记):卡尾常驻添加输入框,回车即加
+    const input = screen.getByPlaceholderText("添加待办…");
+    fireEvent.change(input, { target: { value: " 买奶 " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(cbs.onAddItem).toHaveBeenCalledWith("t-1", "买奶");
+    await waitFor(() => expect(input).toHaveValue(""));
     expect(screen.queryByTitle("删除待办条目")).toBeNull();
     expect(screen.queryByTitle("删除待办卡")).toBeNull();
     expect(rowOf("买咖啡豆").draggable).toBe(false);
@@ -147,9 +157,10 @@ describe("TodoSection:渲染与日常态门禁", () => {
     expect(screen.queryByDisplayValue("买咖啡豆")).toBeNull();
   });
 
-  it("日常态空卡:标题 + 「暂无待办」占位", () => {
+  it("日常态空卡:添加输入框替代「暂无待办」占位(todo-daily-add)", () => {
     renderTodo(card({ items: [] }));
-    expect(screen.getByText("暂无待办")).toBeTruthy();
+    expect(screen.queryByText("暂无待办")).toBeNull();
+    expect(screen.getByPlaceholderText("添加待办…")).toBeTruthy();
   });
 });
 

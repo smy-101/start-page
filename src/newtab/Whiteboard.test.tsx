@@ -57,6 +57,7 @@ type Board = {
   onSetGroupColumns: Mock;
   onEnterWhiteboard: Mock;
   onCreateTodo: Mock;
+  onAddTodoItem: Mock;
   onToggleTodoItem: Mock;
   onSetTodoPositions: Mock;
   rerender(next: BookmarkState, overrides?: Partial<WhiteboardProps>): void;
@@ -181,6 +182,7 @@ function renderBoard(
     onSetGroupColumns,
     onEnterWhiteboard,
     onCreateTodo,
+    onAddTodoItem,
     onToggleTodoItem,
     onSetTodoPositions,
     rerender(next, extra) {
@@ -1083,7 +1085,7 @@ describe("白板:待办卡集成(todo-card/04)", () => {
     return { ...seededState(), todos: [seedTodo()] };
   }
 
-  it("待办卡渲染在画布,坐标来自存储;日常态勾选透传、无「新建待办」入口", () => {
+  it("待办卡渲染在画布,坐标来自存储;日常态勾选与添加透传、无「新建待办」入口", () => {
     const board = renderBoard(stateWithTodo());
     const todo = document.querySelector("section.todo");
     expect(todo).toBeTruthy();
@@ -1091,6 +1093,11 @@ describe("白板:待办卡集成(todo-card/04)", () => {
     expect(screen.queryByRole("button", { name: "新建待办" })).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: "买咖啡豆" }));
     expect(board.onToggleTodoItem).toHaveBeenCalledWith("t-1", "ti-1");
+    // 门禁第二洞(todo-daily-add):日常态卡尾常驻添加行,回车走通接线
+    const add = screen.getByPlaceholderText("添加待办…");
+    fireEvent.change(add, { target: { value: "买奶" } });
+    fireEvent.keyDown(add, { key: "Enter" });
+    expect(board.onAddTodoItem).toHaveBeenCalledWith("t-1", "买奶");
   });
 
   it("白板模式:工具行「新建待办」入口;搜索过滤态禁用", () => {
