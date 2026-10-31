@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createBookmarkStore } from "../domain/store";
 import { createMemoryStorage } from "../storage/memoryStorage";
-import { iconPathsFor, toolbarStateFor } from "./toolbar";
+import { iconPathsFor, initToolbar, toolbarStateFor } from "./toolbar";
 
 describe("工具栏图标选择(iconPathsFor)", () => {
   it("已收藏与未收藏同用描边位图(勾走右下角✓徽标),不可收藏用浅灰 disabled", async () => {
@@ -100,5 +100,126 @@ describe("工具栏图标状态判定(toolbarStateFor)", () => {
     expect(toolbarStateFor("https://example.com", store)).toEqual({
       kind: "unfavorited",
     });
+  });
+});
+
+/**
+ * initToolbar 点击接线(ui-refresh/01 补记):收藏/取消的首选反馈是页内
+ * toast,不可注入页面回退徽标文字一闪(FLASH_MS 后恢复常驻 ✓)。
+ * 该接线此前无测试覆盖(code-review Spec P2),此处以 chrome.* 桩驱动。
+ */
+describe("initToolbar 点击反馈接线", () => {
+  type Listener = (...args: unknown[]) => void;
+  const g = globalThis as { chrome: Record<string, unknown> };
+
+  /** 最小事件发射器(chrome.events 形状)。 */
+  function emitter() {
+    const listeners: Listener[] = [];
+    return {
+      addListener: (l: Listener) => void listeners.push(l),
+      removeListener: () => {},
+      emit: (...args: unknown[]) => listeners.forEach((l) => l(...args)),
+    };
+  }
+
+  /**
+   * 装上 chrome.* 桩:action 徽标记录 + tabs/storage 内存实现 +
+   * 可注入失败的 scripting。返回记录器与还原函数。
+   */
+  function fakeChrome(exec: () => Promise<unknown>) {
+    const data: Record<string, unknown> = {};
+    const badgeTexts: { tabId?: number; text: string }[] = [];
+    const action = {
+      setIcon: vi.fn(async () => {}),
+      setTitle: vi.fn(async () => {}),
+      setBadgeText: vi.fn(async (o: { tabId?: number; text: string }) => {
+        badgeTexts.push(o);
+      }),
+      setBadgeBackgroundColor: vi.fn(async () => {}),
+      onClicked: emitter(),
+    };
+    const tab = { id: 7, url: "https://example.com/page", title: "示例页" };
+    const executeScript = vi.fn(exec);
+    const original = g.chrome;
+    g.chrome = {
+      ...(original ?? {}),
+      action,
+      tabs: {
+        get: vi.fn(async () => tab),
+        query: vi.fn(async () => [tab]),
+        onActivated: emitter(),
+        onUpdated: emitter(),
+      },
+      scripting: { executeScript },
+      storage: {
+        local: {
+          get: vi.fn(async (key: string) =>
+            key in data ? { [key]: data[key] } : {}
+          ),
+          set: vi.fn(async (obj: Record<string, unknown>) => {
+            Object.assign(data, obj);
+          }),
+        },
+        onChanged: emitter(),
+      },
+      permissions: { contains: vi.fn(async () => false) },
+    };
+    return {
+      action,
+      executeScript,
+      badgeTexts,
+      restore: () => (g.chrome = original),
+    };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("toast 注入成功:不出徽标文字,常驻 ✓ 徽标表达已收藏", async () => {
+    vi.useFakeTimers();
+    const f = fakeChrome(async () => [{ result: undefined }]);
+    try {
+      initToolbar();
+      await vi.advanceTimersByTimeAsync(0); // 冷启动校准(refreshActiveTabIcon)
+      (f.action.onClicked as unknown as { emit: Listener }).emit({
+        id: 7,
+        url: "https://example.com/page",
+        title: "示例页",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // toast 打过;徽标只走常驻通道(收藏后 ✓),无「已收藏」文字一闪
+      expect(f.executeScript).toHaveBeenCalledTimes(1);
+      expect(f.badgeTexts.some((b) => b.text === "已收藏")).toBe(false);
+      expect(f.badgeTexts.at(-1)).toEqual({ tabId: 7, text: "✓" });
+    } finally {
+      f.restore();
+    }
+  });
+
+  it("toast 注入失败(不可注入页):回退徽标「已收藏」一闪,FLASH_MS 后恢复 ✓", async () => {
+    vi.useFakeTimers();
+    const f = fakeChrome(async () => {
+      throw new Error("cannot access contents of the page");
+    });
+    try {
+      initToolbar();
+      await vi.advanceTimersByTimeAsync(0);
+      (f.action.onClicked as unknown as { emit: Listener }).emit({
+        id: 7,
+        url: "https://example.com/page",
+        title: "示例页",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(f.badgeTexts.some((b) => b.text === "已收藏")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1200);
+      // 一闪结束:回退通道关闭,常驻 ✓ 表达已收藏
+      expect(f.badgeTexts.at(-1)).toEqual({ tabId: 7, text: "✓" });
+    } finally {
+      f.restore();
+    }
   });
 });

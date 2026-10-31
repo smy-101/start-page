@@ -5,6 +5,7 @@ import type { SettingsAdapter, Settings } from "./settings";
 import { createMemorySettingsStorage } from "./settings";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { App } from "./App";
+import { backToStartView } from "./testUtils";
 
 // App 背景接线(seam 4):settings.background → 初始页视口 CSS 变量
 // --start-background;进设置页撤下;恢复默认清除。CSS 铺法本身属浏览器行为不测。
@@ -36,12 +37,6 @@ async function renderApp(settingsAdapter?: SettingsAdapter) {
 async function openSettings() {
   fireEvent.click(screen.getByRole("button", { name: "设置" }));
   await screen.findByRole("heading", { name: "设置" });
-}
-
-async function backToStart() {
-  fireEvent.click(screen.getByRole("button", { name: "返回初始页" }));
-  // 初始页无标题(ui 移除):头部「进入白板」开关是初始页视图的标志
-  await screen.findByRole("button", { name: "进入白板" });
 }
 
 afterEach(() => {
@@ -98,7 +93,7 @@ describe("背景应用到初始页", () => {
     expect(pageBackground()).toBe("");
     expect(backgroundFlag()).toBe(false);
 
-    await backToStart();
+    await backToStartView();
     expect(pageBackground()).toBe("#d9dee5");
     expect(backgroundFlag()).toBe(true);
   });
@@ -119,7 +114,7 @@ describe("背景应用到初始页", () => {
       const saved = (await settingsAdapter.load()) as Settings;
       expect(saved.background).toEqual({ kind: "color", color: "#e9ebef" });
     });
-    await backToStart();
+    await backToStartView();
     expect(pageBackground()).toBe("#e9ebef");
 
     // 恢复默认 → 落盘并撤下
@@ -129,7 +124,7 @@ describe("背景应用到初始页", () => {
       const saved = (await settingsAdapter.load()) as Settings;
       expect(saved.background).toEqual({ kind: "default" });
     });
-    await backToStart();
+    await backToStartView();
     expect(pageBackground()).toBe("");
   });
 });

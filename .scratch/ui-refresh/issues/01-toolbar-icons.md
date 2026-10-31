@@ -15,6 +15,8 @@
 
 ## DoD
 
+> 2026-10-31 设计推翻后口径见上方 Comments 补记;下方 DoD 属原设计存档,首项按最终设计应读作:「描边(+✓徽标)/描边/浅灰三态肉眼可辨」。
+
 - [ ] 三态图标肉眼可辨(16px 下已收藏/未收藏/不可收藏互不混淆)
 - [ ] `toolbar.ts` unbookmarkable 用 disabled 图标;title/徽标行为不变
 - [ ] 单测:toolbarStateFor 三态映射不变(现有测试护住);图标路径表断言 disabled 存在

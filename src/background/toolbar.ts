@@ -113,10 +113,11 @@ export function initToolbar(): void {
     await applyIcon(tabId, state);
     // 已收藏 = 描边图标 + 右下角绿底✓徽标;其余态无徽标(不可收藏含初始页,点击无效果)
     if (touchBadge) {
+      const isFav = state.kind === "favorited";
       await setBadge(
         tabId,
-        state.kind === "favorited" ? FAVORITED_BADGE : "",
-        state.kind === "favorited" ? BADGE_COLORS.favorited : undefined
+        isFav ? FAVORITED_BADGE : "",
+        isFav ? BADGE_COLORS.favorited : undefined
       );
     }
   }

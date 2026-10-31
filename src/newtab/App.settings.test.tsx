@@ -8,6 +8,7 @@ import type { SettingsAdapter } from "./settings";
 import { createMemorySettingsStorage } from "./settings";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { App } from "./App";
+import { backToStartView } from "./testUtils";
 
 /** 模拟 chrome.bookmarks.getTree() 的真实形态(根 + 书签栏/其他书签/移动设备书签 + 根下散项)。 */
 const chromeTree: NativeBookmarkNode[] = [
@@ -78,11 +79,7 @@ describe("设置页入口与迁入", () => {
       screen.getByRole("region", { name: "导入导出" })
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "返回初始页" }));
-    // 初始页无标题(ui 移除):头部「进入白板」开关是初始页视图的标志
-    expect(
-      await screen.findByRole("button", { name: "进入白板" })
-    ).toBeInTheDocument();
+    expect(await backToStartView()).toBeInTheDocument();
   });
 
   it("初始页头部只保留齿轮:导入导出不再直接暴露,收纳于设置页(fresh 态的空状态引导除外,board-refresh/06)", async () => {
