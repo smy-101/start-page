@@ -4,6 +4,7 @@ import type {
   Group,
   Result,
   StorageAdapter,
+  TodoCard,
 } from "./types";
 import {
   createInboxGroup,
@@ -17,6 +18,7 @@ import {
 import { normalizeUrl } from "./url";
 import {
   MAX_CANVAS_W,
+  CARD_W,
   appendPositions,
   canvasWidthOf,
   clampCanvasWidth,
@@ -180,6 +182,7 @@ function emptyState(): BookmarkState {
     schemaVersion: SCHEMA_VERSION,
     groups: [createInboxGroup(0)],
     bookmarks: [],
+    todos: [],
   };
 }
 
@@ -187,13 +190,18 @@ function emptyState(): BookmarkState {
  * 合并并入:分组按名归入(同名并组、新名建组追加在后);
  * 每条收藏经唯一 normalizeUrl 路径规范化判重(与手动添加同源),
  * 重复或无效则跳过,空标题回退主机名(与手动添加同规则)。
+ * 待办卡(todo-card,v8):备份待办无天然判重键,一律按新卡追加
+ * (卡/条目 id 重生成防冲突),落画布底部追加位;HTML 导入不携带待办,
+ * 现有待办原样保留(追加位推算含分组+待办)。
  */
 function ingestInto(
   base: BookmarkState,
-  incoming: IncomingGroup[]
+  incoming: IncomingGroup[],
+  incomingTodos: readonly TodoCard[] = []
 ): { state: BookmarkState; report: ImportReport } {
   const groups = base.groups.map((g) => ({ ...g }));
   const bookmarks = base.bookmarks.map((b) => ({ ...b }));
+  const todos = (base.todos ?? []).map((t) => ({ ...t }));
   const byName = new Map(groups.map((g) => [g.name, g]));
   // 本批新建组的落位:画布底部左侧追加,连续新组按堆叠步长排开(同原型)
   const pendingPositions = appendPositions(
@@ -239,6 +247,23 @@ function ingestInto(
     }
   }
 
+  // 备份待办追加为新卡(todo-card,v8):无判重键,一律新建——卡/条目 id
+  // 重生成防冲突,内容/完成态/顺序逐字;落画布底部追加位(推算含分组
+  // 与既有待办);HTML 导入不携带待办,现部分原样透传
+  const pendingTodoPositions = appendPositions(
+    [...groups, ...todos],
+    incomingTodos.length
+  );
+  incomingTodos.forEach((todo, i) => {
+    todos.push({
+      ...todo,
+      id: crypto.randomUUID(),
+      items: todo.items.map((item) => ({ ...item, id: crypto.randomUUID() })),
+      order: nextOrder(todos.map((t) => t.order)),
+      ...pendingTodoPositions[i],
+    });
+  });
+
   return {
     // 合并保留现有画布宽(merge 只并入收藏布局不动;备份宽仅 replace 生效):
     // 固定宽钳回保留,自动档(缺省)保持自动(schema v5)
@@ -249,6 +274,7 @@ function ingestInto(
       }),
       groups,
       bookmarks,
+      todos,
     },
     report: { added, skipped },
   };
@@ -327,6 +353,38 @@ function isBookmarkShape(v: unknown): v is Bookmark {
   );
 }
 
+/** 待办条目形状(v8,todo-card):写路径保证文本非空、done 为布尔、order 为数。 */
+function isTodoItemShape(v: unknown): boolean {
+  if (typeof v !== "object" || v === null) return false;
+  const i = v as Record<string, unknown>;
+  return (
+    isNonEmptyString(i.id) &&
+    isNonEmptyString(i.text) &&
+    typeof i.done === "boolean" &&
+    typeof i.order === "number"
+  );
+}
+
+/** 待办卡形状(v8,todo-card):坐标必携(同 v3+ 分组口径);条目逐条校验。 */
+function isTodoCardShape(v: unknown): v is TodoCard {
+  if (typeof v !== "object" || v === null) return false;
+  const t = v as Record<string, unknown>;
+  return (
+    isNonEmptyString(t.id) &&
+    isNonEmptyString(t.title) &&
+    typeof t.order === "number" &&
+    typeof t.x === "number" &&
+    typeof t.y === "number" &&
+    Array.isArray(t.items) &&
+    t.items.every(isTodoItemShape)
+  );
+}
+
+/** 待办列表形状:必须是数组且逐卡合法(todo-card,v8)。 */
+function isTodoArray(v: unknown): v is TodoCard[] {
+  return Array.isArray(v) && v.every(isTodoCardShape);
+}
+
 /** 逐字段校验备份 JSON 的结构;只有完全合法的完整状态才可导入。 */
 function parseStateJson(raw: string): Result<BookmarkState> {
   let data: unknown;
@@ -358,6 +416,10 @@ function parseStateJson(raw: string): Result<BookmarkState> {
   // 画布宽(schema v4 起):可缺省(v3 及更早备份、v5 自动档),
   // 给了就必须是数字(NaN/越界在恢复时钳回,不拒收)
   if (s.canvasWidth !== undefined && typeof s.canvasWidth !== "number") {
+    return { ok: false, error: "invalid-import" };
+  }
+  // 待办卡(schema v8 起):可缺省(v7 及更早备份);给了就必须是逐卡合法的数组
+  if (s.todos !== undefined && !isTodoArray(s.todos)) {
     return { ok: false, error: "invalid-import" };
   }
   return { ok: true, value: s as unknown as BookmarkState };
@@ -422,12 +484,19 @@ function restoreFrom(backup: BookmarkState): {
         : INBOX_GROUP_ID,
     });
   }
+  // 待办卡逐字恢复(todo-card,v8):id/标题/条目/顺序原样,仅坐标按
+  // CARD_W 钳回画布(与分组同口径);v7 及更早备份缺省补空数组
+  const todos = (backup.todos ?? []).map((t) => ({
+    ...t,
+    ...clampToCanvas(t, bound, CARD_W),
+  }));
   return {
     state: {
       schemaVersion: SCHEMA_VERSION,
       ...(canvasWidth !== undefined && { canvasWidth }),
       groups,
       bookmarks,
+      todos,
     },
     report: { added: bookmarks.length, skipped },
   };
@@ -470,7 +539,7 @@ export async function importStateFromJson(
         .sort((a, b) => a.order - b.order)
         .map((b) => ({ url: b.url, title: b.title, note: b.note })),
     }));
-  const { state, report } = ingestInto(current, incoming);
+  const { state, report } = ingestInto(current, incoming, backup.todos ?? []);
   await adapter.save(state);
   return { ok: true, value: report };
 }
