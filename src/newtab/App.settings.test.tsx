@@ -79,8 +79,9 @@ describe("设置页入口与迁入", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "返回初始页" }));
+    // 初始页无标题(ui 移除):头部「进入白板」开关是初始页视图的标志
     expect(
-      await screen.findByRole("heading", { name: "初始页" })
+      await screen.findByRole("button", { name: "进入白板" })
     ).toBeInTheDocument();
   });
 

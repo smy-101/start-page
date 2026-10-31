@@ -544,7 +544,6 @@ export function App({
   return (
     <main className="page">
       <header className="page-header">
-        <h1 className="page-title">初始页</h1>
         <span className="header-actions">
           <button
             type="button"

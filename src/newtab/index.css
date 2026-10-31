@@ -90,16 +90,17 @@ body {
   padding: 32px 24px 48px;
 }
 
+/* 无标题页首:动作区靠右,页面主角是搜索 */
 .page-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin-bottom: 20px;
 }
 
-/* 安静的页首:初始页不是主角,搜索才是 */
+/* 安静的页首标题:设置页仍在用(初始页无标题,搜索才是主角) */
 .page-title {
   display: inline-flex;
   align-items: center;
