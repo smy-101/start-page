@@ -55,6 +55,7 @@ type Board = {
   onResizeCanvas: Mock;
   onResizeGroup: Mock;
   onSetGroupColumns: Mock;
+  onResizeGroupHeight: Mock;
   onResizeTodoWidth: Mock;
   onRecolorTodo: Mock;
   onResizeTodoHeight: Mock;
@@ -118,6 +119,20 @@ function renderBoard(
       columns,
     },
   }));
+  const onResizeGroupHeight = vi.fn(
+    async (_id: GroupId, height: number | undefined) => ({
+      ok: true as const,
+      value: {
+        id: _id,
+        name: "",
+        color: "",
+        order: 0,
+        x: 0,
+        y: 0,
+        ...(height !== undefined ? { height } : null),
+      },
+    })
+  );
   const onEnterWhiteboard = vi.fn();
   const todoOk = vi.fn(async () => ({ ok: true as const, value: seedTodo() }));
   const onCreateTodo = todoOk;
@@ -180,6 +195,7 @@ function renderBoard(
     onResizeCanvas,
     onResizeGroup,
     onSetGroupColumns,
+    onResizeGroupHeight,
     onRenameTodo,
     onDeleteTodo,
     onAddTodoItem,
@@ -204,6 +220,7 @@ function renderBoard(
     onResizeCanvas,
     onResizeGroup,
     onSetGroupColumns,
+    onResizeGroupHeight,
     onResizeTodoWidth,
     onRecolorTodo,
     onResizeTodoHeight,

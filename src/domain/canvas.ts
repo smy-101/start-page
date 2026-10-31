@@ -195,6 +195,38 @@ export function clampTodoHeight(height: number): number {
   return Math.floor(Math.min(Math.max(height, TODO_H_MIN), TODO_H_MAX));
 }
 
+/** ---- 组定长高(group-height,spec 决定 3)----
+ * 与待办卡定长高对称的旋钮:可选,缺省 undefined = 自适应(现行观感:
+ * 网格 max-height clamp 内部滚动,存量零改写);定长时卡面纵向 flex、
+ * 组头常驻、网格区滚动。交互同待办卡语言:白板模式拖组底缘连续调高、
+ * 松手 16px 网格吸附、键盘 ↑/↓ 步进、组头钉住钮切换定长 ↔ 自适应。
+ * 界限与待办卡同界(同一画布同一套数,问询定案;分立命名留给将来
+ * 独立调界):下限 176 ≈ 组头 + 约两行收藏格;上限 720 略高于自适应
+ * 观感上限(网格 clamp 560 + 组头)。高不随画布宽收窄(画布向下无界)。 */
+
+/** 组定长高下限(px,16 倍数):组头 + 约两行收藏格。 */
+export const GROUP_H_MIN = 176;
+/** 组定长高上限(px,16 倍数):略高于自适应观感上限(同待办卡)。 */
+export const GROUP_H_MAX = 720;
+
+/** 组定长高钳回:口径同待办卡(floor 取整,非有限归下界)。 */
+export function clampGroupHeight(height: number): number {
+  if (!Number.isFinite(height)) return GROUP_H_MIN;
+  return Math.floor(Math.min(Math.max(height, GROUP_H_MIN), GROUP_H_MAX));
+}
+
+/**
+ * 组定长高规范化(group-height):有限钳回、非有限/非数剥离为 undefined
+ * 自适应(垃圾值不物化定长)。迁移终末修复与导入恢复共用的单一收口
+ * (同待办侧 normalizeTodoCard 的角色;不残留 undefined 值键由调用方
+ * 条件物化)。
+ */
+export function normalizeGroupHeight(height: unknown): number | undefined {
+  return typeof height === "number" && Number.isFinite(height)
+    ? clampGroupHeight(height)
+    : undefined;
+}
+
 /** 画布内放得下的最大组宽档位(至少 1):拖柄调宽/缩画布的钳上界。 */
 export function maxSpanForCanvas(canvasW: number): number {
   for (let c = MAX_GROUP_COLUMNS; c > 1; c--) {

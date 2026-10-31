@@ -132,6 +132,18 @@ const seed: BookmarkState = {
       span: 4,
       columns: 1,
     },
+    // 定长高样例(group-height):height 钉住组高,收藏溢出在网格区
+    // 滚动、组头常驻;与 t-fixed 待办卡同场对比两卡语言的一致性
+    {
+      id: "g-reading",
+      name: "稍后阅读",
+      color: "#a9dc76",
+      order: 6,
+      x: 0,
+      y: 1600,
+      columns: 3,
+      height: 320,
+    },
   ],
   bookmarks: [
     // 收集箱:随手收藏、还没归类的
@@ -332,6 +344,15 @@ const seed: BookmarkState = {
       groupId: "g-tools",
       order: 2,
     },
+    // 稍后阅读(定长高样例,group-height):条数溢出供滚动走查
+    ...Array.from({ length: 24 }, (_, i) => ({
+      id: `b6-${i}`,
+      url: `https://read.example.com/${i + 1}`,
+      title: `稍后读·第 ${i + 1} 篇`,
+      note: "",
+      groupId: "g-reading",
+      order: i,
+    })),
   ],
 };
 

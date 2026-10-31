@@ -28,6 +28,7 @@ import {
   clampTodoWidth,
   clampTodoHeight,
   clampToCanvas,
+  clampGroupHeight,
   groupSpanOf,
   groupWidthOf,
   maxSpanForCanvas,
@@ -121,6 +122,13 @@ export interface BookmarkStore {
    * 到档位(缺省保持装满);变宽后按新宽重钳 x;同义不落盘。
    */
   setGroupSpan(id: GroupId, span: number): Promise<Result<Group>>;
+  /** 组定长高写回(group-height,schema v12;底柄松手/键盘步进/钉住切换;
+   * 钳 [176, 720],不随画布收窄;undefined = 解除定长回自适应,剥离字段;
+   * 收集箱同样适用——高度是排版旋钮非内容编辑,同折叠/调宽同权) */
+  setGroupHeight(
+    id: GroupId,
+    height: number | undefined
+  ): Promise<Result<Group>>;
   /** 删除分组:组内收藏全部回收进收集箱(绝不连带删除)。 */
   deleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   /**
@@ -219,7 +227,8 @@ function ensureInbox(state: BookmarkState): BookmarkState {
  * 跳过重建;外部写入携带不同状态,不等即重建。数组顺序参与相等(顺序即语义);
  * 画布宽逐字比较(schema v5:缺省自动档 ≠ 钉住的固定宽)。
  * todos 逐字段参与(schema v8,todo-card;v9 补 color、v10 补 width):
- * 待办勾选/增删/调宽/换色都要触发回声重建。
+ * 待办勾选/增删/调宽/换色都要触发回声重建。分组 height 逐字段参与
+ * (schema v12,group-height):组定长/解除要触发回声重建。
  */
 export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
   if (a === b) return true;
@@ -243,7 +252,8 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
       x.x !== y.x ||
       x.y !== y.y ||
       x.columns !== y.columns ||
-      x.span !== y.span
+      x.span !== y.span ||
+      x.height !== y.height
     ) {
       return false;
     }
@@ -366,6 +376,16 @@ export async function createBookmarkStore(
     };
     await adapter.save(state);
     return { ok: true, value: resized };
+  }
+
+  /** 分组整组替换后落盘并返回新组(group-height 写路径共用形状,同 writeTodo)。 */
+  async function writeGroup(updated: Group): Promise<Result<Group>> {
+    state = {
+      ...state,
+      groups: state.groups.map((g) => (g.id === updated.id ? updated : g)),
+    };
+    await adapter.save(state);
+    return { ok: true, value: updated };
   }
 
   function nextBookmarkOrder(groupId: GroupId): number {
@@ -685,6 +705,27 @@ export async function createBookmarkStore(
         return { ok: true, value: group };
       }
       return writeGroupSizing(group, nextSpan, nextColumns);
+    },
+
+    async setGroupHeight(
+      id: GroupId,
+      height: number | undefined
+    ): Promise<Result<Group>> {
+      const group = state.groups.find((g) => g.id === id);
+      if (!group) return { ok: false, error: "group-not-found" };
+      // undefined = 解除定长回自适应(剥离字段;同 recolorTodo 空串
+      // 复位中性的语义形状);已自适应 = 与现状同义不落盘
+      if (height === undefined) {
+        if (group.height === undefined) return { ok: true, value: group };
+        return writeGroup({ ...group, height: undefined });
+      }
+      // 界限钳回 [176, 720](floor 取整,非有限归下界);不随画布宽
+      // 收窄——高不参与横向几何,画布向下无界;16px 网格对齐在组件
+      // 松手吸附(同调宽分工:store 只管界限)。与已存定长同义不落盘;
+      // undefined = 自适应,任何定值都是新义(同待办卡口径)
+      const next = clampGroupHeight(height);
+      if (group.height === next) return { ok: true, value: group };
+      return writeGroup({ ...group, height: next });
     },
 
     async deleteGroup(id: GroupId): Promise<DeleteGroupResult> {

@@ -42,6 +42,14 @@ export interface Group {
    * 与每行条数解耦:拖柄只改档位,表单只改每行条数且永不缩宽。
    */
   span?: number;
+  /**
+   * 组定长高(px,schema v12,group-height):缺省 = undefined 自适应
+   * (现行观感:网格 max-height clamp 内部滚动,存量零改写);白板模式
+   * 拖组底缘连续调高(松手 16px 网格吸附)或键盘 ↑/↓ 步进、组头钉住钮
+   * 切换定长 ↔ 自适应;钳 [176, 720];定长时卡面纵向 flex、组头常驻、
+   * 网格区滚动。不随画布宽收窄(高不参与横向几何,画布向下无界)。
+   */
+  height?: number;
 }
 
 /** 待办条目(ADR-0006):勾选框 + 文本,必属且仅属一张待办卡(嵌在卡内,自包含)。 */
@@ -150,6 +158,9 @@ export type Result<T> =
  * 持久化数据结构版本,随结构演进递增(导入导出的 JSON 备份依赖它)。
  * v11:待办卡新增可选 height(定长高 px,缺省 = undefined 自适应;
  * todo-height-archive);v10 及更早备份零改写迁移(缺省即自适应)。
+ * v12:分组新增可选 height(组定长高 px,缺省 = undefined 自适应;
+ * group-height,与待办卡定长高对称);v11 及更早备份零改写迁移
+ * (缺省即自适应)。
  * v10:待办卡 span(宽档位)改为 width(自由宽 px,缺省 CARD_W,钳
  * [240, 768];todo-card-size-color 调校);v9 备份按旧档位数学换算为 px,
  * 渲染宽不变(v9 未发布,仅本地开发版数据走此换算)。
@@ -165,7 +176,7 @@ export type Result<T> =
  * v3:分组新增画布坐标 x/y(ADR-0004 白板自由定位);v2 及更早备份仍可导入。
  * v2:收藏新增可选 icon(data URL);v1 备份仍可导入。
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /** 画布上的落点(px,见 canvas.ts 与 GLOSSARY「画布」)。 */
 export interface CanvasPos {

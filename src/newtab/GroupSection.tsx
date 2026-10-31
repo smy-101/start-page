@@ -17,6 +17,8 @@ import {
   groupWidthOf,
   nearestGroupSpan,
   CELL_W,
+  GROUP_H_MAX,
+  GROUP_H_MIN,
 } from "../domain/canvas";
 import type { CanvasPos } from "../domain/canvas";
 import { useAxisResize } from "./useAxisResize";
@@ -53,6 +55,12 @@ type GroupSectionProps = {
   onResizeSpan(id: GroupId, span: number): Promise<Result<Group>>;
   /** 每行条数写回(组头表单;组宽只升不降) */
   onSetColumns(id: GroupId, columns: number): Promise<Result<Group>>;
+  /** 组定长高写回(group-height;底柄松手/键盘步进/钉住切换;store 界限
+   * 钳回收口;undefined = 解除定长回自适应) */
+  onResizeHeight(
+    id: GroupId,
+    height: number | undefined
+  ): Promise<Result<Group>>;
   onDeleteGroup(id: GroupId): Promise<DeleteGroupResult>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
@@ -85,6 +93,7 @@ export const GroupSection = memo(function GroupSection({
   onRecolor,
   onResizeSpan,
   onSetColumns,
+  onResizeHeight,
   onDeleteGroup,
   handlers,
   onEdit,
@@ -130,6 +139,66 @@ export const GroupSection = memo(function GroupSection({
     watch: group,
   });
   const width = resize.preview ?? resize.committed ?? groupWidthOf(span);
+
+  // ---- 组底缘定长调高(group-height):与待办卡调高(todo-height-archive)
+  // 逐字同语言——松手 16px 网格吸附、键盘 ↑/↓ 步进;高不随画布宽收窄。
+  // 自适应组的调高基数 = 实测高(事件时即时量高,读 DOM 同步口径)
+  const minH = GROUP_H_MIN;
+  const maxH = GROUP_H_MAX;
+
+  /** 16px 网格吸附(同待办卡/画布宽口径;吸附取最近格点合法)。 */
+  function snapGrid(v: number): number {
+    return Math.round(v / 16) * 16;
+  }
+
+  /** 键盘一步:从当前值的上/下一格网格起(store 收口重复钳)。 */
+  function stepGrid(current: number, dir: 1 | -1): number {
+    return dir > 0
+      ? (Math.floor(current / 16) + 1) * 16
+      : (Math.ceil(current / 16) - 1) * 16;
+  }
+
+  /** 自适应组的调高基数:实测高(事件时即时量高;jsdom/未挂载 0 → 下界兜底)。 */
+  function measuredBaseOf(el: EventTarget | null): number {
+    const section = (el as HTMLElement | null)?.closest("section.group");
+    const h = section?.getBoundingClientRect().height ?? 0;
+    return Math.max(minH, Math.floor(h));
+  }
+
+  const resizeH = useAxisResize<{ atHeight: number | undefined }>({
+    axis: "y",
+    min: minH,
+    max: maxH,
+    base: (target) => group.height ?? measuredBaseOf(target),
+    snap: snapGrid,
+    step: stepGrid,
+    commit: (height) => void onResizeHeight(group.id, height),
+    snapshot: () => ({ atHeight: group.height }),
+    settled: (committedH, pending) =>
+      group.height === committedH ||
+      (pending !== null && group.height !== pending.atHeight),
+    watch: group,
+  });
+  // 生效定长高:预览 > 已提交 > 持久;undefined = 自适应(不定位高);
+  // 折叠时定长失效(只渲染组头,不占空高)
+  const fixedH = resizeH.preview ?? resizeH.committed ?? group.height;
+  const effectiveFixedH = collapsed ? undefined : fixedH;
+
+  /** 钉住/解除定长(group-height):白板模式组头切换两种高度模式;
+   * 钉住 = 以实测高吸附 16px 网格落定长,解除 = undefined 回自适应。
+   * 计算归本组件(复用 measuredBaseOf/snapGrid,免 header 重抄一份),
+   * GroupHeader 只接事件 */
+  function handlePinToggle(event: React.MouseEvent) {
+    if (group.height !== undefined) {
+      void onResizeHeight(group.id, undefined);
+      return;
+    }
+    const pinned = Math.min(
+      Math.max(snapGrid(measuredBaseOf(event.currentTarget)), minH),
+      maxH
+    );
+    void onResizeHeight(group.id, pinned);
+  }
   // 组内网格模板:每行条数生效值(缺省 = 装满);与 CSS minmax 同口径,
   // 条数 < 档位时条目拉满整行(清单式)
   const gridTemplate = {
@@ -137,7 +206,12 @@ export const GroupSection = memo(function GroupSection({
   };
 
   const canvasStyle = placement
-    ? { left: placement.x, top: placement.y, width }
+    ? {
+        left: placement.x,
+        top: placement.y,
+        width,
+        ...(effectiveFixedH !== undefined ? { height: effectiveFixedH } : null),
+      }
     : undefined;
 
   return (
@@ -147,7 +221,10 @@ export const GroupSection = memo(function GroupSection({
       data-collapsed={collapsed ? "true" : undefined}
       data-drag-active={dragActive ? "true" : undefined}
       data-drop-hint={dropIndex !== null ? "true" : undefined}
-      data-resizing={resize.preview !== null ? "true" : undefined}
+      data-resizing={
+        resize.preview !== null || resizeH.preview !== null ? "true" : undefined
+      }
+      data-fixed-height={effectiveFixedH !== undefined ? "true" : undefined}
       ref={elementRef}
       // 分组色注入为 CSS 变量:托盘淡染/悬停边框/指示线等着色用(纯表现,不影响语义)
       style={{ "--group-color": group.color, ...canvasStyle } as CSSProperties}
@@ -163,6 +240,7 @@ export const GroupSection = memo(function GroupSection({
         onRename={(name) => onRename(group.id, name)}
         onRecolor={(color) => onRecolor(group.id, color)}
         onSetColumns={(columns) => onSetColumns(group.id, columns)}
+        onPinToggle={handlePinToggle}
         onDeleteGroup={() => onDeleteGroup(group.id)}
       />
       {!collapsed &&
@@ -227,6 +305,32 @@ export const GroupSection = memo(function GroupSection({
                   ? `宽 ${nextSpan} 列 · 一行 ${cells} 条`
                   : `宽 ${nextSpan} 列`;
               })()}
+            </span>
+          )}
+        </div>
+      )}
+      {/* 组底缘定长调高拖柄(group-height):门禁同宽柄(白板模式且非搜索、
+          非折叠);键盘 ↑/↓ 步进一格 16px 网格;调高中回显连续高;
+          自适应组读数报「自适应」(valuenow 为下界兜底基数) */}
+      {resizable && (
+        <div
+          className="group-resize-b"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={`调整分组 ${group.name} 高度`}
+          aria-valuenow={Math.round(fixedH ?? minH)}
+          aria-valuemin={minH}
+          aria-valuemax={maxH}
+          aria-valuetext={
+            fixedH !== undefined ? `${Math.round(fixedH)} px` : "自适应"
+          }
+          title="拖动调整高度"
+          tabIndex={0}
+          {...resizeH.handleProps}
+        >
+          {resizeH.preview !== null && (
+            <span className="group-resize-badge" role="status">
+              {Math.round(resizeH.preview)} px
             </span>
           )}
         </div>

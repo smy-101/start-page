@@ -361,6 +361,14 @@ export function App({
     [run]
   );
 
+  /** 组定长高写回(group-height):底柄松手/键盘 ↑/↓/钉住切换 → store 界限
+   * 钳回落盘;undefined = 解除定长回自适应 */
+  const handleResizeGroupHeight = useCallback(
+    (id: GroupId, height: number | undefined) =>
+      run(() => storeRef.current!.setGroupHeight(id, height)),
+    [run]
+  );
+
   /** nudge 一键进入(board-whiteboard/03):只开不关,关闭走头部开关 */
   const handleEnterWhiteboard = useCallback(() => {
     setWhiteboardMode(true);
@@ -623,6 +631,7 @@ export function App({
         onResizeCanvas={handleResizeCanvas}
         onResizeGroup={handleResizeGroup}
         onSetGroupColumns={handleSetGroupColumns}
+        onResizeGroupHeight={handleResizeGroupHeight}
         onCreateTodo={handleCreateTodo}
         onRenameTodo={handleRenameTodo}
         onDeleteTodo={handleDeleteTodo}

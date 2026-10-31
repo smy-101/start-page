@@ -911,3 +911,70 @@ describe("迁移 v10→v11:待办卡定长高(todo-height-archive)", () => {
     ).toEqual([720, 176, 320, undefined, undefined]);
   });
 });
+
+describe("迁移 v11→v12:组定长高(group-height)", () => {
+  /** v11 基态:收集箱 + 一组(可选覆盖项)。 */
+  function v11State(groups: Record<string, unknown>[]): BookmarkState {
+    return {
+      schemaVersion: 11,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        ...groups.map((g, i) => ({
+          id: `g${i + 1}`,
+          name: `组${i + 1}`,
+          color: "#e99695",
+          order: i + 1,
+          x: 0,
+          y: 0,
+          ...g,
+        })),
+      ],
+      bookmarks: [],
+      todos: [],
+    } as unknown as BookmarkState;
+  }
+
+  it("v11 → v12:零数据改写——groups/todos/bookmarks 引用逐字保留", () => {
+    const before = v11State([{ span: 2, height: 320 }, {}]);
+    const migrated = migrateState(before);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(migrated.groups).toBe(before.groups);
+    expect(migrated.todos).toBe(before.todos);
+    expect(migrated.bookmarks).toBe(before.bookmarks);
+  });
+
+  it("幂等:v12 干净状态(合法 height)原引用返回", () => {
+    const v12 = {
+      ...v11State([{ height: 320 }]),
+      schemaVersion: SCHEMA_VERSION,
+    } as BookmarkState;
+    expect(migrateState(v12)).toBe(v12);
+  });
+
+  it("修复:非法 height 有限越界/非整数钳回,非有限/非数剥离为自适应", () => {
+    const broken = {
+      ...v11State([
+        { height: 9999 },
+        { height: 50 },
+        { height: 320.6 },
+        { height: Number.NaN },
+        { height: "tall" },
+      ]),
+      schemaVersion: SCHEMA_VERSION,
+    } as unknown as BookmarkState;
+    const migrated = migrateState(broken);
+    // 口径同待办卡:有限越界/非整数钳回(9999→720、50→176、320.6→320);
+    // 非有限/非数剥离(高的缺省是「不定长」,垃圾不物化定长);
+    // 收集箱(无 height)保持 undefined。数组级重建同 sizing 修复语义
+    expect(
+      migrated.groups.map((g) => (g as { height?: number }).height)
+    ).toEqual([undefined, 720, 176, 320, undefined, undefined]);
+  });
+});

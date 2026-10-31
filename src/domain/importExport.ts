@@ -22,6 +22,7 @@ import {
   appendPositions,
   canvasWidthOf,
   clampCanvasWidth,
+  normalizeGroupHeight,
   clampToCanvas,
   groupSpanOf,
   groupWidthOf,
@@ -450,10 +451,16 @@ function restoreFrom(backup: BookmarkState): {
     // 缺省组(span 未存且未超档)保持缺省,不物化;其余写钳后档位
     const span =
       g.span !== undefined || spanClamped !== spanRaw ? spanClamped : undefined;
+    // 组定长高(group-height,v12):同版备份绕过迁移链,此处收口——
+    // 单一收口 normalizeGroupHeight(有限钳回、非有限/非数剥离,
+    // 不残留 undefined 值键,同 normalizeTodoCard)
+    const { height: rawHeight, ...rest } = g;
+    const height = normalizeGroupHeight(rawHeight);
     return {
-      ...g,
+      ...rest,
       span,
       columns,
+      ...(height !== undefined ? { height } : null),
       ...clampToCanvas(g, bound, groupWidthOf(spanClamped)),
     };
   });

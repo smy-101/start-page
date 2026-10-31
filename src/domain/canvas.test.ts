@@ -28,6 +28,9 @@ import {
   TODO_W_MIN,
   TODO_H_MAX,
   TODO_H_MIN,
+  GROUP_H_MAX,
+  GROUP_H_MIN,
+  clampGroupHeight,
   clampTodoWidth,
   clampTodoHeight,
   todoWidthOf,
@@ -366,6 +369,25 @@ describe("待办卡高(todo-height-archive 定长,schema v11)", () => {
     // 垃圾输入当最近的合法界;与 clampTodoWidth 归缺省附近同思路)
     expect(clampTodoHeight(Number.NaN)).toBe(TODO_H_MIN);
     expect(clampTodoHeight(Number.POSITIVE_INFINITY)).toBe(TODO_H_MIN);
+  });
+});
+
+describe("组定长高(group-height,对称待办卡定长高,schema v12)", () => {
+  it("clampGroupHeight:钳 [176, 720];floor 取整;非有限归下界", () => {
+    expect(clampGroupHeight(320)).toBe(320);
+    expect(clampGroupHeight(100)).toBe(GROUP_H_MIN);
+    expect(clampGroupHeight(9999)).toBe(GROUP_H_MAX);
+    expect(clampGroupHeight(320.6)).toBe(320); // 取整一律 floor
+    // 非有限归下界(高的「缺省」是 undefined 自适应而非定值;
+    // 与待办卡同口径:垃圾输入当最近的合法界)
+    expect(clampGroupHeight(Number.NaN)).toBe(GROUP_H_MIN);
+    expect(clampGroupHeight(Number.POSITIVE_INFINITY)).toBe(GROUP_H_MIN);
+  });
+
+  it("与待办卡定长高同界:两侧独立命名、同界是定案(改一侧须有意识改两侧)", () => {
+    // 对称旋钮问询定案:同一画布同一套数;分立命名留给将来独立调界,
+    // 此断言钉住「同界」不让它被无意识改掉
+    expect([GROUP_H_MIN, GROUP_H_MAX]).toEqual([TODO_H_MIN, TODO_H_MAX]);
   });
 });
 

@@ -115,6 +115,12 @@ export type WhiteboardProps = {
   onResizeGroup(id: GroupId, span: number): Promise<Result<Group>>;
   /** 每行条数写回(group-span-decouple):组头表单 → store 只升不降落盘 */
   onSetGroupColumns(id: GroupId, columns: number): Promise<Result<Group>>;
+  /** 组定长高写回(group-height):底柄松手/键盘步进/钉住切换 → store 钳回落盘;
+   * undefined = 解除定长回自适应 */
+  onResizeGroupHeight(
+    id: GroupId,
+    height: number | undefined
+  ): Promise<Result<Group>>;
   onEdit: (id: BookmarkId, patch: BookmarkPatch) => Promise<Result<Bookmark>>;
   onDelete: (id: BookmarkId) => Promise<Result<BookmarkId>>;
   /** 收藏排序拖拽回调束(useCardDnD 出口,引用稳定):整束直透 GroupSection,
@@ -175,6 +181,7 @@ export function Whiteboard({
   onResizeCanvas,
   onResizeGroup,
   onSetGroupColumns,
+  onResizeGroupHeight,
   onCreateTodo,
   onRenameTodo,
   onDeleteTodo,
@@ -763,6 +770,7 @@ export function Whiteboard({
                 onRecolor={onRecolorGroup}
                 onResizeSpan={onResizeGroup}
                 onSetColumns={onSetGroupColumns}
+                onResizeHeight={onResizeGroupHeight}
                 onDeleteGroup={onDeleteGroup}
                 handlers={handlers}
                 onEdit={onEdit}

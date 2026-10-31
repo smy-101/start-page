@@ -729,6 +729,33 @@ button[type="submit"]:hover {
   background: color-mix(in srgb, var(--fg) 38%, transparent);
 }
 
+/* 定长高(group-height):已设高(含拖中预览)时卡面纵向 flex——
+   组头(含白板编辑表单)常驻可见,网格区滚动(自适应态的 max-height
+   clamp 退役,由 flex:1 + min-height:0 接管);空态同款 */
+.group[data-fixed-height="true"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.group[data-fixed-height="true"] .group-header {
+  flex: none;
+}
+
+.group[data-fixed-height="true"] .group-grid,
+.group[data-fixed-height="true"] .group-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+/* 定长网格行保持内容自然高(group-height):网格区被 flex 拉到定高后,
+   align-content 默认 normal(=stretch)会把 auto 行等分增高、条目纵向
+   拉长。归到 start:行高不变,余量留白,超出照常滚动;自适应态容器高
+   即内容高,不受影响 */
+.group[data-fixed-height="true"] .group-grid {
+  align-content: start;
+}
+
 .group:dragover {
   border-color: color-mix(
     in srgb,
@@ -813,6 +840,13 @@ button[type="submit"]:hover {
 .group-actions .icon-button {
   width: 24px;
   height: 24px;
+}
+
+/* 钉住钮(group-height):定长态压下强调(钉住中),其余同基类;
+   收集箱也适用(排版旋钮非内容编辑,同折叠同权) */
+.group-pin[aria-pressed="true"] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
 
 .group-delete-confirm {
@@ -1895,6 +1929,58 @@ button[type="submit"]:hover {
   outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
   outline-offset: -2px;
   border-radius: 4px;
+}
+
+/* 组底缘定长调高拖柄(group-height):门禁同组宽柄(白板模式且非搜索、
+   非折叠);整宽热区贴组底缘内侧(组 overflow:hidden 裁平),中间一枚
+   横向握把胶囊;键盘可达(separator 角色) */
+.group-resize-b {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 10px;
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.group-resize-b::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  width: 28px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+  transition:
+    background 120ms ease-out,
+    width 120ms ease-out;
+}
+
+.group-resize-b:hover::after,
+.group-resize-b:focus-visible::after,
+.group[data-resizing="true"] .group-resize-b::after {
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+  width: 44px;
+}
+
+.group-resize-b:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* 底柄读数徽章:居中悬在柄上方(柄只有 10px 高,复用徽章的
+   右上定位会被组面 overflow:hidden 裁掉) */
+.group-resize-b .group-resize-badge {
+  top: auto;
+  bottom: 18px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
 }
 
 /* 调宽读数徽章:拖柄顶部回显(仅调宽中);复用画布徽章语言 */

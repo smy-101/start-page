@@ -1062,6 +1062,110 @@ describe("组宽档位写回(group-span-decouple,schema v7)", () => {
   });
 });
 
+describe("组定长高写回(group-height,schema v12)", () => {
+  /** 收集箱(0,0) + g-a 的库(画布 1200);h 预置 g-a 定长高。 */
+  async function heightened(h?: number) {
+    const base = createMemoryStorage({
+      schemaVersion: SCHEMA_VERSION,
+      canvasWidth: 1200,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        {
+          id: "g-a",
+          name: "A",
+          color: "#e99695",
+          order: 1,
+          x: 0,
+          y: 0,
+          height: h,
+        },
+      ],
+      bookmarks: [],
+      todos: [],
+    } as BookmarkState);
+    const save = vi.fn(base.save.bind(base));
+    const store = await createBookmarkStore(Object.assign({}, base, { save }));
+    return { store, save };
+  }
+
+  it("setGroupHeight:物化高(floor 取整);同义不落盘;未知组拒;窄画布不收窄", async () => {
+    const { store, save } = await heightened();
+    save.mockClear();
+    // 320.6 → 320(取整一律 floor;16px 网格对齐在组件松手吸附)
+    expect(await store.setGroupHeight("g-a", 320.6)).toMatchObject({
+      ok: true,
+      value: { height: 320 },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    // 与已存定长同义:不落盘
+    await store.setGroupHeight("g-a", 320);
+    expect(save).toHaveBeenCalledTimes(1);
+    // 界限钳回 [176, 720];非有限归下界(同待办卡口径)
+    expect(await store.setGroupHeight("g-a", 9999)).toMatchObject({
+      ok: true,
+      value: { height: 720 },
+    });
+    expect(await store.setGroupHeight("g-a", 50)).toMatchObject({
+      ok: true,
+      value: { height: 176 },
+    });
+    expect(await store.setGroupHeight("g-a", Number.NaN)).toMatchObject({
+      ok: true,
+      value: { height: 176 },
+    });
+    // 窄画布不收窄高(高不参与横向几何,画布向下无界)
+    await store.setCanvasWidth(720);
+    expect(await store.setGroupHeight("g-a", 720)).toMatchObject({
+      ok: true,
+      value: { height: 720 },
+    });
+    expect(await store.setGroupHeight("g-x", 320)).toEqual({
+      ok: false,
+      error: "group-not-found",
+    });
+  });
+
+  it("setGroupHeight(undefined):解除定长回自适应;已自适应不落盘;收集箱同样适用", async () => {
+    const { store, save } = await heightened(320);
+    save.mockClear();
+    // 定长组解除:剥离字段回自适应
+    expect(await store.setGroupHeight("g-a", undefined)).toMatchObject({
+      ok: true,
+      value: { height: undefined },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(store.getState().groups[1].height).toBeUndefined();
+    // 已自适应:与现状同义,不落盘
+    await store.setGroupHeight("g-a", undefined);
+    expect(save).toHaveBeenCalledTimes(1);
+    // 收集箱同样适用(高度是排版旋钮非内容编辑,同折叠/调宽同权;问询定案)
+    expect(await store.setGroupHeight(INBOX_GROUP_ID, 240)).toMatchObject({
+      ok: true,
+      value: { height: 240 },
+    });
+    expect(await store.setGroupHeight("g-x", undefined)).toEqual({
+      ok: false,
+      error: "group-not-found",
+    });
+  });
+
+  it("statesEqual 纳入组 height 比较", async () => {
+    const { store } = await heightened(320);
+    const a = store.getState();
+    const b = structuredClone(a);
+    expect(statesEqual(a, b)).toBe(true);
+    b.groups[1].height = 560;
+    expect(statesEqual(a, b)).toBe(false);
+  });
+});
+
 describe("待办卡:初始化、状态相等与初始态判定(schema v8,todo-card/01)", () => {
   /** 单张待办卡的缺省夹具(缺省覆盖项可覆写)。 */
   function todoCard(

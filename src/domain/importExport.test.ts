@@ -1191,6 +1191,68 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
   });
 });
 
+describe("组定长高导入导出(group-height,schema v12)", () => {
+  it("height 随备份逐字往返;非法高度导入钳回/剥离", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const withHeight = literalState();
+    withHeight.groups[1] = { ...withHeight.groups[1], height: 320 };
+    // 导出 JSON 携带 height(逐字)
+    expect(JSON.parse(exportStateAsJson(withHeight)).groups).toEqual(
+      withHeight.groups
+    );
+    // 导入:合法 320 逐字恢复
+    await importStateFromJson(adapter, JSON.stringify(withHeight), "replace");
+    expect((await adapter.load())?.groups[1]).toMatchObject({ height: 320 });
+    // 导入:越界钳回(9999→720),非有限/非数剥离(NaN/"tall" → 自适应不物化)
+    const broken = literalState();
+    broken.groups = [
+      { ...broken.groups[0], height: 9999 },
+      { ...broken.groups[1], height: Number.NaN },
+      { ...broken.groups[2], height: "tall" as unknown as number },
+    ];
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(broken),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    const loaded = (await adapter.load())?.groups ?? [];
+    expect(loaded.map((g) => g.height)).toEqual([720, undefined, undefined]);
+    // 剥离不残留 undefined 值键(同 normalizeTodoCard 干净形状)
+    expect(Object.hasOwn(loaded[1], "height")).toBe(false);
+  });
+
+  it("合并模式不携带组高(同 span/columns 排版旋钮口径,新组从名字/颜色建)", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const backup = literalState();
+    backup.groups = [
+      {
+        id: "g-tall",
+        name: "高组",
+        color: "#e99695",
+        order: 9,
+        x: 0,
+        y: 0,
+        height: 320,
+      },
+    ];
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(backup),
+      "merge"
+    );
+    expect(result.ok).toBe(true);
+    const created = (await adapter.load())?.groups.find(
+      (g) => g.name === "高组"
+    );
+    expect(created).toBeDefined();
+    expect(created!.height).toBeUndefined();
+    expect(Object.hasOwn(created!, "height")).toBe(false);
+  });
+});
+
 describe("待办卡导入导出(schema v8,todo-card)", () => {
   /** 带一张待办卡(两条目,一完成)的字面量状态(独立真值来源)。 */
   function stateWithTodos(): BookmarkState {

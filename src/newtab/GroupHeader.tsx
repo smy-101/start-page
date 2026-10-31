@@ -4,7 +4,13 @@ import { groupCellsOf } from "../domain/canvas";
 import type { DeleteGroupResult, Group, Result } from "../domain/types";
 import { ColorSwatches } from "./ColorSwatches";
 import { domainErrorText } from "./messages";
-import { ChevronDownIcon, PencilIcon, TrashIcon } from "./Icon";
+import {
+  ChevronDownIcon,
+  PencilIcon,
+  PinIcon,
+  PinOffIcon,
+  TrashIcon,
+} from "./Icon";
 
 type GroupHeaderProps = {
   group: Group;
@@ -18,6 +24,9 @@ type GroupHeaderProps = {
   onRecolor(color: string): Promise<Result<Group>>;
   /** 每行条数选择(group-width-tint):与改名/换色同表单提交 */
   onSetColumns(columns: number): Promise<Result<Group>>;
+  /** 钉住/解除定长(group-height):组头切换定长 ↔ 自适应;计算与钳界在
+   * GroupSection(复用其 measuredBaseOf/snapGrid,本组件只接事件) */
+  onPinToggle(event: React.MouseEvent): void;
   onDeleteGroup(): Promise<DeleteGroupResult>;
 };
 
@@ -37,6 +46,7 @@ export function GroupHeader({
   onRename,
   onRecolor,
   onSetColumns,
+  onPinToggle,
   onDeleteGroup,
 }: GroupHeaderProps) {
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
@@ -168,6 +178,33 @@ export function GroupHeader({
           </button>
           <h2 className="group-name">{group.name}</h2>
           <span className="group-count">{bookmarkCount}</span>
+          {/* 钉住/解除定长(group-height):仅白板模式且非折叠——折叠时实测高
+              只剩组头(钳落下界 176),「以实测高钉住」失义,与底柄同门禁隐藏;
+              收集箱同样适用(高度是排版旋钮非内容编辑,同折叠/调宽同权) */}
+          {whiteboardMode && !collapsed && (
+            <button
+              type="button"
+              className="icon-button group-pin"
+              aria-label={
+                group.height !== undefined
+                  ? `解除分组 ${group.name} 定长,回到自适应`
+                  : `钉住分组 ${group.name} 高度为定长`
+              }
+              aria-pressed={group.height !== undefined}
+              title={
+                group.height !== undefined
+                  ? "解除定长(回自适应)"
+                  : "钉住高度(定长)"
+              }
+              onClick={onPinToggle}
+            >
+              {group.height !== undefined ? (
+                <PinOffIcon size={14} />
+              ) : (
+                <PinIcon size={14} />
+              )}
+            </button>
+          )}
           {!isInbox && whiteboardMode && (
             <span className="group-actions">
               <button
