@@ -71,8 +71,8 @@ export function exportStateAsHtml(state: BookmarkState): string {
     "     It will be read and overwritten.",
     "     DO NOT EDIT! -->",
     '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
-    "<TITLE>初始页收藏</TITLE>",
-    "<H1>初始页收藏</H1>",
+    "<TITLE>初曦收藏</TITLE>",
+    "<H1>初曦收藏</H1>",
     "<DL><p>",
   ];
   for (const group of groups) {

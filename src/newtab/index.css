@@ -929,9 +929,17 @@ button[type="submit"]:hover {
   justify-content: center;
   color: #fff;
   font-size: 10px;
-  font-weight: 600;
-  /* 粉彩色加深到白字可读 */
-  background: color-mix(in srgb, var(--tile-color, #3b82f6) 62%, #10131a);
+  /* 10px 小字加重一档,Windows 渲染下更脆 */
+  font-weight: 700;
+  /* 晨曦设计语言:分组色自上而下「深→暖亮」,同扩展图标晨曦渐变方向;
+   * 两端都压深保白字可读(替代旧版单一 62% 平涂),
+   * 4px 圆角 = 工具栏图标 0.22 圆角比例(18px × 0.22 ≈ 4) */
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tile-color, #3b82f6) 42%, #10131a),
+    color-mix(in srgb, var(--tile-color, #3b82f6) 62%, #10131a)
+  );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%);
 }
 
 .card-title {

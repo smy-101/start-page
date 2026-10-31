@@ -1,6 +1,6 @@
-# start-page(项目名暂定)
+# 初曦(start-page)
 
-一个 Chromium (MV3) 浏览器扩展:覆盖新标签页的收藏起始页,支持分组管理与导入导出。
+一个 Chromium (MV3) 浏览器扩展:**初曦** —— 把新标签页覆盖为「初始页」,收藏按分组分区展示、搜索直达、数据可导入导出。仅支持 Chrome/Edge。
 
 ## Agent skills
 

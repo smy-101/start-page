@@ -19,7 +19,7 @@ const ICON_PATHS = {
 } as const;
 
 /**
- * 工具栏位图选择(纯函数):已收藏与未收藏同用描边书签——已收藏的勾
+ * 工具栏位图选择(纯函数):已收藏与未收藏同用描边瓷砖——已收藏的勾
  * 由右下角 ✓ 徽标表达(AdGuard 式叠加),图标本体不变;不可收藏=浅灰。
  */
 export function iconPathsFor(state: ToolbarState): {

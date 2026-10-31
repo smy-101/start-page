@@ -257,7 +257,7 @@ describe("导入导出组件(初始页设置区)", () => {
     });
 
     expect(
-      await screen.findByText("文件不是有效的初始页备份或书签文件")
+      await screen.findByText("文件不是有效的初曦备份或书签文件")
     ).toBeInTheDocument();
     expect(await adapter.load()).toEqual(before);
   });
