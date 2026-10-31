@@ -8,6 +8,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { TodoSection } from "./TodoSection";
 import { CARD_W } from "../domain/canvas";
+import { pointerEvent } from "./testUtils";
 import type { Result, TodoCard, TodoId } from "../domain/types";
 
 /**
@@ -96,15 +97,43 @@ function callbacks() {
           })),
         })
       ),
+    onResizeWidth: vi
+      .fn()
+      .mockImplementation(async (todoId: TodoId, width: number) =>
+        ok({ ...card(), id: todoId, width })
+      ),
+    onRecolor: vi
+      .fn()
+      .mockImplementation(async (todoId: TodoId, color: string) =>
+        ok({ ...card(), id: todoId, color: color || undefined })
+      ),
+    onResizeHeight: vi
+      .fn()
+      .mockImplementation(async (todoId: TodoId, height: number) =>
+        ok({ ...card(), id: todoId, height })
+      ),
+    onClearDoneItems: vi.fn().mockImplementation(async (todoId: TodoId) =>
+      ok({
+        ...card(),
+        id: todoId,
+        items: card().items.filter((i) => !i.done),
+      })
+    ),
   };
 }
 
-function renderTodo(todo = card(), whiteboardMode = false, cbs = callbacks()) {
+function renderTodo(
+  todo = card(),
+  whiteboardMode = false,
+  cbs = callbacks(),
+  extra: { resizable?: boolean; resizeMaxW?: number } = {}
+) {
   const view = render(
     <TodoSection
       todo={todo}
       placement={{ x: 16, y: 32 }}
       whiteboardMode={whiteboardMode}
+      {...extra}
       {...cbs}
     />
   );
@@ -142,7 +171,7 @@ describe("TodoSection:渲染与日常态门禁", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "买咖啡豆" }));
     expect(cbs.onToggleItem).toHaveBeenCalledWith("t-1", "ti-1");
     // 门禁第二洞(ADR-0006 补记):卡尾常驻添加输入框,回车即加
-    const input = screen.getByPlaceholderText("添加待办…");
+    const input = screen.getByPlaceholderText("+ 添加待办…");
     fireEvent.change(input, { target: { value: " 买奶 " } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(cbs.onAddItem).toHaveBeenCalledWith("t-1", "买奶");
@@ -160,18 +189,18 @@ describe("TodoSection:渲染与日常态门禁", () => {
   it("日常态空卡:添加输入框替代「暂无待办」占位(todo-daily-add)", () => {
     renderTodo(card({ items: [] }));
     expect(screen.queryByText("暂无待办")).toBeNull();
-    expect(screen.getByPlaceholderText("添加待办…")).toBeTruthy();
+    expect(screen.getByPlaceholderText("+ 添加待办…")).toBeTruthy();
   });
 });
 
 describe("TodoSection:白板模式编辑", () => {
   it("添加条目:输入回车回调并清空;空白提交不回调", async () => {
     const { cbs } = renderTodo(card(), true);
-    const input = screen.getByPlaceholderText("添加待办…");
+    const input = screen.getByPlaceholderText("+ 添加待办…");
     fireEvent.change(input, { target: { value: " 买奶 " } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(cbs.onAddItem).toHaveBeenCalledWith("t-1", "买奶");
-    await screen.findByPlaceholderText("添加待办…");
+    await screen.findByPlaceholderText("+ 添加待办…");
     fireEvent.keyDown(input, { key: "Enter" });
     expect(cbs.onAddItem).toHaveBeenCalledTimes(1);
   });
@@ -237,5 +266,238 @@ describe("TodoSection:白板模式编辑", () => {
       );
     });
     expect(cbs.onReorderItems).toHaveBeenCalledWith("t-1", ["ti-2", "ti-1"]);
+  });
+});
+
+describe("TodoSection:自由宽调宽拖柄(todo-card-size-color)", () => {
+  it("宽渲染:缺省 = CARD_W 逐字;width 直读(钳回口径在 domain 测试)", () => {
+    const { view } = renderTodo();
+    const section = view.container.querySelector<HTMLElement>("section.todo");
+    expect(parseFloat(section!.style.width)).toBeCloseTo(CARD_W, 1);
+
+    const wide = renderTodo(card({ width: 484 }));
+    const el = wide.view.container.querySelector<HTMLElement>("section.todo");
+    expect(parseFloat(el!.style.width)).toBe(484);
+  });
+
+  it("拖柄门禁:resizable 才挂载;键盘 →/← 步进一格 16px 网格写回", () => {
+    const bare = renderTodo(card(), true);
+    expect(bare.view.container.querySelector(".todo-resize")).toBeNull();
+
+    const { cbs, view } = renderTodo(card(), true, callbacks(), {
+      resizable: true,
+      resizeMaxW: 768,
+    });
+    const handle = view.container.querySelector<HTMLElement>(".todo-resize");
+    expect(handle).toBeTruthy();
+    expect(handle).toHaveAttribute("role", "separator");
+    // 缺省宽 389.33 → 回显 389;界限 [240, 768]
+    expect(handle).toHaveAttribute("aria-valuenow", "389");
+    expect(handle).toHaveAttribute("aria-valuemin", "240");
+    expect(handle).toHaveAttribute("aria-valuemax", "768");
+
+    fireEvent.keyDown(handle!, { key: "ArrowRight" });
+    // 从 389.33 的上一格网格起:→ 400(不走向 389+16=405.33)
+    expect(cbs.onResizeWidth).toHaveBeenCalledWith("t-1", 400);
+    // 再按一步:吃本地已提交宽,从 400 续步到 416(回流前连按可累计)
+    fireEvent.keyDown(handle!, { key: "ArrowRight" });
+    expect(cbs.onResizeWidth).toHaveBeenLastCalledWith("t-1", 416);
+    fireEvent.keyDown(handle!, { key: "ArrowLeft" });
+    expect(cbs.onResizeWidth).toHaveBeenLastCalledWith("t-1", 400);
+  });
+
+  it("拖拽调宽:连续预览、松手 16px 网格吸附;预览钳在界限内", () => {
+    const { cbs, view } = renderTodo(card(), true, callbacks(), {
+      resizable: true,
+      resizeMaxW: 768,
+    });
+    const handle = view.container.querySelector<HTMLElement>(".todo-resize")!;
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { clientX: 100 }));
+    });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointermove", { clientX: 290 }));
+    });
+    // 拖中:连续预览宽 389.33 + 190 = 579.33(无档位吸附),徽章回显 px
+    expect(
+      view.container.querySelector<HTMLElement>(".todo-resize-badge")
+    ).toBeTruthy();
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 松手吸附 16px 网格:579.33 → 576(36×16)
+    expect(cbs.onResizeWidth).toHaveBeenCalledWith("t-1", 576);
+  });
+});
+
+describe("TodoSection:选色(todo-card-size-color)", () => {
+  it("调色钮门禁:仅白板模式;展开色板行选色写回", () => {
+    const daily = renderTodo();
+    expect(daily.view.container.querySelector(".todo-color-row")).toBeNull();
+
+    const { cbs, view } = renderTodo(card(), true);
+    fireEvent.click(screen.getByTitle("调整颜色"));
+    expect(view.container.querySelector(".todo-color-row")).toBeTruthy();
+    // 色板点选(radio 语义):选第二色写回
+    fireEvent.click(screen.getByRole("radio", { name: "颜色 #e99695" }));
+    expect(cbs.onRecolor).toHaveBeenCalledWith("t-1", "#e99695");
+    // 中性复位:空串写回
+    fireEvent.click(screen.getByRole("button", { name: "中性" }));
+    expect(cbs.onRecolor).toHaveBeenCalledWith("t-1", "");
+  });
+
+  it("有色卡:data-todo-colored + --todo-color 注入;缺省不带", () => {
+    const colored = renderTodo(card({ color: "#9fe295" }));
+    const section =
+      colored.view.container.querySelector<HTMLElement>("section.todo");
+    expect(section!.dataset.todoColored).toBe("true");
+    expect(section!.style.getPropertyValue("--todo-color")).toBe("#9fe295");
+
+    const plain = renderTodo();
+    const bare =
+      plain.view.container.querySelector<HTMLElement>("section.todo");
+    expect(bare!.dataset.todoColored).toBeUndefined();
+    expect(bare!.style.getPropertyValue("--todo-color")).toBe("");
+  });
+});
+
+describe("TodoSection:定长高与底缘调高拖柄(todo-height-archive)", () => {
+  it("定长渲染:height 直读 + data-fixed-height;缺省自适应不带两者", () => {
+    const fixed = renderTodo(card({ height: 320 }));
+    const el = fixed.view.container.querySelector<HTMLElement>("section.todo");
+    expect(el).toHaveStyle({ height: "320px" });
+    expect(el!.dataset.fixedHeight).toBe("true");
+
+    const auto = renderTodo();
+    const plain =
+      auto.view.container.querySelector<HTMLElement>("section.todo");
+    expect(plain!.style.height).toBe("");
+    expect(plain!.dataset.fixedHeight).toBeUndefined();
+  });
+
+  it("底柄门禁:resizable 才挂载;键盘 ↓/↑ 步进一格 16px 网格写回", () => {
+    const bare = renderTodo(card({ height: 320 }), true);
+    expect(bare.view.container.querySelector(".todo-resize-b")).toBeNull();
+
+    const { cbs, view } = renderTodo(card({ height: 320 }), true, callbacks(), {
+      resizable: true,
+    });
+    const handle = view.container.querySelector<HTMLElement>(".todo-resize-b");
+    expect(handle).toBeTruthy();
+    expect(handle).toHaveAttribute("role", "separator");
+    expect(handle).toHaveAttribute("aria-orientation", "horizontal");
+    expect(handle).toHaveAttribute("aria-valuenow", "320");
+    expect(handle).toHaveAttribute("aria-valuemin", "176");
+    expect(handle).toHaveAttribute("aria-valuemax", "720");
+
+    fireEvent.keyDown(handle!, { key: "ArrowDown" });
+    expect(cbs.onResizeHeight).toHaveBeenCalledWith("t-1", 336);
+    // 回流前连按可累计:从本地已提交高 336 续步到 352
+    fireEvent.keyDown(handle!, { key: "ArrowDown" });
+    expect(cbs.onResizeHeight).toHaveBeenLastCalledWith("t-1", 352);
+    fireEvent.keyDown(handle!, { key: "ArrowUp" });
+    expect(cbs.onResizeHeight).toHaveBeenLastCalledWith("t-1", 336);
+  });
+
+  it("自适应卡底柄:基数取实测高(jsdom 为 0 → 下界 176);↓ 首步 192", () => {
+    const { cbs, view } = renderTodo(card(), true, callbacks(), {
+      resizable: true,
+    });
+    const handle = view.container.querySelector<HTMLElement>(".todo-resize-b")!;
+    // jsdom 实测高 0:回显基数 = 下界 176;自适应卡报「自适应」口径
+    expect(handle).toHaveAttribute("aria-valuenow", "176");
+    expect(handle).toHaveAttribute("aria-valuetext", "自适应");
+    fireEvent.keyDown(handle, { key: "ArrowDown" });
+    expect(cbs.onResizeHeight).toHaveBeenCalledWith("t-1", 192);
+  });
+
+  it("拖拽调高:连续预览、松手 16px 网格吸附;预览钳在界限内", () => {
+    const { cbs, view } = renderTodo(card({ height: 320 }), true, callbacks(), {
+      resizable: true,
+    });
+    const handle = view.container.querySelector<HTMLElement>(".todo-resize-b")!;
+    const section = view.container.querySelector<HTMLElement>("section.todo")!;
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { clientY: 100 }));
+    });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointermove", { clientY: 290 }));
+    });
+    // 拖中:连续预览高 320 + 190 = 510(无网格吸附),徽章回显 px
+    expect(section).toHaveStyle({ height: "510px" });
+    expect(
+      view.container.querySelector<HTMLElement>(".todo-resize-badge")
+    ).toBeTruthy();
+    // 拖过头:预览钳在上界 720
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointermove", { clientY: 900 }));
+    });
+    expect(section).toHaveStyle({ height: "720px" });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 松手吸附 16px 网格:720 恰格点,写回 720
+    expect(cbs.onResizeHeight).toHaveBeenCalledWith("t-1", 720);
+  });
+});
+
+describe("TodoSection:钉住/解除定长切换(todo-height-archive)", () => {
+  it("门禁:仅白板模式挂载;自适应态点击 = 以实测高吸附网格钉住", () => {
+    const daily = renderTodo();
+    expect(
+      daily.view.container.querySelector("button[title='钉住高度(定长)']")
+    ).toBeNull();
+
+    const { cbs, view } = renderTodo(card(), true);
+    const pin = view.container.querySelector<HTMLButtonElement>(
+      "button[title='钉住高度(定长)']"
+    )!;
+    expect(pin).toBeTruthy();
+    expect(pin.getAttribute("aria-pressed")).toBe("false");
+    // jsdom 实测高 0 → 基数下界 176(16 网格恰格点)
+    fireEvent.click(pin);
+    expect(cbs.onResizeHeight).toHaveBeenCalledWith("t-1", 176);
+  });
+
+  it("定长态:按钮转为解除;点击写回 undefined 回自适应", () => {
+    const { cbs, view } = renderTodo(card({ height: 320 }), true);
+    const unpin = view.container.querySelector<HTMLButtonElement>(
+      "button[title='解除定长(回自适应)']"
+    )!;
+    expect(unpin).toBeTruthy();
+    expect(unpin.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(unpin);
+    expect(cbs.onResizeHeight).toHaveBeenCalledWith("t-1", undefined);
+  });
+});
+
+describe("TodoSection:归档已完成(todo-height-archive)", () => {
+  it("归档钮两模式可见;点击清除已完成(回调带卡 id)", () => {
+    const daily = renderTodo();
+    const btn = daily.view.container.querySelector<HTMLButtonElement>(
+      "button[title='归档已完成条目']"
+    )!;
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+    expect(daily.cbs.onClearDoneItems).toHaveBeenCalledWith("t-1");
+
+    const wb = renderTodo(card(), true);
+    const wbBtn = wb.view.container.querySelector<HTMLButtonElement>(
+      "button[title='归档已完成条目']"
+    )!;
+    fireEvent.click(wbBtn);
+    expect(wb.cbs.onClearDoneItems).toHaveBeenCalledWith("t-1");
+  });
+
+  it("无已完成条目时禁用;全完成后恢复可用", () => {
+    renderTodo(
+      card({
+        items: [
+          { id: "ti-1", text: "买咖啡豆", done: false, order: 0 },
+          { id: "ti-3", text: "买杯子", done: false, order: 1 },
+        ],
+      })
+    );
+    expect(screen.getByTitle("归档已完成条目")).toBeDisabled();
   });
 });

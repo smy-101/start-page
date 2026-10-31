@@ -55,6 +55,10 @@ type Board = {
   onResizeCanvas: Mock;
   onResizeGroup: Mock;
   onSetGroupColumns: Mock;
+  onResizeTodoWidth: Mock;
+  onRecolorTodo: Mock;
+  onResizeTodoHeight: Mock;
+  onClearTodoDone: Mock;
   onEnterWhiteboard: Mock;
   onCreateTodo: Mock;
   onAddTodoItem: Mock;
@@ -134,6 +138,22 @@ function renderBoard(
     ok: true as const,
     value: [seedTodo()],
   }));
+  const onResizeTodoWidth = vi.fn(async (_id: TodoId, width: number) => ({
+    ok: true as const,
+    value: { ...seedTodo(), width },
+  }));
+  const onRecolorTodo = vi.fn(async (_id: TodoId, color: string) => ({
+    ok: true as const,
+    value: { ...seedTodo(), color },
+  }));
+  const onResizeTodoHeight = vi.fn(async (_id: TodoId, height: number) => ({
+    ok: true as const,
+    value: { ...seedTodo(), height },
+  }));
+  const onClearTodoDone = vi.fn(async () => ({
+    ok: true as const,
+    value: seedTodo(),
+  }));
   // 拖拽回调束:单对象 prop(稳定身份,与 App 经 useCardDnD 供给同形)
   const handlers = {
     onCardDragStart: vi.fn(),
@@ -168,6 +188,10 @@ function renderBoard(
     onRemoveTodoItem,
     onReorderTodoItems,
     onSetTodoPositions,
+    onResizeTodoWidth,
+    onRecolorTodo,
+    onResizeTodoHeight,
+    onClearTodoDone,
     onCreateTodo,
     handlers,
     onEdit: vi.fn(),
@@ -180,6 +204,10 @@ function renderBoard(
     onResizeCanvas,
     onResizeGroup,
     onSetGroupColumns,
+    onResizeTodoWidth,
+    onRecolorTodo,
+    onResizeTodoHeight,
+    onClearTodoDone,
     onEnterWhiteboard,
     onCreateTodo,
     onAddTodoItem,
@@ -1085,6 +1113,41 @@ describe("白板:待办卡集成(todo-card/04)", () => {
     return { ...seededState(), todos: [seedTodo()] };
   }
 
+  it("待办卡按存储宽渲染(todo-card-size-color 自由宽):缺省 CARD_W,width 直读", () => {
+    const board = renderBoard(stateWithTodo());
+    const todo = document.querySelector<HTMLElement>("section.todo")!;
+    expect(parseFloat(todo.style.width)).toBeCloseTo(CARD_W, 1);
+
+    board.rerender({
+      ...seededState(),
+      todos: [{ ...seedTodo(), width: 674 }],
+    });
+    const widened = document.querySelector<HTMLElement>("section.todo")!;
+    expect(parseFloat(widened.style.width)).toBe(674);
+  });
+
+  it("调宽拖柄与选色入口门禁:白板模式挂载,透传到 TodoSection;搜索态卸下", () => {
+    // 日常态:无拖柄无调色钮
+    renderBoard(stateWithTodo());
+    expect(document.querySelector(".todo-resize")).toBeNull();
+    expect(screen.queryByTitle("调整颜色")).toBeNull();
+
+    const board = renderBoard(stateWithTodo(), { whiteboardMode: true });
+    const handle = document.querySelector<HTMLElement>(".todo-resize")!;
+    expect(handle).toBeTruthy();
+    expect(handle).toHaveAttribute("aria-label", "调整待办卡 采购 宽度");
+    // 键盘步进接线:→ 一格 16px 网格(389.33 → 400)写回 onResizeTodoWidth
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(board.onResizeTodoWidth).toHaveBeenCalledWith("t-1", 400);
+    // 选色接线:展开色板选色写回 onRecolorTodo
+    fireEvent.click(screen.getByTitle("调整颜色"));
+    fireEvent.click(screen.getByRole("radio", { name: "颜色 #9fe295" }));
+    expect(board.onRecolorTodo).toHaveBeenCalledWith("t-1", "#9fe295");
+
+    board.rerender(stateWithTodo(), { searching: true });
+    expect(document.querySelector(".todo-resize")).toBeNull();
+  });
+
   it("待办卡渲染在画布,坐标来自存储;日常态勾选与添加透传、无「新建待办」入口", () => {
     const board = renderBoard(stateWithTodo());
     const todo = document.querySelector("section.todo");
@@ -1094,7 +1157,7 @@ describe("白板:待办卡集成(todo-card/04)", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "买咖啡豆" }));
     expect(board.onToggleTodoItem).toHaveBeenCalledWith("t-1", "ti-1");
     // 门禁第二洞(todo-daily-add):日常态卡尾常驻添加行,回车走通接线
-    const add = screen.getByPlaceholderText("添加待办…");
+    const add = screen.getByPlaceholderText("+ 添加待办…");
     fireEvent.change(add, { target: { value: "买奶" } });
     fireEvent.keyDown(add, { key: "Enter" });
     expect(board.onAddTodoItem).toHaveBeenCalledWith("t-1", "买奶");

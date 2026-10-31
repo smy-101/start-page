@@ -15,3 +15,7 @@ Issues 以本地 Markdown 文件跟踪,位于 `.scratch/<feature-slug>/`。见 `
 ### Domain docs
 
 单语境:根目录 `GLOSSARY.md` + `docs/adr/`。见 `docs/agents/domain.md`。
+
+### Debugging & 视觉走查
+
+视觉走查/真机验证走「静态构建 → Windows HTTP → MCP 断言」流程;扩展装新产物一律先 `npm run build`(dev 会话的 dist 是陈旧产物);「新行为 + 旧样式混跑」症状 = dist 陈旧。见 `docs/agents/debugging.md`。

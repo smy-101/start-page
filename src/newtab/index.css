@@ -506,6 +506,17 @@ button[type="submit"]:hover {
   background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
 
+/* 禁用(如归档钮在无已完成条目时):降透明度、去悬停反馈 */
+.icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-button:disabled:hover {
+  color: var(--muted);
+  background: transparent;
+}
+
 .icon-button.danger:hover {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 9%, transparent);
@@ -1282,7 +1293,9 @@ button[type="submit"]:hover {
    定宽 CARD_W;日常态仅勾选开放,编辑控件只在白板模式挂载
    ============================================================ */
 
-/* 卡面:浮起一级的白卡(组托盘沉、白卡浮,同收藏卡的分层语言) */
+/* 卡面:浮起一级的白卡(组托盘沉、白卡浮,同收藏卡的分层语言)。
+   宽为自由宽(缺省 = CARD_W,schema v10);位移过渡让拖拽落位有连续性;
+   底色进过渡让换色时变化可感 */
 .todo {
   position: absolute;
   overflow: hidden;
@@ -1304,6 +1317,84 @@ button[type="submit"]:hover {
 :root[data-start-background] .todo {
   background: color-mix(in srgb, var(--bg) 72%, transparent);
   backdrop-filter: blur(8px);
+}
+
+/* 卡色底染(todo-card-size-color):选色后卡面淡染 + 边框微带色
+   (分组托盘 16%、待办卡 12%:托盘沉、白卡浮的分层语言保持);
+   勾选框/指示线保持墨色——色板含浅粉彩,白勾在浅底不可读,
+   勾选是内容消费,墨色承担(缺省观感与组内墨色一致) */
+.todo[data-todo-colored="true"] {
+  background: color-mix(in srgb, var(--todo-color) 12%, var(--card));
+  border-color: color-mix(in srgb, var(--todo-color) 32%, var(--border));
+}
+
+:root[data-start-background] .todo[data-todo-colored="true"] {
+  background: color-mix(
+    in srgb,
+    var(--todo-color) 12%,
+    color-mix(in srgb, var(--bg) 72%, transparent)
+  );
+}
+
+/* 定长高(todo-height-archive):已设高(含拖中预览)时卡面纵向 flex——
+   卡头/选色行/添加行常驻可见,条目列表区滚动(自适应态的 max-height
+   clamp 退役,由 flex:1 + min-height:0 接管) */
+.todo[data-fixed-height="true"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.todo[data-fixed-height="true"] .todo-header,
+.todo[data-fixed-height="true"] .todo-color-row,
+.todo[data-fixed-height="true"] .todo-add {
+  flex: none;
+}
+
+.todo[data-fixed-height="true"] .todo-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+/* 选色行(todo-card-size-color):白板模式卡头展开;色板 + 中性复位 */
+/* 钉住钮(todo-height-archive):定长态压下强调(钉住中),其余同基类 */
+.todo-pin[aria-pressed="true"] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.todo-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 8px;
+}
+
+.todo-color-neutral {
+  flex: none;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition:
+    color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out),
+    background-color 120ms var(--ease-out);
+}
+
+.todo-color-neutral:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+
+.todo-color-neutral[aria-pressed="true"] {
+  color: var(--fg);
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  font-weight: 550;
 }
 
 /* 卡头:标题 + 未完成计数(安静灰字,同组头计数),白板模式附删卡钮 */
@@ -1493,7 +1584,10 @@ button[type="submit"]:hover {
   animation: drop-hint-in 120ms var(--ease-out);
 }
 
-/* 底部添加行(ADR-0006 补记起两态常驻);回车即加,静默清空 */
+/* 底部添加行(ADR-0006 补记起两态常驻);回车即加,静默清空。
+   幽灵行(todo-card-size-color):静息无框(transparent 边框占位保布局
+   稳定),「+」语汇承担可输入暗示;悬停出与条目行同款底色,
+   聚焦出墨色实线框(原常驻虚线框整日占据视觉重量,空卡上更吵) */
 .todo-add {
   display: block;
   width: 100%;
@@ -1502,17 +1596,140 @@ button[type="submit"]:hover {
   font-size: 13.5px;
   color: inherit;
   background: transparent;
-  border: 1px dashed var(--border-strong);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
 }
 
 .todo-add::placeholder {
   color: var(--muted);
 }
 
+.todo-add:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
 .todo-add:focus-visible {
   outline: none;
-  border: 1px solid var(--fg);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  border-color: color-mix(in srgb, var(--fg) 45%, transparent);
+}
+
+/* 调宽中:锁选区,拖中宽度不经过渡 1:1 跟手(同组调宽口径) */
+.todo[data-resizing="true"] {
+  user-select: none;
+}
+
+/* 卡右缘调宽拖柄(todo-card-size-color):白板模式且非搜索时由组件挂载;
+   整高热区贴卡右缘内侧(卡 overflow:hidden 裁平),中间一枚竖向握把胶囊;
+   键盘可达(separator 角色);与 .group-resize 同语言 */
+.todo-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.todo-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 28px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+  transition:
+    background 120ms ease-out,
+    height 120ms ease-out;
+}
+
+.todo-resize:hover::after,
+.todo-resize:focus-visible::after,
+.todo[data-resizing="true"] .todo-resize::after {
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+  height: 44px;
+}
+
+.todo-resize:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* 卡底缘定长调高拖柄(todo-height-archive):与 .todo-resize 同语言;
+   整宽热区贴卡底缘内侧(卡底 padding 10px 恰容热区,不压添加行),
+   中间一枚横向握把胶囊;键盘 ↑/↓ 步进 */
+.todo-resize-b {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 10px;
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.todo-resize-b::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  width: 28px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+  transition:
+    background 120ms ease-out,
+    width 120ms ease-out;
+}
+
+.todo-resize-b:hover::after,
+.todo-resize-b:focus-visible::after,
+.todo[data-resizing="true"] .todo-resize-b::after {
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+  width: 44px;
+}
+
+.todo-resize-b:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* 底柄读数徽章:居中悬在柄上方(柄只有 10px 高,复用徽章的
+   右上定位会被卡面 overflow:hidden 裁掉) */
+.todo-resize-b .todo-resize-badge {
+  top: auto;
+  bottom: 18px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+/* 调宽读数徽章:拖柄顶部回显吸附宽(仅调宽中);复用组徽章语言 */
+.todo-resize-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 18%, transparent);
+  pointer-events: none;
 }
 
 /* 白板工具行(board-whiteboard/03 起仅白板模式出现):口径提示 + 自动整理 */

@@ -14,18 +14,34 @@
  * 条数推导,v6 全部状态渲染逐字不变,仅升版本号。
  * v7→v8 待办卡(todo-card,ADR-0006):零改写——补缺省 todos: []
  * (升级不预置示例卡);分组/收藏引用原样保留。
+ * v8→v9 待办卡宽档位与卡色(todo-card-size-color):零数据改写——
+ * 缺省档位 1 = CARD_W、缺省无色 = 中性,v8 全部状态渲染逐字不变,
+ * 仅升版本号。
+ * v9→v10 待办卡自由宽(todo-card-size-color 调校):档位制退役——
+ * 已存 span 按旧档位数学换算为 px 存 width、剥离 span;无 span 的卡
+ * 零改写(缺省 = CARD_W 渲染逐字不变)。v9 未发布,仅本地开发版数据
+ * 走此换算。
+ * v10→v11 待办卡定长高(todo-height-archive):零数据改写——缺省
+ * undefined = 自适应,v10 全部状态渲染逐字不变,仅升版本号。
  * 末尾统一修复(任何版本,含已是当前版):宽度存在但非法(NaN/越界)钳回;
  * 缺省 = 自动档,不补数值;columns/span 存在但非法一律剥离(缺省:
  * columns 装满 / span 从 columns 推导);合法 columns > 合法 span 时抬 span
- * 到 columns(宽到装得下,不丢排版;手改 JSON 的兑底)。
+ * 到 columns(宽到装得下,不丢排版;手改 JSON 的兑底);
+ * todos 里非法 width(非有限/越界/非整数)钳回、残留 span(v9 遗物)
+ * 剥离、非 string color 剥离;非法 height(非有限剥离——高的缺省是
+ * 「不定长」而非定值,垃圾值归 undefined 而非物化定长;有限越界/非整数
+ * 钳回 [176, 720])。
  * 幂等:已是当前版本且无需修复的状态原引用返回(不重排、不落盘)。
  */
-import type { BookmarkState } from "./types";
+import type { BookmarkState, TodoCard } from "./types";
 import { byOrder } from "./types";
 import {
+  CARD_W,
   DEFAULT_CANVAS_W,
   MAX_GROUP_COLUMNS,
   clampCanvasWidth,
+  clampTodoHeight,
+  clampTodoWidth,
   spreadPositions,
 } from "./canvas";
 
@@ -68,6 +84,38 @@ export function migrateState(state: BookmarkState): BookmarkState {
     // 数组在末尾统一修复处一并承担(v7 与 v8 缺失同路)
     next = { ...next, schemaVersion: 8 };
   }
+  if (next.schemaVersion < 9) {
+    // v8→v9 零数据改写(todo-card-size-color):缺省档位 1 = CARD_W、
+    // 缺省无色 = 中性,v8 全部状态渲染逐字不变(todos 引用原样保留);
+    // 非法值剥离在末尾统一修复处承担(v8 与 v9 同路)
+    next = { ...next, schemaVersion: 9 };
+  }
+  if (next.schemaVersion < 10) {
+    // v9→v10(todo-card-size-color 调校):档位制退役改自由宽——已存 span
+    // 按旧档位数学换算为 px 存 width、剥离 span;无 span 的卡零改写
+    // (数组与元素引用均保留)。非法档位(非整数/越 1..5)归档 1 后换算
+    if (next.todos) {
+      let converted = false;
+      const todos = next.todos.map((tRaw: TodoCard & { span?: number }) => {
+        if (tRaw.width !== undefined) {
+          if (tRaw.span === undefined) return tRaw;
+          converted = true;
+          return { ...tRaw, span: undefined };
+        }
+        if (tRaw.span === undefined) return tRaw;
+        converted = true;
+        return { ...tRaw, width: legacySpanWidth(tRaw.span), span: undefined };
+      });
+      if (converted) next = { ...next, todos };
+    }
+    next = { ...next, schemaVersion: 10 };
+  }
+  if (next.schemaVersion < 11) {
+    // v10→v11 零数据改写(todo-height-archive):缺省 undefined = 自适应,
+    // v10 全部状态渲染逐字不变(todos 引用原样保留);非法值剥离/钳回
+    // 在末尾统一修复处承担(v10 与 v11 同路)
+    next = { ...next, schemaVersion: 11 };
+  }
   // 缺省 = 自动档(schema v5),修复仅针对已存在的非法值
   if (
     next.canvasWidth !== undefined &&
@@ -95,7 +143,37 @@ export function migrateState(state: BookmarkState): BookmarkState {
   if (!Array.isArray(next.todos)) {
     next = { ...next, todos: [] };
   }
+  // todos 修复(todo-card-size-color,v10):width 钳回(floor 取整、
+  // 钳 [TODO_W_MIN, TODO_W_MAX],非有限归 389);残留 span(v9 遗物)剥离;
+  // 非 string color 剥离。已是干净数组引用保留(幂等)
+  else if (next.todos.some((t) => needsTodoRepair(t))) {
+    next = {
+      ...next,
+      todos: next.todos.map((t) => ({
+        ...t,
+        span: undefined,
+        width: t.width === undefined ? undefined : clampTodoWidth(t.width),
+        color: typeof t.color === "string" ? t.color : undefined,
+        // height:有限钳回(floor/越界),非有限/非数剥离为自适应
+        // (缺省是「不定长」而非定值,垃圾值不物化定长)
+        height:
+          typeof t.height === "number" && Number.isFinite(t.height)
+            ? clampTodoHeight(t.height)
+            : undefined,
+      })),
+    };
+  }
   return next;
+}
+
+/** v9 档位数学(档案口径,仅 v9→v10 换算与 v9 备份导入用):
+ * 档 k → floor(CARD_W + (k−1) × 95);非法(非整数/越 1..5)归档 1。 */
+export function legacySpanWidth(span: number | undefined): number {
+  const k =
+    span !== undefined && Number.isInteger(span) && span >= 1 && span <= 5
+      ? span
+      : 1;
+  return Math.floor(CARD_W + (k - 1) * 95);
 }
 /** 档位/每行条数共用合法域:缺省(与推导/装满同义)或有限整数 1..上限。 */
 function isValidStep(value: number | undefined): boolean {
@@ -109,4 +187,24 @@ function isValidStep(value: number | undefined): boolean {
 function needsSizingRepair(g: { span?: number; columns?: number }): boolean {
   if (!isValidStep(g.span) || !isValidStep(g.columns)) return true;
   return g.span !== undefined && g.columns !== undefined && g.columns > g.span;
+}
+
+/** 待办卡字段需修复(todo-card-size-color v10;height 补 v11):残留
+ * span(v9 遗物)、width 非法(非有限)或钳回后变化(越界/非整数)、
+ * color 非 string、height 同口径(非有限 → 剥离为自适应)。 */
+function needsTodoRepair(t: {
+  span?: unknown;
+  width?: unknown;
+  color?: unknown;
+  height?: unknown;
+}): boolean {
+  if (t.span !== undefined) return true;
+  if (t.color !== undefined && typeof t.color !== "string") return true;
+  const w = t.width;
+  if (w !== undefined && clampTodoWidth(w as number) !== w) return true;
+  const h = t.height;
+  return (
+    h !== undefined &&
+    (typeof h !== "number" || !Number.isFinite(h) || clampTodoHeight(h) !== h)
+  );
 }

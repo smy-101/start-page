@@ -21,15 +21,17 @@ import {
 import { normalizeUrl } from "./url";
 import { migrateState } from "./migrations";
 import {
-  CARD_W,
   MAX_GROUP_COLUMNS,
   appendPositions,
   canvasBoundWidth,
   clampCanvasWidth,
+  clampTodoWidth,
+  clampTodoHeight,
   clampToCanvas,
   groupSpanOf,
   groupWidthOf,
   maxSpanForCanvas,
+  todoWidthOf,
 } from "./canvas";
 
 export { INBOX_GROUP_COLOR, INBOX_GROUP_ID, SCHEMA_VERSION } from "./types";
@@ -67,7 +69,7 @@ export interface GroupPositionInput {
   y: number;
 }
 
-/** 待办卡落点写回条目(todo-card):与分组同形状,钳界按定宽 CARD_W。 */
+/** 待办卡落点写回条目(todo-card):与分组同形状,钳界按各卡宽。 */
 export interface TodoPositionInput {
   id: TodoId;
   x: number;
@@ -162,11 +164,30 @@ export interface BookmarkStore {
   ): Promise<Result<TodoCard>>;
   /**
    * 待办卡落点批量写回(白板拖拽松手/自动整理):坐标经 clampToCanvas
-   * 钳回(右界按定宽 CARD_W);任何未知 id 整批拒绝;无变化不落盘。
+   * 钳回(右界按各卡宽);任何未知 id 整批拒绝;无变化不落盘。
    */
   setTodoPositions(
     positions: readonly TodoPositionInput[]
   ): Promise<Result<TodoCard[]>>;
+  /**
+   * 待办卡宽写回(todo-card-size-color 自由宽,白板拖柄松手/键盘步进):
+   * 钳 [240, 768] 且不越画布宽(自动档按上限;16px 网格对齐在组件
+   * 松手吸附);与生效宽同义不落盘;缩画布宽至放不下时收窄(setCanvasWidth 收口)。
+   */
+  setTodoWidth(id: TodoId, width: number): Promise<Result<TodoCard>>;
+  /** 待办卡定长高写回(拖柄松手/键盘步进/钉住切换;钳 [176, 720],
+   * 不随画布收窄;undefined = 解除定长回自适应,剥离字段) */
+  setTodoHeight(
+    id: TodoId,
+    height: number | undefined
+  ): Promise<Result<TodoCard>>;
+  /** 归档:一键清除该卡全部已完成条目(余条目保序重排;无完成不落盘) */
+  clearDoneTodoItems(id: TodoId): Promise<Result<TodoCard>>;
+  /**
+   * 待办卡换色(todo-card-size-color,白板卡头色板):任意非空串照收
+   * (不校验色域,同分组换色);空串 = 复位中性(缺省白卡)。
+   */
+  recolorTodo(id: TodoId, color: string): Promise<Result<TodoCard>>;
 }
 
 function initialState(): BookmarkState {
@@ -197,7 +218,8 @@ function ensureInbox(state: BookmarkState): BookmarkState {
  * boot 回声抑制用:自身写入引发的 onChanged 回声携带与当前一致的状态,相等即可
  * 跳过重建;外部写入携带不同状态,不等即重建。数组顺序参与相等(顺序即语义);
  * 画布宽逐字比较(schema v5:缺省自动档 ≠ 钉住的固定宽)。
- * todos 逐字段参与(schema v8,todo-card):待办勾选/增删也要触发回声重建。
+ * todos 逐字段参与(schema v8,todo-card;v9 补 color、v10 补 width):
+ * 待办勾选/增删/调宽/换色都要触发回声重建。
  */
 export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
   if (a === b) return true;
@@ -253,7 +275,10 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
       x.items.length !== y.items.length ||
       x.order !== y.order ||
       x.x !== y.x ||
-      x.y !== y.y
+      x.y !== y.y ||
+      x.width !== y.width ||
+      x.height !== y.height ||
+      x.color !== y.color
     ) {
       return false;
     }
@@ -591,8 +616,22 @@ export async function createBookmarkStore(
         if (widthSame) return { ...g, x: pos.x, y: pos.y };
         return { ...g, span, columns, x: pos.x, y: pos.y };
       });
-      if (!widthChanged && !moved) return { ok: true, value: clamped };
-      state = { ...state, canvasWidth: clamped, groups };
+      // 待办卡同口径(todo-card-size-color):缩画布至放不下时宽收窄到
+      // 画布宽、x 按新宽重钳;未动者原对象保留(缺省宽 389.33 不物化)
+      let todosMoved = false;
+      const todos = (state.todos ?? []).map((t) => {
+        const effective = todoWidthOf(t);
+        const next = Math.min(effective, clamped);
+        const pos = clampToCanvas({ x: t.x, y: t.y }, clamped, next);
+        if (next === effective && pos.x === t.x && pos.y === t.y) return t;
+        todosMoved = true;
+        if (next === effective) return { ...t, x: pos.x, y: pos.y };
+        return { ...t, width: clampTodoWidth(next), x: pos.x, y: pos.y };
+      });
+      if (!widthChanged && !moved && !todosMoved) {
+        return { ok: true, value: clamped };
+      }
+      state = { ...state, canvasWidth: clamped, groups, todos };
       await adapter.save(state);
       return { ok: true, value: clamped };
     },
@@ -857,11 +896,18 @@ export async function createBookmarkStore(
       if (positions.length === 0) return { ok: true, value: todos };
       if (positions.some((p) => !todos.some((t) => t.id === p.id)))
         return { ok: false, error: "todo-not-found" };
-      // 定宽 CARD_W 钳右界(自动档按上限,实际渲染宽由组件先行钳过)
+      // 各卡按各自宽钳右界(自动档按上限,实际渲染宽由组件先行钳过)
       const width = canvasBoundWidth(state);
+      const widthOf = new Map(
+        todos.map((t) => [t.id, todoWidthOf(t)] as const)
+      );
       const byId = new Map(
         positions.map((p) => {
-          const clamped = clampToCanvas({ x: p.x, y: p.y }, width, CARD_W);
+          const clamped = clampToCanvas(
+            { x: p.x, y: p.y },
+            width,
+            widthOf.get(p.id)
+          );
           return [p.id, clamped] as const;
         })
       );
@@ -878,6 +924,65 @@ export async function createBookmarkStore(
       state = { ...state, todos: next };
       await adapter.save(state);
       return { ok: true, value: next };
+    },
+
+    async setTodoWidth(id: TodoId, width: number): Promise<Result<TodoCard>> {
+      const card = findTodoCard(id);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      // 界限双钳:[240, 768] 且不越画布宽(自动档按上限);
+      // 非有限值归缺省附近(floor(CARD_W) = 389),取整一律 floor;
+      // 16px 网格对齐在组件松手吸附(同画布宽分工:store 只管界限)
+      const next = clampTodoWidth(
+        Math.min(clampTodoWidth(width), canvasBoundWidth(state))
+      );
+      // 与生效宽同义不落盘
+      if (next === todoWidthOf(card)) return { ok: true, value: card };
+      return writeTodo({ ...card, width: next });
+    },
+
+    async setTodoHeight(
+      id: TodoId,
+      height: number | undefined
+    ): Promise<Result<TodoCard>> {
+      const card = findTodoCard(id);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      // undefined = 解除定长回自适应(剥离字段;同 recolorTodo 空串
+      // 复位中性的语义形状);已自适应 = 与现状同义不落盘
+      if (height === undefined) {
+        if (card.height === undefined) return { ok: true, value: card };
+        return writeTodo({ ...card, height: undefined });
+      }
+      // 界限钳回 [176, 720](floor 取整,非有限归下界);不随画布宽
+      // 收窄——高不参与横向几何,画布向下无界;16px 网格对齐在组件
+      // 松手吸附(同调宽分工:store 只管界限)
+      const next = clampTodoHeight(height);
+      // 与已存定长同义不落盘;undefined = 自适应,任何定值都是新义
+      // (与宽不同:宽缺省有定值 CARD_W,高缺省是「不定长」)
+      if (card.height === next) return { ok: true, value: card };
+      return writeTodo({ ...card, height: next });
+    },
+
+    async clearDoneTodoItems(id: TodoId): Promise<Result<TodoCard>> {
+      const card = findTodoCard(id);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      // 归档(todo-height-archive):一键清除已完成条目,余条目保序重排;
+      // 无完成条目 = 与现状同义,不落盘
+      if (!card.items.some((i) => i.done)) return { ok: true, value: card };
+      return writeTodo({
+        ...card,
+        items: renumberTodoItems(card.items.filter((i) => !i.done)),
+      });
+    },
+
+    async recolorTodo(id: TodoId, color: string): Promise<Result<TodoCard>> {
+      const card = findTodoCard(id);
+      if (!card) return { ok: false, error: "todo-not-found" };
+      // 空串 = 复位中性(剥离字段);非空串照收(不校验色域,同分组换色);
+      // 空串与缺省同义,均不落盘
+      const next = color.trim();
+      if (next === (card.color ?? "")) return { ok: true, value: card };
+      if (!next) return writeTodo({ ...card, color: undefined });
+      return writeTodo({ ...card, color: next });
     },
   };
 }

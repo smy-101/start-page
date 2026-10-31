@@ -25,7 +25,7 @@ export const CELL_W = 184;
 export const CELL_GAP = 6;
 /** 组宽推算的固定横向开销(px):组边框 1×2 + 组横 padding 8×2 + 网格横
  * padding 4×2 + 滚动槽 12(网格 scrollbar-gutter: stable 常驻预留;
- * Windows thin 实测 10,留 2 余量——不预留则列内容滚出时塌列)。 */
+ * 滚动条自定宽 8px(scrollbar-fix),留余量——不预留则列内容滚出时塌列)。 */
 export const GROUP_EDGE = 38;
 /** 每行条数/组宽档位共用上限(档 6 宽 1172 ≤ 默认画布 1200,再多横条格过窄)。 */
 export const MAX_GROUP_COLUMNS = 6;
@@ -149,6 +149,52 @@ export function groupCellsOf(group: {
   return cells === undefined ? span : Math.min(cells, span);
 }
 
+/** ---- 待办卡宽(todo-card-size-color,spec 决定 1;自由宽调校 2026-11-14)----
+ * 自由宽:不设档位(用户定案,档位制两轮调校后退役),白板模式拖卡右缘
+ * 连续调宽、松手 16px 网格吸附;缺省 = CARD_W(存量零改写),
+ * 下限 240px 紧凑卡(档位制以 CARD_W 为底对紧凑清单偏宽,用户反馈;
+ * 240 = 勾选框 + 约 12 字/行，16 倍数),上限 768 ≈ 两倍缺省宽
+ * (宽过两倍缺省即不像卡，16 倍数)。与画布网格语言一致。 */
+
+/** 待办卡宽下限(px，16 倍数):紧凑卡仍容得下勾选框 + 一句待办。 */
+export const TODO_W_MIN = 240;
+/** 待办卡宽上限(px，16 倍数):约两倍缺省宽，再宽超出清单卡意义。 */
+export const TODO_W_MAX = 768;
+
+/** 待办卡宽钳回:floor 取整后钳 [MIN, MAX];非有限归 floor(CARD_W)。 */
+export function clampTodoWidth(width: number): number {
+  if (!Number.isFinite(width)) return Math.floor(CARD_W);
+  return Math.floor(Math.min(Math.max(width, TODO_W_MIN), TODO_W_MAX));
+}
+
+/** 待办卡渲染宽:缺省 = CARD_W(逐字保留，不 floor);存在则钳回。
+ * 入参取 { width } 形状，组件/领域均传整卡。 */
+export function todoWidthOf(todo: { width?: number }): number {
+  return todo.width === undefined ? CARD_W : clampTodoWidth(todo.width);
+}
+
+/** ---- 待办卡定长高(todo-height-archive,spec 决定 1)----
+ * 定长高:可选,缺省 undefined = 自适应(存量零改写,列表约 18 行起
+ * 内部滚动);定长时卡面纵向 flex、条目列表区滚动、添加行常驻可见。
+ * 交互同调宽语言:白板模式拖卡底缘连续调高、松手 16px 网格吸附、
+ * 键盘 ↑/↓ 步进一格。下限 176(px,16 倍数)= 卡头 + 约三行条目 +
+ * 添加行(卡面固定开销约 88px);上限 720 = 略高于自适应观感上限
+ * (列表 clamp 560 + 卡头/添加行 ≈ 648,16 倍数)。
+ * 高不随画布宽收窄(高不参与横向几何,画布向下无界)。 */
+
+/** 待办卡定长高下限(px,16 倍数):卡头 + 约三行条目 + 添加行。 */
+export const TODO_H_MIN = 176;
+/** 待办卡定长高上限(px,16 倍数):略高于自适应观感上限。 */
+export const TODO_H_MAX = 720;
+
+/** 待办卡定长高钳回:floor 取整后钳 [MIN, MAX];非有限归下界
+ * (高的「缺省」是 undefined 自适应而非定值,垃圾输入当最近的
+ * 合法界;与 clampTodoWidth 归缺省附近同思路)。 */
+export function clampTodoHeight(height: number): number {
+  if (!Number.isFinite(height)) return TODO_H_MIN;
+  return Math.floor(Math.min(Math.max(height, TODO_H_MIN), TODO_H_MAX));
+}
+
 /** 画布内放得下的最大组宽档位(至少 1):拖柄调宽/缩画布的钳上界。 */
 export function maxSpanForCanvas(canvasW: number): number {
   for (let c = MAX_GROUP_COLUMNS; c > 1; c--) {
@@ -219,10 +265,7 @@ export function packCanvas(
     const pos = {
       // 居中偏移但不出画布(宽卡跨槽溢出时靠左;组宽 ≤ 画布是常态,
       // store 已按 maxSpanForCanvas 钳过,此处仅防御)
-      x: Math.max(
-        0,
-        Math.floor(target * (CARD_W + GAP) + (spanW - w) / 2)
-      ),
+      x: Math.max(0, Math.floor(target * (CARD_W + GAP) + (spanW - w) / 2)),
       y: Math.floor(targetTop),
     };
     for (let c = target; c < target + slots; c++) {

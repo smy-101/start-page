@@ -24,6 +24,13 @@ import {
   groupWidthOf,
   maxSpanForCanvas,
   nearestGroupSpan,
+  TODO_W_MAX,
+  TODO_W_MIN,
+  TODO_H_MAX,
+  TODO_H_MIN,
+  clampTodoWidth,
+  clampTodoHeight,
+  todoWidthOf,
   packCanvas,
   snapAlignment,
   spreadPositions,
@@ -181,11 +188,10 @@ describe("packCanvas:自动整理装箱(ADR-0004;原 ADR-0003 布局算法降级
   it("宽度感知:宽卡占连续槽、窗口内最高槽最小,组在槽跨度内居中", () => {
     // 两列组宽 412 → 占 2 槽(跨度 2×(CARD_W+GAP)−GAP ≈ 794.67,居中偏移 ≈ 191)
     const span2 = 2 * (CARD_W + GAP) - GAP;
-    const [wide, slim] = packCanvas(
-      [100, 100],
-      DEFAULT_CANVAS_W,
-      [groupWidthOf(2), CARD_W]
-    );
+    const [wide, slim] = packCanvas([100, 100], DEFAULT_CANVAS_W, [
+      groupWidthOf(2),
+      CARD_W,
+    ]);
     expect(wide).toEqual({
       x: Math.floor((span2 - groupWidthOf(2)) / 2),
       y: 0,
@@ -197,11 +203,10 @@ describe("packCanvas:自动整理装箱(ADR-0004;原 ADR-0003 布局算法降级
   it("宽度感知:占满整行槽位的宽卡把后续卡挤到第二行;溢出跨度的宽卡靠左", () => {
     // 六列组宽 1220 → ceil((1220+16)/405.33) = 4 槽,默认画布 3 槽只够
     // 收成 3 槽(跨槽溢出),居中偏移为负 → 防御性压回 0(靠左)
-    const [hug, after] = packCanvas(
-      [50, 50],
-      DEFAULT_CANVAS_W,
-      [groupWidthOf(6), CARD_W]
-    );
+    const [hug, after] = packCanvas([50, 50], DEFAULT_CANVAS_W, [
+      groupWidthOf(6),
+      CARD_W,
+    ]);
     expect(hug).toEqual({ x: Math.floor((1200 - groupWidthOf(6)) / 2), y: 0 });
     // 三槽全占后,窄卡从第二行起步(三列顶高均为 50+GAP)
     expect(after).toEqual({ x: 0, y: 66 });
@@ -327,6 +332,40 @@ describe("组宽档位推导(group-span-decouple,schema v7)", () => {
     expect(groupCellsOf({ span: 4, columns: 1 })).toBe(1);
     // 防御:columns 越档(写路径不产生,手改 JSON 可能)钳回档位
     expect(groupCellsOf({ span: 2, columns: 4 })).toBe(2);
+  });
+});
+
+describe("待办卡宽(todo-card-size-color 自由宽,schema v10)", () => {
+  it("todoWidthOf:缺省 = CARD_W 逐字保留(存量零改写);存在则钳回 floor 整数", () => {
+    expect(todoWidthOf({})).toBe(CARD_W);
+    expect(todoWidthOf({ width: 484 })).toBe(484);
+    expect(todoWidthOf({ width: 240 })).toBe(TODO_W_MIN); // 恰下界
+    expect(todoWidthOf({ width: 100 })).toBe(TODO_W_MIN); // 越下界钳回
+    expect(todoWidthOf({ width: 5000 })).toBe(TODO_W_MAX); // 越上界钳回
+    expect(todoWidthOf({ width: 484.6 })).toBe(484); // 取整一律 floor
+  });
+
+  it("clampTodoWidth:钳 [240, 768];非有限归 floor(CARD_W)=389", () => {
+    expect(clampTodoWidth(300)).toBe(300);
+    expect(clampTodoWidth(100)).toBe(TODO_W_MIN);
+    expect(clampTodoWidth(9999)).toBe(TODO_W_MAX);
+    // 非有限归缺省附近(389),幂等:再钳不再变
+    expect(clampTodoWidth(Number.NaN)).toBe(Math.floor(CARD_W));
+    expect(clampTodoWidth(Number.POSITIVE_INFINITY)).toBe(Math.floor(CARD_W));
+    expect(clampTodoWidth(389.33)).toBe(389);
+  });
+});
+
+describe("待办卡高(todo-height-archive 定长,schema v11)", () => {
+  it("clampTodoHeight:钩 [176, 720];floor 取整;非有限归下界 176", () => {
+    expect(clampTodoHeight(320)).toBe(320);
+    expect(clampTodoHeight(100)).toBe(TODO_H_MIN);
+    expect(clampTodoHeight(9999)).toBe(TODO_H_MAX);
+    expect(clampTodoHeight(320.6)).toBe(320); // 取整一律 floor
+    // 非有限归下界(高的「缺省」是 undefined 自适应而非定值,
+    // 垃圾输入当最近的合法界;与 clampTodoWidth 归缺省附近同思路)
+    expect(clampTodoHeight(Number.NaN)).toBe(TODO_H_MIN);
+    expect(clampTodoHeight(Number.POSITIVE_INFINITY)).toBe(TODO_H_MIN);
   });
 });
 

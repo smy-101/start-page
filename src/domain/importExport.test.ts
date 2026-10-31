@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BookmarkState } from "./types";
+import type { BookmarkState, TodoCard } from "./types";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "./types";
 import {
   exportStateAsHtml,
@@ -1272,6 +1272,39 @@ describe("待办卡导入导出(schema v8,todo-card)", () => {
     expect((await adapter.load())?.todos).toEqual(stateWithTodos().todos);
   });
 
+  it("height 随备份逐字往返;非法高度导入钳回/剥离(todo-height-archive)", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const withHeight = stateWithTodos();
+    withHeight.todos = [{ ...withHeight.todos![0], height: 320 }];
+    // 导出 JSON 携带 height(逐字)
+    expect(JSON.parse(exportStateAsJson(withHeight)).todos).toEqual(
+      withHeight.todos
+    );
+    // 导入:合法 320 逐字恢复
+    await importStateFromJson(adapter, JSON.stringify(withHeight), "replace");
+    expect((await adapter.load())?.todos?.[0]).toMatchObject({ height: 320 });
+    // 导入:越界钳回(9999→720),非有限剥离(NaN → 自适应不物化)
+    const broken = stateWithTodos();
+    broken.todos = [
+      { ...broken.todos![0], id: "t-h1", height: 9999 },
+      { ...broken.todos![0], id: "t-h2", height: Number.NaN },
+    ];
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(broken),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    expect((await adapter.load())?.todos).toMatchObject([
+      { id: "t-h1", height: 720 },
+      { id: "t-h2" },
+    ]);
+    const loaded = (await adapter.load())?.todos?.[1];
+    expect(loaded).toBeDefined();
+    expect(Object.hasOwn(loaded as object, "height")).toBe(false);
+  });
+
   it("replace:越界坐标钳回(x 按画布右界 − CARD_W,y 压非负)", async () => {
     const adapter = createMemoryStorage();
     await createBookmarkStore(adapter);
@@ -1282,6 +1315,39 @@ describe("待办卡导入导出(schema v8,todo-card)", () => {
       x: 1200 - CARD_W,
       y: 0,
     });
+  });
+
+  it("replace:右界按各卡宽钳回、窄画布收窄;v9 档位备份换算自由宽(todo-card-size-color)", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const state = stateWithTodos();
+    // 宽 674 的卡在 1200 画布内;x 越界按 674 钳回(比缺省宽钳得更紧)
+    state.todos = [{ ...state.todos![0], width: 674, x: 5000, y: 0 }];
+    await importStateFromJson(adapter, JSON.stringify(state), "replace");
+    const restored = (await adapter.load())?.todos?.[0];
+    expect(restored).toMatchObject({ width: 674 });
+    expect(restored!.x).toBe(1200 - 674);
+    expect(1200 - 674).toBeLessThan(1200 - CARD_W);
+
+    // 画布缩到 720:宽 768 放不下 → 收窄到 720、x 钳回 0
+    const narrow = stateWithTodos();
+    narrow.canvasWidth = 720;
+    narrow.todos = [{ ...narrow.todos![0], width: 768, x: 5000, y: 0 }];
+    await importStateFromJson(adapter, JSON.stringify(narrow), "replace");
+    const shrunk = (await adapter.load())?.todos?.[0];
+    expect(shrunk).toMatchObject({ width: 720, x: 0 });
+
+    // v9 档位备份(未发布版):span 3 → 自由宽 579,坐标按 579 钳回、span 剥离
+    const v9Backup = stateWithTodos();
+    v9Backup.schemaVersion = 9;
+    v9Backup.todos = [
+      { ...v9Backup.todos![0], span: 3, x: 5000, y: 0 } as unknown as TodoCard,
+    ];
+    await importStateFromJson(adapter, JSON.stringify(v9Backup), "replace");
+    const converted = (await adapter.load())?.todos?.[0];
+    expect(converted).toMatchObject({ width: 579 });
+    expect(converted!.x).toBe(1200 - 579);
+    expect((converted as { span?: number }).span).toBeUndefined();
   });
 
   it("merge:备份待办卡追加为新卡(重生成 id),现有待办保留", async () => {

@@ -317,6 +317,29 @@ export function App({
       run(() => storeRef.current!.setTodoPositions(positions)),
     [run]
   );
+  /** 待办卡宽写回(todo-card-size-color 自由宽):拖柄松手/键盘 → store 界限钳回落盘 */
+  const handleResizeTodoWidth = useCallback(
+    (id: TodoId, width: number) =>
+      refreshOnOk(() => storeRef.current!.setTodoWidth(id, width)),
+    [refreshOnOk]
+  );
+  /** 待办卡换色(todo-card-size-color):空串 = 复位中性 */
+  const handleRecolorTodo = useCallback(
+    (id: TodoId, color: string) =>
+      refreshOnOk(() => storeRef.current!.recolorTodo(id, color)),
+    [refreshOnOk]
+  );
+  /** 待办卡定长高写回(todo-height-archive):底柄松手/键盘 ↑/↓ → store 界限钳回落盘 */
+  const handleResizeTodoHeight = useCallback(
+    (id: TodoId, height: number | undefined) =>
+      refreshOnOk(() => storeRef.current!.setTodoHeight(id, height)),
+    [refreshOnOk]
+  );
+  /** 归档(todo-height-archive):清除该卡全部已完成条目 */
+  const handleClearTodoDone = useCallback(
+    (id: TodoId) => refreshOnOk(() => storeRef.current!.clearDoneTodoItems(id)),
+    [refreshOnOk]
+  );
 
   /** 画布宽写回(canvas-bounds-align):右缘拖柄松手/键盘步进 → store 钳回落盘 */
   const handleResizeCanvas = useCallback(
@@ -610,6 +633,10 @@ export function App({
         onRemoveTodoItem={handleRemoveTodoItem}
         onReorderTodoItems={handleReorderTodoItems}
         onSetTodoPositions={handleSetTodoPositions}
+        onResizeTodoWidth={handleResizeTodoWidth}
+        onRecolorTodo={handleRecolorTodo}
+        onResizeTodoHeight={handleResizeTodoHeight}
+        onClearTodoDone={handleClearTodoDone}
         onEnterWhiteboard={handleEnterWhiteboard}
         handlers={dragHandlers}
         onEdit={handleCardEdit}

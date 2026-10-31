@@ -18,7 +18,8 @@ import type { BookmarkState } from "../src/domain/types";
 const seed: BookmarkState = {
   schemaVersion: SCHEMA_VERSION,
   // 待办卡(todo-card,ADR-0006):与分组卡并排的清单卡样例,
-  // 含未完成/完成混排供视觉评审
+  // 含未完成/完成混排供视觉评审;第二张演示自由宽(674px)与卡色
+  // 底染(todo-card-size-color)
   todos: [
     {
       id: "t-preview",
@@ -30,6 +31,47 @@ const seed: BookmarkState = {
         { id: "ti-1", text: "回 design review 评论", done: false, order: 0 },
         { id: "ti-2", text: "发布 v0.4 预览包", done: false, order: 1 },
         { id: "ti-3", text: "整理收藏分组", done: true, order: 2 },
+      ],
+    },
+    {
+      id: "t-wide",
+      title: "本周计划",
+      order: 1,
+      x: 0,
+      y: 1240,
+      width: 674,
+      color: "#9fe295",
+      items: [
+        {
+          id: "tj-1",
+          text: "读完《设计中的设计》第三章",
+          done: false,
+          order: 0,
+        },
+        { id: "tj-2", text: "整理新标签页需求清单", done: false, order: 1 },
+        { id: "tj-3", text: "给扩展拍一组截图", done: true, order: 2 },
+      ],
+    },
+    // 定长高样例(todo-height-archive):height 钉住卡高,条目溢出
+    // 在列表区滚动;含已完成条目供归档钮视觉评审
+    {
+      id: "t-fixed",
+      title: "迭代清单",
+      order: 2,
+      x: 810,
+      y: 1240,
+      height: 320,
+      items: [
+        { id: "tk-1", text: "定长拖柄交互走查", done: false, order: 0 },
+        { id: "tk-2", text: "归档钮禁用态检查", done: false, order: 1 },
+        { id: "tk-3", text: "深浅色截图", done: true, order: 2 },
+        { id: "tk-4", text: "更新 CHANGELOG", done: false, order: 3 },
+        { id: "tk-5", text: "回复 issue 反馈", done: true, order: 4 },
+        { id: "tk-6", text: "准备周会演示", done: false, order: 5 },
+        { id: "tk-7", text: "归档本月已完成", done: true, order: 6 },
+        { id: "tk-8", text: "整理素材库", done: false, order: 7 },
+        { id: "tk-9", text: "补充视觉验收清单", done: false, order: 8 },
+        { id: "tk-10", text: "归档旧迭代卡", done: true, order: 9 },
       ],
     },
   ],

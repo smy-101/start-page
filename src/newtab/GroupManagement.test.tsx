@@ -124,6 +124,45 @@ describe("分组管理:重命名与换色", () => {
     expect(renamed.style.getPropertyValue("--group-color")).toBe("#9fe295");
   });
 
+  it("空分组同样可改名换色(收集箱除外——它是保留分组,只读)", async () => {
+    // 预置:收集箱 1 条 + 一个完全空的分组(新建分组未放收藏的真实形态)
+    const seed = seededState();
+    render(
+      <App
+        adapter={createMemoryStorage({
+          ...seed,
+          groups: [
+            seed.groups[0],
+            {
+              id: "g-empty",
+              name: "空组",
+              color: "#e99695",
+              order: 1,
+              x: 0,
+              y: 0,
+            },
+          ],
+          bookmarks: [seed.bookmarks[0]],
+        })}
+      />
+    );
+    const empty = await screen.findByRole("region", { name: "空组" });
+    enterWhiteboardMode();
+
+    fireEvent.click(
+      within(empty).getByRole("button", { name: "编辑分组 空组" })
+    );
+    fireEvent.change(within(empty).getByLabelText("分组名"), {
+      target: { value: "改名了" },
+    });
+    fireEvent.click(within(empty).getByRole("radio", { name: "颜色 #9fe295" }));
+    fireEvent.click(within(empty).getByRole("button", { name: "保存" }));
+
+    const renamed = await screen.findByRole("region", { name: "改名了" });
+    expect(renamed.style.getPropertyValue("--group-color")).toBe("#9fe295");
+    expect(within(renamed).getByText("还没有收藏")).toBeInTheDocument();
+  });
+
   it("收集箱列头始终只读:编辑模式下也不提供改名/换色/删除入口", async () => {
     const { inbox } = await renderSeeded();
     enterWhiteboardMode();

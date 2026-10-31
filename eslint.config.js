@@ -3,7 +3,14 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/", "node_modules/", "preview/chrome-shim.js"] },
+  {
+    ignores: [
+      "dist/",
+      "node_modules/",
+      "sp-preview-build/",
+      "preview/chrome-shim.js",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

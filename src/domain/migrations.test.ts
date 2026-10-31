@@ -4,7 +4,7 @@ import { migrateState } from "../domain/migrations";
 import { exportStateAsJson, importStateFromJson } from "../domain/importExport";
 import { createMemoryStorage } from "../storage/memoryStorage";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/types";
-import type { BookmarkState } from "../domain/types";
+import type { BookmarkState, TodoCard } from "../domain/types";
 
 /** v1 形状(schemaVersion 1,收藏无 icon 字段)。 */
 function v1State(): BookmarkState {
@@ -656,5 +656,242 @@ describe("迁移 v7→v8:待办卡补缺省(todo-card)", () => {
       todos: "不是数组",
     } as unknown as BookmarkState;
     expect(migrateState(broken).todos).toEqual([]);
+  });
+});
+
+describe("迁移 v9→v10:待办卡自由宽(todo-card-size-color 调校)", () => {
+  /** v9 基态:一张待办卡(可选覆盖项;span 为 v9 档位字段——v10 已退役)。 */
+  function v9State(
+    todos: Record<string, unknown>[] = [{}],
+    version = 9
+  ): BookmarkState {
+    return {
+      schemaVersion: version,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+      todos: todos.map((t, i) => ({
+        id: `t${i + 1}`,
+        title: "待办",
+        order: i,
+        x: 0,
+        y: 0,
+        items: [],
+        ...t,
+      })) as TodoCard[],
+    } as BookmarkState;
+  }
+
+  it("v8/v9 无 span 的卡:零数据改写——todos/groups/bookmarks 引用逐字保留", () => {
+    for (const version of [8, 9]) {
+      const before = v9State([], version);
+      before.todos = [
+        {
+          id: "t1",
+          title: "待办",
+          order: 0,
+          x: 0,
+          y: 0,
+          items: [],
+          color: "#9fe295",
+        } as TodoCard,
+      ];
+      const migrated = migrateState(before);
+      expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+      expect(migrated.todos).toBe(before.todos);
+      expect(migrated.groups).toBe(before.groups);
+      expect(migrated.bookmarks).toBe(before.bookmarks);
+    }
+  });
+
+  it("v9 → v10:span 按旧档位数学换算为 px 存 width、剥离 span", () => {
+    const v9 = v9State([{ span: 3 }, { span: 1 }]);
+    const migrated = migrateState(v9);
+    // W9(3) = floor(389.33 + 2×95) = 579;档 1 = floor(CARD_W) = 389
+    expect(migrated.todos!.map((t) => (t as { width?: number }).width)).toEqual(
+      [579, 389]
+    );
+    expect(
+      migrated.todos!.every((t) => (t as { span?: number }).span === undefined)
+    ).toBe(true);
+  });
+
+  it("v9 非法档位(非整数/越 1..5)归档 1 换算(389)", () => {
+    const v9 = v9State([{ span: 0 }, { span: 7 }, { span: 2.5 }]);
+    const migrated = migrateState(v9);
+    expect(migrated.todos!.map((t) => (t as { width?: number }).width)).toEqual(
+      [389, 389, 389]
+    );
+  });
+
+  it("幂等:v10 干净状态(合法 width/color)原引用返回", () => {
+    const v10 = {
+      ...v9State([], SCHEMA_VERSION),
+      todos: [
+        {
+          id: "t1",
+          title: "待办",
+          order: 0,
+          x: 0,
+          y: 0,
+          items: [],
+          width: 579,
+          color: "#9fe295",
+        },
+      ],
+    } as BookmarkState;
+    expect(migrateState(v10)).toBe(v10);
+  });
+
+  it("修复:非法 width(NaN/越界/非整数)钳回;残留 span 剥离;非 string color 剥离", () => {
+    const broken = {
+      ...v9State([], SCHEMA_VERSION),
+      todos: [
+        {
+          id: "t1",
+          title: "a",
+          order: 0,
+          x: 0,
+          y: 0,
+          items: [],
+          width: Number.NaN,
+          color: 42,
+        },
+        {
+          id: "t2",
+          title: "b",
+          order: 1,
+          x: 0,
+          y: 0,
+          items: [],
+          width: 100,
+          color: "#f0c674",
+        },
+        { id: "t3", title: "c", order: 2, x: 0, y: 0, items: [], width: 5000 },
+        { id: "t4", title: "d", order: 3, x: 0, y: 0, items: [], width: 484.6 },
+        { id: "t5", title: "e", order: 4, x: 0, y: 0, items: [], span: 3 },
+      ],
+    } as unknown as BookmarkState;
+    const migrated = migrateState(broken);
+    // 非法 width 钳回(NaN→389、100→240、5000→768、484.6→484);
+    // t5 是 v10 状态里的残留 span(不走 v9 换算):剥离,宽保持缺省
+    expect(migrated.todos!.map((t) => (t as { width?: number }).width)).toEqual(
+      [389, 240, 768, 484, undefined]
+    );
+    expect(migrated.todos!.map((t) => (t as { color?: string }).color)).toEqual(
+      [undefined, "#f0c674", undefined, undefined, undefined]
+    );
+    expect(
+      migrated.todos!.every((t) => (t as { span?: number }).span === undefined)
+    ).toBe(true);
+  });
+});
+
+describe("迁移 v10→v11:待办卡定长高(todo-height-archive)", () => {
+  /** v10 基态:一张待办卡(可选覆盖项)。 */
+  function v10State(todos: Record<string, unknown>[]): BookmarkState {
+    return {
+      schemaVersion: 10,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+      todos: todos.map((t, i) => ({
+        id: `t${i + 1}`,
+        title: "待办",
+        order: i,
+        x: 0,
+        y: 0,
+        items: [],
+        ...t,
+      })) as TodoCard[],
+    } as BookmarkState;
+  }
+
+  it("v10 → v11:零数据改写——todos/groups/bookmarks 引用逐字保留", () => {
+    const before = v10State([{ width: 484, color: "#9fe295" }, {}]);
+    const migrated = migrateState(before);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(migrated.todos).toBe(before.todos);
+    expect(migrated.groups).toBe(before.groups);
+    expect(migrated.bookmarks).toBe(before.bookmarks);
+  });
+
+  it("幂等:v11 干净状态(合法 height)原引用返回", () => {
+    const v11 = {
+      ...v10State([]),
+      schemaVersion: SCHEMA_VERSION,
+      todos: [
+        {
+          id: "t1",
+          title: "待办",
+          order: 0,
+          x: 0,
+          y: 0,
+          items: [],
+          height: 320,
+        } as TodoCard,
+      ],
+    } as BookmarkState;
+    expect(migrateState(v11)).toBe(v11);
+  });
+
+  it("修复:非法 height 有限越界/非整数钳回,非有限/非数剥离为自适应", () => {
+    const broken = {
+      ...v10State([]),
+      schemaVersion: SCHEMA_VERSION,
+      todos: [
+        { id: "t1", title: "a", order: 0, x: 0, y: 0, items: [], height: 9999 },
+        { id: "t2", title: "b", order: 1, x: 0, y: 0, items: [], height: 50 },
+        {
+          id: "t3",
+          title: "c",
+          order: 2,
+          x: 0,
+          y: 0,
+          items: [],
+          height: 320.6,
+        },
+        {
+          id: "t4",
+          title: "d",
+          order: 3,
+          x: 0,
+          y: 0,
+          items: [],
+          height: Number.NaN,
+        },
+        {
+          id: "t5",
+          title: "e",
+          order: 4,
+          x: 0,
+          y: 0,
+          items: [],
+          height: "tall",
+        },
+      ],
+    } as unknown as BookmarkState;
+    const migrated = migrateState(broken);
+    // 有限越界/非整数钳回(9999→720、50→176、320.6→320);
+    // 非有限/非数剥离为 undefined(高的缺省是「不定长」,垃圾不物化定长)
+    expect(
+      migrated.todos!.map((t) => (t as { height?: number }).height)
+    ).toEqual([720, 176, 320, undefined, undefined]);
   });
 });

@@ -57,7 +57,8 @@ export interface TodoItem {
 
 /**
  * 待办卡(ADR-0006):画布上与分组卡并排的清单卡;不装收藏、不是分组。
- * 定宽 CARD_W(无档位),x/y 与分组同语义;删除不进收集箱。
+ * 宽为自由宽(缺省 CARD_W,schema v10),x/y 与分组同语义;
+ * 删除不进收集箱;缺省中性配色,可选卡色底染(todo-card-size-color)。
  */
 export interface TodoCard {
   id: TodoId;
@@ -71,6 +72,27 @@ export interface TodoCard {
   x: number;
   /** 画布纵坐标(px):画布向下无界 */
   y: number;
+  /**
+   * 待办卡宽(px,schema v10,todo-card-size-color 自由宽):缺省 = CARD_W;
+   * 白板模式拖右缘连续调宽(松手 16px 网格吸附)或键盘 ←/→ 步进一格;
+   * 钳 [240, 768],缩画布宽至放不下时收窄。
+   * (v9 的档位制 span 未发布即被自由宽取代,迁移按旧档位数学换算。)
+   */
+  width?: number;
+  /**
+   * 待办卡定长高(px,schema v11,todo-height-archive):缺省 = undefined
+   * 自适应(内容随长,列表约 18 行起内部滚动;存量零改写);白板模式
+   * 拖卡底缘连续调高(松手 16px 网格吸附)或键盘 ↑/↓ 步进一格;
+   * 钳 [176, 720];定长时卡面纵向 flex、条目列表区滚动、添加行常驻。
+   * 不随画布宽收窄(高不参与横向几何,画布向下无界)。
+   */
+  height?: number;
+  /**
+   * 待办卡卡色(schema v9,todo-card-size-color):缺省 = 中性白卡;
+   * 白板模式卡头色板选择;写路径空串复位中性(剥离字段)。
+   * 随 JSON 备份导入导出(ADR-0006 补记:推翻 v1「不做自选色」)。
+   */
+  color?: string;
 }
 
 /** 单一状态对象,整体持久化到 chrome.storage.local。 */
@@ -126,6 +148,13 @@ export type Result<T> =
 
 /**
  * 持久化数据结构版本,随结构演进递增(导入导出的 JSON 备份依赖它)。
+ * v11:待办卡新增可选 height(定长高 px,缺省 = undefined 自适应;
+ * todo-height-archive);v10 及更早备份零改写迁移(缺省即自适应)。
+ * v10:待办卡 span(宽档位)改为 width(自由宽 px,缺省 CARD_W,钳
+ * [240, 768];todo-card-size-color 调校);v9 备份按旧档位数学换算为 px,
+ * 渲染宽不变(v9 未发布,仅本地开发版数据走此换算)。
+ * v9:待办卡新增可选 span(待办卡宽档位)与 color(卡色,缺省中性;
+ * todo-card-size-color);v8 及更早备份零改写迁移(缺省档位 1 = CARD_W)。
  * v8:状态新增可选 todos(待办卡,ADR-0006;todo-card);v7 及更早备份缺省
  * 补空数组(零改写迁移),不预置示例卡。
  * v7:分组新增可选 span(组宽档位,与每行条数解耦;group-span-decouple);
@@ -136,7 +165,7 @@ export type Result<T> =
  * v3:分组新增画布坐标 x/y(ADR-0004 白板自由定位);v2 及更早备份仍可导入。
  * v2:收藏新增可选 icon(data URL);v1 备份仍可导入。
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 11;
 
 /** 画布上的落点(px,见 canvas.ts 与 GLOSSARY「画布」)。 */
 export interface CanvasPos {

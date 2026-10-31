@@ -24,9 +24,9 @@ import type {
   TodoPositionInput,
 } from "../domain/store";
 import {
-  CARD_W,
   MAX_CANVAS_W,
   MIN_CANVAS_W,
+  TODO_W_MAX,
   appendPositions,
   canvasBoundWidth,
   clampCanvasWidth,
@@ -36,6 +36,7 @@ import {
   maxSpanForCanvas,
   packCanvas,
   snapAlignment,
+  todoWidthOf,
 } from "../domain/canvas";
 import type { AlignGuide, CanvasPos, Rect } from "../domain/canvas";
 import { GroupSection } from "./GroupSection";
@@ -138,10 +139,21 @@ export type WhiteboardProps = {
     todoId: TodoId,
     itemIds: readonly TodoId[]
   ): Promise<Result<TodoCard>>;
-  /** 待办卡落点批量写回:拖拽松手/自动整理,钳界按定宽 CARD_W(store 收口) */
+  /** 待办卡落点批量写回:拖拽松手/自动整理,钳界按各卡宽(store 收口) */
   onSetTodoPositions(
     positions: readonly TodoPositionInput[]
   ): Promise<Result<TodoCard[]>>;
+  /** 待办卡宽写回(todo-card-size-color 自由宽):拖柄松手/键盘 → store 钳回落盘 */
+  onResizeTodoWidth(id: TodoId, width: number): Promise<Result<TodoCard>>;
+  /** 待办卡换色(todo-card-size-color):空串 = 复位中性 */
+  onRecolorTodo(id: TodoId, color: string): Promise<Result<TodoCard>>;
+  /** 待办卡定长高写回(底柄松手/键盘步进/钉住切换;undefined = 解除定长) */
+  onResizeTodoHeight(
+    id: TodoId,
+    height: number | undefined
+  ): Promise<Result<TodoCard>>;
+  /** 归档:清除该卡全部已完成条目(todo-height-archive) */
+  onClearTodoDone(id: TodoId): Promise<Result<TodoCard>>;
 };
 
 /** Pointer 拖拽会话的被拖卡跟手坐标(未吸附;松手才吸附写回);id 兼分组/待办卡。 */
@@ -172,6 +184,10 @@ export function Whiteboard({
   onRemoveTodoItem,
   onReorderTodoItems,
   onSetTodoPositions,
+  onResizeTodoWidth,
+  onRecolorTodo,
+  onResizeTodoHeight,
+  onClearTodoDone,
   handlers,
   onEdit,
   onDelete,
@@ -283,16 +299,16 @@ export function Whiteboard({
       : (placements.get(card.id) ?? null);
   }
 
-  // 各卡渲染宽:分组按档位推导(group-span-decouple),待办卡恒 CARD_W
-  // (ADR-0006 定宽);拖拽钳界/对齐/装箱共用
+  // 各卡渲染宽:分组按档位推导(group-span-decouple),待办卡为自由宽
+  // (todo-card-size-color;缺省 CARD_W);拖拽钳界/对齐/装箱共用
   const widthOf = useCallback(
     (id: string): number =>
       todoIds.has(id)
-        ? CARD_W
+        ? todoWidthOf(todosByOrder.find((t) => t.id === id) ?? {})
         : groupWidthOf(
             groupSpanOf(groupsByOrder.find((g) => g.id === id) ?? {})
           ),
-    [groupsByOrder, todoIds]
+    [groupsByOrder, todosByOrder, todoIds]
   );
   const widthOfRef = useRef(widthOf);
   widthOfRef.current = widthOf;
@@ -621,7 +637,8 @@ export function Whiteboard({
     const positions = packCanvas(
       all.map((id) => heightOf(id)),
       canvasWRef.current,
-      // 宽度感知装箱(group-width-tint):各卡按各自渲染宽占槽(待办 CARD_W)
+      // 宽度感知装箱(group-width-tint):各卡按各自渲染宽占槽
+      // (分组按档位、待办自由宽,todo-card-size-color)
       all.map((id) => widthOfRef.current(id))
     );
     void onSetGroupPositions(
@@ -760,6 +777,8 @@ export function Whiteboard({
               todo={todo}
               placement={placementOf(todo)}
               whiteboardMode={whiteboardMode}
+              resizable={!locked}
+              resizeMaxW={Math.min(TODO_W_MAX, canvasW)}
               dragActive={drag?.id === todo.id}
               elementRef={itemRef(todo.id)}
               onRename={onRenameTodo}
@@ -769,6 +788,10 @@ export function Whiteboard({
               onToggleItem={onToggleTodoItem}
               onRemoveItem={onRemoveTodoItem}
               onReorderItems={onReorderTodoItems}
+              onResizeWidth={onResizeTodoWidth}
+              onRecolor={onRecolorTodo}
+              onResizeHeight={onResizeTodoHeight}
+              onClearDoneItems={onClearTodoDone}
             />
           ))}
           {/* 对齐辅助线(canvas-bounds-align):拖中才有;画布线贯穿整幅 */}

@@ -17,17 +17,19 @@ import {
 } from "./types";
 import { normalizeUrl } from "./url";
 import {
-  MAX_CANVAS_W,
   CARD_W,
+  MAX_CANVAS_W,
   appendPositions,
   canvasWidthOf,
   clampCanvasWidth,
+  clampTodoHeight,
+  clampTodoWidth,
   clampToCanvas,
   groupSpanOf,
   groupWidthOf,
   maxSpanForCanvas,
 } from "./canvas";
-import { migrateState } from "./migrations";
+import { legacySpanWidth, migrateState } from "./migrations";
 
 /**
  * 导入导出:双格式(JSON 完整备份 / Netscape HTML 通用迁移)双向。
@@ -449,9 +451,7 @@ function restoreFrom(backup: BookmarkState): {
         : Math.min(g.columns, spanClamped);
     // 缺省组(span 未存且未超档)保持缺省,不物化;其余写钳后档位
     const span =
-      g.span !== undefined || spanClamped !== spanRaw
-        ? spanClamped
-        : undefined;
+      g.span !== undefined || spanClamped !== spanRaw ? spanClamped : undefined;
     return {
       ...g,
       span,
@@ -484,12 +484,34 @@ function restoreFrom(backup: BookmarkState): {
         : INBOX_GROUP_ID,
     });
   }
-  // 待办卡逐字恢复(todo-card,v8):id/标题/条目/顺序原样,仅坐标按
-  // CARD_W 钳回画布(与分组同口径);v7 及更早备份缺省补空数组
-  const todos = (backup.todos ?? []).map((t) => ({
-    ...t,
-    ...clampToCanvas(t, bound, CARD_W),
-  }));
+  // 待办卡逐字恢复(todo-card,v8;width 自由宽 v10;height 定长 v11):
+  // id/标题/条目/顺序原样,宽随画布宽收窄(同分组口径)、坐标按各自宽
+  // 钳回画布;v9 备份的档位按旧数学换算为 px(非法档位归缺省);旧备份
+  // 无宽度字段则保持缺省不物化;height 有限钳回 [176, 720]、非有限/非数
+  // 剥离为自适应(垃圾值不物化定长);v7 及更早备份缺省补空数组
+  const todos = (backup.todos ?? []).map(
+    (tRaw: TodoCard & { span?: number }) => {
+      const raw =
+        tRaw.width ??
+        (tRaw.span !== undefined ? legacySpanWidth(tRaw.span) : undefined);
+      const width =
+        raw === undefined ? undefined : clampTodoWidth(Math.min(raw, bound));
+      const height =
+        typeof tRaw.height === "number" && Number.isFinite(tRaw.height)
+          ? clampTodoHeight(tRaw.height)
+          : undefined;
+      // 剥离 v9 遗留的 span 字段(其余逐字保留;height 剥离非有限遗物)
+      const rest: TodoCard & { span?: number } = { ...tRaw };
+      delete rest.span;
+      if (height === undefined) delete rest.height;
+      return {
+        ...rest,
+        ...(width !== undefined ? { width } : null),
+        ...(height !== undefined ? { height } : null),
+        ...clampToCanvas(tRaw, bound, width ?? CARD_W),
+      };
+    }
+  );
   return {
     state: {
       schemaVersion: SCHEMA_VERSION,

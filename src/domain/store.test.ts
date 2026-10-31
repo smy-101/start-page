@@ -1345,3 +1345,236 @@ describe("待办卡 CRUD 与落点写回(todo-card/02)", () => {
     expect(save).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("待办卡自由宽与换色写回(todo-card-size-color,schema v10)", () => {
+  /** 预置库:钉宽 1200 画布 + 待办卡 t-1(缺省宽 CARD_W)。 */
+  async function seededTodoCard(extra: Record<string, unknown> = {}) {
+    const base = createMemoryStorage({
+      schemaVersion: SCHEMA_VERSION,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+      canvasWidth: 1200,
+      todos: [
+        {
+          id: "t-1",
+          title: "采购",
+          order: 0,
+          x: 0,
+          y: 0,
+          items: [],
+          ...extra,
+        },
+      ],
+    } as BookmarkState);
+    const save = vi.fn(base.save.bind(base));
+    const store = await createBookmarkStore(Object.assign({}, base, { save }));
+    return { store, save };
+  }
+
+  it("setTodoWidth:物化宽(floor 取整);同义不落盘;未知卡拒", async () => {
+    const { store, save } = await seededTodoCard();
+    save.mockClear();
+    // 484.6 → 484(取整一律 floor;16px 网格对齐在组件松手吸附)
+    expect(await store.setTodoWidth("t-1", 484.6)).toMatchObject({
+      ok: true,
+      value: { width: 484 },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    // 与生效宽同义:不落盘
+    await store.setTodoWidth("t-1", 484);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(await store.setTodoWidth("t-x", 300)).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("setTodoWidth:越界钳回 [240, 768];非有限归 389;上界随画布宽收窄", async () => {
+    const { store } = await seededTodoCard(); // 画布钉宽 1200 > 768:上界 = 768
+    expect(await store.setTodoWidth("t-1", 5000)).toMatchObject({
+      ok: true,
+      value: { width: 768 },
+    });
+    expect(await store.setTodoWidth("t-1", 50)).toMatchObject({
+      ok: true,
+      value: { width: 240 },
+    });
+    expect(await store.setTodoWidth("t-1", Number.NaN)).toMatchObject({
+      ok: true,
+      value: { width: 389 },
+    });
+    // 窄画布:上界随画布(720 < 768)
+    const narrow = await seededTodoCard({ width: 400 });
+    await narrow.store.setCanvasWidth(720);
+    expect(await narrow.store.setTodoWidth("t-1", 768)).toMatchObject({
+      ok: true,
+      value: { width: 720 },
+    });
+  });
+
+  it("recolorTodo:非空串照收(修剪);同色/空串对中性不落盘;未知卡拒", async () => {
+    const { store, save } = await seededTodoCard();
+    save.mockClear();
+    expect(await store.recolorTodo("t-1", "  #9fe295  ")).toMatchObject({
+      ok: true,
+      value: { color: "#9fe295" },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    await store.recolorTodo("t-1", "#9fe295");
+    expect(save).toHaveBeenCalledTimes(1);
+    // 空串 = 复位中性(剥离字段)
+    expect(await store.recolorTodo("t-1", "  ")).toMatchObject({
+      ok: true,
+      value: { color: undefined },
+    });
+    expect(save).toHaveBeenCalledTimes(2);
+    await store.recolorTodo("t-1", "");
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(await store.recolorTodo("t-x", "#fff")).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("setTodoHeight:物化高(floor 取整);同义不落盘;未知卡拒(todo-height-archive)", async () => {
+    const { store, save } = await seededTodoCard();
+    save.mockClear();
+    // 320.6 → 320(取整一律 floor;16px 网格对齐在组件松手吸附)
+    expect(await store.setTodoHeight("t-1", 320.6)).toMatchObject({
+      ok: true,
+      value: { height: 320 },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    // 与生效高同义:不落盘
+    await store.setTodoHeight("t-1", 320);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(await store.setTodoHeight("t-x", 320)).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("setTodoHeight:越界钳回 [176, 720];非有限归 176;不随画布收窄(向下无界)", async () => {
+    const { store } = await seededTodoCard();
+    expect(await store.setTodoHeight("t-1", 5000)).toMatchObject({
+      ok: true,
+      value: { height: 720 },
+    });
+    expect(await store.setTodoHeight("t-1", 50)).toMatchObject({
+      ok: true,
+      value: { height: 176 },
+    });
+    expect(await store.setTodoHeight("t-1", Number.NaN)).toMatchObject({
+      ok: true,
+      value: { height: 176 },
+    });
+    // 窄画布不收窄高(高不参与横向几何,画布向下无界)
+    await store.setCanvasWidth(720);
+    expect(await store.setTodoHeight("t-1", 720)).toMatchObject({
+      ok: true,
+      value: { height: 720 },
+    });
+  });
+
+  it("setTodoHeight(undefined):解除定长回自适应;已自适应不落盘;未知卡拒", async () => {
+    const { store, save } = await seededTodoCard({ height: 320 });
+    save.mockClear();
+    // 定长卡解除:剥离字段回自适应
+    expect(await store.setTodoHeight("t-1", undefined)).toMatchObject({
+      ok: true,
+      value: { height: undefined },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(store.getState().todos![0].height).toBeUndefined();
+    // 已自适应:与现状同义,不落盘
+    await store.setTodoHeight("t-1", undefined);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(await store.setTodoHeight("t-x", undefined)).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("clearDoneTodoItems:清完成保未完成相对序;无完成不落盘;未知卡拒", async () => {
+    const { store, save } = await seededTodoCard({
+      items: [
+        { id: "a", text: "一", done: false, order: 0 },
+        { id: "b", text: "二", done: true, order: 1 },
+        { id: "c", text: "三", done: false, order: 2 },
+        { id: "d", text: "四", done: true, order: 3 },
+      ],
+    });
+    save.mockClear();
+    expect(await store.clearDoneTodoItems("t-1")).toMatchObject({
+      ok: true,
+      value: {
+        items: [
+          { id: "a", text: "一", done: false, order: 0 },
+          { id: "c", text: "三", done: false, order: 1 },
+        ],
+      },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    // 无完成条目:不落盘(同义不写)
+    await store.clearDoneTodoItems("t-1");
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(await store.clearDoneTodoItems("t-x")).toEqual({
+      ok: false,
+      error: "todo-not-found",
+    });
+  });
+
+  it("setTodoPositions:右界按各卡宽钳回(自定义宽 ≠ 定宽 CARD_W)", async () => {
+    const { store } = await seededTodoCard({ width: 674, x: 0 });
+    const moved = await store.setTodoPositions([{ id: "t-1", x: 5000, y: 7 }]);
+    expect(moved).toMatchObject({ ok: true, value: [{ x: 526, y: 7 }] });
+    expect(1200 - 674).toBeLessThan(1200 - CARD_W); // 比缺省宽钳得更紧
+  });
+
+  it("setCanvasWidth 缩窄:超画布的卡宽收窄到画布宽、x 重钳;未动卡原对象保留", async () => {
+    const { store } = await seededTodoCard({ width: 768, x: 700, y: 0 });
+    await store.setCanvasWidth(720);
+    const after = store.getState().todos![0];
+    // 768 > 720 → 宽收窄到 720;右界 720 − 720 = 0 → x 钳回 0
+    expect(after).toMatchObject({ width: 720, x: 0 });
+    // 宽化不回弹、坐标不动
+    const before = store.getState().todos![0];
+    await store.setCanvasWidth(2400);
+    expect(store.getState().todos![0]).toBe(before);
+    // 缺省宽(389.33)不受宽化/缩窄影响、不物化
+    const plain = await seededTodoCard();
+    await plain.store.setCanvasWidth(720);
+    const card = plain.store.getState().todos![0];
+    expect(card.width).toBeUndefined();
+    expect(card.x).toBe(0);
+  });
+
+  it("statesEqual:width 与 color 差异 → 不等(回声重建)", async () => {
+    const a = {
+      schemaVersion: SCHEMA_VERSION,
+      groups: [],
+      bookmarks: [],
+      todos: [{ id: "t", title: "x", order: 0, x: 0, y: 0, items: [] }],
+    } as unknown as BookmarkState;
+    const widened = {
+      ...a,
+      todos: [{ ...a.todos![0], width: 484 }],
+    } as BookmarkState;
+    const colored = {
+      ...a,
+      todos: [{ ...a.todos![0], color: "#9fe295" }],
+    } as BookmarkState;
+    expect(statesEqual(a, widened)).toBe(false);
+    expect(statesEqual(a, colored)).toBe(false);
+    expect(statesEqual(widened, { ...widened })).toBe(true);
+  });
+});
