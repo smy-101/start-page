@@ -7,7 +7,7 @@ import {
   statesEqual,
 } from "./store";
 import { createMemoryStorage } from "../storage/memoryStorage";
-import { CARD_W, MAX_CANVAS_W } from "./canvas";
+import { CARD_W, MAX_CANVAS_W, groupWidthOf } from "./canvas";
 import type { BookmarkState } from "./types";
 
 describe("收藏库初始化", () => {
@@ -649,14 +649,15 @@ describe("画布宽写回(canvas-bounds-align,schema v4)", () => {
     });
   });
 
-  it("缩宽:越界分组重钳到新右界(默认宽缩 720 时 810 → 330.67…)", async () => {
+  it("缩宽:越界分组重钳到新右界(默认宽缩 720 时 810 → 498;档 1 调校 2026-11-16)", async () => {
     const { store } = await wide();
 
     await store.setCanvasWidth(720);
 
     expect(store.getState().canvasWidth).toBe(720);
     const groups = store.getState().groups;
-    expect(groups[1].x).toBe(720 - CARD_W);
+    // 档 1 组宽 = groupWidthOf(1) = 222(不再以 CARD_W 为底)
+    expect(groups[1].x).toBe(720 - groupWidthOf(1));
     expect(groups[2]).toMatchObject({ x: 0, y: 144 });
   });
 
@@ -735,7 +736,8 @@ describe("画布宽自动档(schema v5,canvas-bounds-align/04)", () => {
     await store.setCanvasWidth(1760);
 
     expect(store.getState().canvasWidth).toBe(1760);
-    expect(store.getState().groups[1].x).toBe(1760 - CARD_W);
+    // 档 1 组宽 = 222(groupWidthOf(1),档 1 调校 2026-11-16)
+    expect(store.getState().groups[1].x).toBe(1760 - groupWidthOf(1));
   });
 });
 

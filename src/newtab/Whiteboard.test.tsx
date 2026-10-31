@@ -313,11 +313,11 @@ describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     const groupA = sectionOf("甲组");
 
-    // 拖到画布外右侧:拖中即钳在右界 1200 − 卡宽(不再先逃逸后弹回)
+    // 拖到画布外右侧:拖中即钳在右界 1200 − 档 1 组宽 222(不再先逃逸后弹回)
     dragBy(groupA, { x: 0, y: 0 }, { x: 2997, y: 41 });
     const left = parseFloat(groupA.style.left);
-    expect(left).toBeLessThanOrEqual(1200 - CARD_W);
-    expect(left).toBeGreaterThanOrEqual(1200 - CARD_W - 1);
+    expect(left).toBeLessThanOrEqual(1200 - 222);
+    expect(left).toBeGreaterThanOrEqual(1200 - 222 - 1);
     // 卡右缘恰在画布右沿线 → 贯穿整幅的右缘辅助线亮起
     const guide = document.querySelector(".wb-guide-x") as HTMLElement;
     expect(guide).not.toBeNull();
@@ -326,10 +326,10 @@ describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
     });
-    // 松手:对齐轴写精确对齐坐标(floor 810.67 → 810,越界的最终钳回收口在领域层)
+    // 松手:对齐轴写精确对齐坐标(978 = 1200 − 222 恰格点,越界的最终钳回收口在领域层)
     const sent = board.onSetGroupPositions.mock
       .calls[0][0] as GroupPositionInput[];
-    expect(sent[0]).toEqual({ id: "g-a", x: 810, y: 48 });
+    expect(sent[0]).toEqual({ id: "g-a", x: 978, y: 48 });
     // 会话清场:辅助线消散
     expect(document.querySelector(".wb-guide-x")).toBeNull();
   });
@@ -377,7 +377,7 @@ describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     const groupA = sectionOf("甲组");
 
-    // 拖中已钳在右界并吸右缘线,松手送 810(对齐轴 floor,≤ 右界不被改写)
+    // 拖中已钳在右界并吸右缘线,松手送 978(1200 − 222,恰格点,≤ 右界不被改写)
     dragBy(groupA, { x: 0, y: 0 }, { x: 2997, y: 41 });
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
@@ -386,11 +386,11 @@ describe("白板:Pointer 拖拽与吸附(白板模式内)", () => {
 
     const settled = seededState();
     settled.groups = settled.groups.map((g) =>
-      g.id === "g-a" ? { ...g, x: 810, y: 48 } : g
+      g.id === "g-a" ? { ...g, x: 978, y: 48 } : g
     );
     board.rerender(settled);
     expect(groupA).not.toHaveAttribute("data-drag-active");
-    expect(groupA).toHaveStyle({ left: "810px", top: "48px" });
+    expect(groupA).toHaveStyle({ left: "978px", top: "48px" });
   });
 
   it("指针按在交互控件上不发起拖拽(链接/按钮照常工作)", () => {
@@ -443,10 +443,12 @@ describe("白板:自动整理", () => {
 
     expect(board.onSetGroupPositions).toHaveBeenCalledTimes(1);
     expect(board.onSetGroupPositions).toHaveBeenCalledWith([
-      { id: INBOX_GROUP_ID, x: 0, y: 0 },
-      { id: "g-a", x: 405, y: 0 },
-      { id: "g-b", x: 810, y: 0 },
+      { id: INBOX_GROUP_ID, x: 83, y: 0 },
+      { id: "g-a", x: 489, y: 0 },
+      { id: "g-b", x: 894, y: 0 },
     ]);
+    // 档 1 卡 222 居中于 CARD_W 槽(偏移 83 → 83/489/894,档 1 调校 2026-11-16;
+    // 与档 2 卡居中偏移 191 同口径)
   });
 
   it("量高装箱:最矮列优先,第二行落位正确", () => {
@@ -463,12 +465,13 @@ describe("白板:自动整理", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "自动整理" }));
 
-    // 四卡同高:前三张铺满三列,第四张(丙组,order 最后)回最矮列首列第二行
+    // 四卡同高:前三张铺满三列,第四张(丙组,order 最后)回最矮列首列第二行;
+    // 档 1 卡 222 居中于 CARD_W 槽(偏移 83:83/489/894,档 1 调校 2026-11-16)
     expect(board.onSetGroupPositions).toHaveBeenCalledWith([
-      { id: INBOX_GROUP_ID, x: 0, y: 0 },
-      { id: "g-a", x: 405, y: 0 },
-      { id: "g-b", x: 810, y: 0 },
-      { id: "g-c", x: 0, y: 116 }, // 100 + gap 16
+      { id: INBOX_GROUP_ID, x: 83, y: 0 },
+      { id: "g-a", x: 489, y: 0 },
+      { id: "g-b", x: 894, y: 0 },
+      { id: "g-c", x: 83, y: 116 }, // 100 + gap 16(首列第二行,档 1 居中偏移 83)
     ]);
   });
 
@@ -915,8 +918,8 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
     const handle = groupHandle("甲组");
     const groupA = sectionOf("甲组");
 
-    // 缺省 = 1 = CARD_W(存量宽行观感)
-    expect(parseFloat(groupA.style.width)).toBeCloseTo(CARD_W, 5);
+    // 缺省 = 档 1 = 222(单格恰装,档 1 调校 2026-11-16)
+    expect(parseFloat(groupA.style.width)).toBe(222);
 
     // jsdom 几何全 0 无碍:拖柄会话 delta 制(起点宽 + 指针位移)
     act(() => {
@@ -925,13 +928,13 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
       );
     });
     expect(groupA).toHaveAttribute("data-resizing", "true");
-    // 拖宽 300 → 预览 ≈ 689.33(clamp 界内),最近档位 = 3(W(3)=602)
+    // 拖宽 300 → 预览 522(clamp 界内),最近档位 = 3(距 W(3)=602 差 80 < 距 W(2)=412 差 110)
     act(() => {
       window.dispatchEvent(
         pointerEvent("pointermove", { clientX: 400, clientY: 30 })
       );
     });
-    expect(parseFloat(groupA.style.width)).toBeCloseTo(CARD_W + 300, 5);
+    expect(parseFloat(groupA.style.width)).toBe(522);
     expect(screen.getByText("宽 3 列")).toBeInTheDocument();
 
     act(() => {
@@ -1005,7 +1008,7 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
     });
 
     expect(board.onResizeGroup).not.toHaveBeenCalled();
-    expect(parseFloat(sectionOf("甲组").style.width)).toBeCloseTo(CARD_W, 5);
+    expect(parseFloat(sectionOf("甲组").style.width)).toBe(222);
   });
 
   it("调宽不劫持分组拖拽:拖柄 pointerdown 不发起分组移动会话", () => {

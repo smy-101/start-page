@@ -16,8 +16,8 @@ export const MIN_CANVAS_W = 720;
 /** 画布宽上限(px,16 倍数):再宽超出超宽屏意义,横向滚动找回。 */
 export const MAX_CANVAS_W = 2400;
 export const GAP = 16;
-/** 卡宽 = (1200 − 2×16)/3 ≈ 389.33(原型口径);schema v6 起为「单列基准宽」,
- * 也是缺省列数(1)下的组宽;多列组宽见 groupWidthOf(group-width-tint)。 */
+/** 卡宽 = (1200 − 2×16)/3 ≈ 389.33(原型口径):待办卡缺省宽(schema v10)
+ * 与画布装箱槽宽;组宽档位不再以此为底(档 1 调校 2026-11-16,见 groupWidthOf)。 */
 export const CARD_W = (DEFAULT_CANVAS_W - GAP * 2) / 3;
 /** 组内收藏格宽(px,group-width-tint):CSS minmax(184px, 1fr) 同一口径。 */
 export const CELL_W = 184;
@@ -82,10 +82,13 @@ export function columnsFor(canvasW: number): number {
 }
 
 /**
- * 组宽推导(group-width-tint,schema v6):每行条数 c → 渲染宽(px),不存 px。
- * c=1 → CARD_W(存量单列宽行观感逐字不变);c≥2 → 固定开销 + c 格 + (c−1) 格距,
- * 内宽恰装 c 格(auto-fill minmax 的精确边界)。非法(非有限/非正整数)归 1。
- * schema v7 起入参是组宽档位 span(见 groupSpanOf),数学不动。
+ * 组宽推导(group-width-tint,schema v6;档 1 调校 2026-11-16):每行条数 c →
+ * 渲染宽(px),不存 px。统一公式:固定开销 + c 格 + (c−1) 格距,内宽恰装
+ * c 格(auto-fill minmax 的精确边界),梯度等差 CELL_W + CELL_GAP = 190:
+ * 222/412/602/792/982/1172。档 1 原为存量单列宽 CARD_W ≈ 389(v6 观感保留),
+ * 与档 2 仅差 23 吸附近乎无意义,且用户反馈偏宽——特例退役,单列组 =
+ * 单格恰装。非法(非有限/非正整数)归 1。schema v7 起入参是组宽档位
+ * span(见 groupSpanOf),数学不动。
  */
 export function groupWidthOf(columns?: number): number {
   const c =
@@ -95,7 +98,6 @@ export function groupWidthOf(columns?: number): number {
     columns <= MAX_GROUP_COLUMNS
       ? columns
       : 1;
-  if (c === 1) return CARD_W;
   return GROUP_EDGE + c * CELL_W + (c - 1) * CELL_GAP;
 }
 

@@ -9,7 +9,7 @@ import {
   parseBookmarksHtml,
 } from "./importExport";
 import { createMemoryStorage } from "../storage/memoryStorage";
-import { CARD_W } from "./canvas";
+import { CARD_W, groupWidthOf } from "./canvas";
 import { createBookmarkStore } from "./store";
 import chromeExportHtml from "../../tests/fixtures/chrome-bookmarks-export.html?raw";
 
@@ -784,10 +784,11 @@ describe("V3 画布坐标兼容(board-whiteboard/01)", () => {
     );
     expect(result.ok).toBe(true);
     const state = (await adapter.load())!;
-    // 右界 = 上限 2400 − 卡宽(缺省自动档按上限钳,与 store 同口径)
+    // 右界 = 上限 2400 − 档 1 组宽(缺省自动档按上限钳,与 store 同口径;
+    // 档 1 调校 2026-11-16:222,不再以 CARD_W 为底)
     expect(state.groups[0].x).toBe(0);
     expect(state.groups[0].y).toBe(0);
-    expect(state.groups[1].x).toBeCloseTo(2400 - 1168 / 3, 10);
+    expect(state.groups[1].x).toBeCloseTo(2400 - groupWidthOf(1), 10);
     expect(state.groups[1].y).toBe(7);
   });
 

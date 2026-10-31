@@ -275,35 +275,40 @@ describe("clampToCanvas:坐标钳回", () => {
   });
 });
 
-describe("每行条数几何(group-width-tint,schema v6)", () => {
-  it("groupWidthOf:1 → CARD_W(存量观感逐字不变);c≥2 内宽恰装 c 格", () => {
-    expect(groupWidthOf()).toBe(CARD_W);
-    expect(groupWidthOf(1)).toBe(CARD_W);
-    for (let c = 2; c <= MAX_GROUP_COLUMNS; c++) {
+describe("每行条数几何(group-width-tint,schema v6;档 1 调校 2026-11-16)", () => {
+  it("groupWidthOf:统一公式内宽恰装 c 格,梯度等差 190px;非法归 1", () => {
+    // 档 1 特例(存量单列宽 CARD_W ≈ 389)退役:统一公式后 W(1) = 222,
+    // 梯度 222/412/602/792/982/1172 等差 CELL_W + CELL_GAP = 190
+    const W1 = GROUP_EDGE + CELL_W; // 222:单格恰装(与 CSS minmax 同口径)
+    expect(groupWidthOf()).toBe(W1);
+    expect(groupWidthOf(1)).toBe(W1);
+    for (let c = 1; c <= MAX_GROUP_COLUMNS; c++) {
       const w = groupWidthOf(c);
       // 内宽 = w − 固定开销,恰装 c 格 + (c−1) 格距
       expect(w - GROUP_EDGE).toBe(c * CELL_W + (c - 1) * CELL_GAP);
+      if (c > 1) expect(w - groupWidthOf(c - 1)).toBe(CELL_W + CELL_GAP);
     }
     // W(2)=412、W(6)=1172(上限 6 列 ≤ 默认画布 1200)
     expect(groupWidthOf(2)).toBe(412);
     expect(groupWidthOf(6)).toBe(1172);
     // 非法值归 1:非整数、越界、非有限
-    expect(groupWidthOf(0)).toBe(CARD_W);
-    expect(groupWidthOf(7)).toBe(CARD_W);
-    expect(groupWidthOf(2.5)).toBe(CARD_W);
-    expect(groupWidthOf(Number.NaN)).toBe(CARD_W);
+    expect(groupWidthOf(0)).toBe(W1);
+    expect(groupWidthOf(7)).toBe(W1);
+    expect(groupWidthOf(2.5)).toBe(W1);
+    expect(groupWidthOf(Number.NaN)).toBe(W1);
   });
 
-  it("W(1) 内宽 < 两格下限:auto-fill 单列,存量单列宽行不被自动拆分", () => {
-    // 两格至少 2×CELL_W + CELL_GAP = 374;W(1) 内宽 = CARD_W − 26 ≈ 363.33
+  it("W(1) 内宽恰一格:auto-fill 单列,不自动拆分为两格", () => {
+    expect(groupWidthOf(1) - GROUP_EDGE).toBe(CELL_W);
     expect(groupWidthOf(1) - GROUP_EDGE).toBeLessThan(2 * CELL_W + CELL_GAP);
     expect(groupWidthOf(2) - GROUP_EDGE).toBe(2 * CELL_W + CELL_GAP);
   });
 
   it("nearestGroupSpan:吸附最近列边界,越界钳回 1..上限", () => {
-    expect(nearestGroupSpan(389.33)).toBe(1);
-    expect(nearestGroupSpan(394)).toBe(1); // 距 W(1) 4.67 < 距 W(2) 18
-    expect(nearestGroupSpan(406)).toBe(2); // 趝过中点 ~393.7
+    expect(nearestGroupSpan(222)).toBe(1);
+    expect(nearestGroupSpan(316)).toBe(1); // 距 W(1)=222 差 94 < 距 W(2)=412 差 96
+    expect(nearestGroupSpan(318)).toBe(2); // 过中点 317
+    expect(nearestGroupSpan(389.33)).toBe(2); // 旧档 1 宽(CARD_W)现吸附档 2
     expect(nearestGroupSpan(10000)).toBe(MAX_GROUP_COLUMNS);
     expect(nearestGroupSpan(-50)).toBe(1);
   });

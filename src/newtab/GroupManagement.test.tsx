@@ -302,7 +302,8 @@ describe("分组管理:每行条数(group-width-tint)", () => {
     const { work } = await renderSeeded();
     enterWhiteboardMode();
 
-    expect(parseFloat(work.style.width)).toBeCloseTo((1200 - 16 * 2) / 3, 5);
+    // 缺省档 1 = 222(单格恰装,档 1 调校 2026-11-16;不再以 CARD_W 为底)
+    expect(parseFloat(work.style.width)).toBe(222);
 
     fireEvent.click(
       within(work).getByRole("button", { name: "编辑分组 工作" })
