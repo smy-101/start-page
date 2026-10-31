@@ -17,6 +17,22 @@ import type { BookmarkState } from "../src/domain/types";
  */
 const seed: BookmarkState = {
   schemaVersion: SCHEMA_VERSION,
+  // 待办卡(todo-card,ADR-0006):与分组卡并排的清单卡样例,
+  // 含未完成/完成混排供视觉评审
+  todos: [
+    {
+      id: "t-preview",
+      title: "今日待办",
+      order: 0,
+      x: 810,
+      y: 560,
+      items: [
+        { id: "ti-1", text: "回 design review 评论", done: false, order: 0 },
+        { id: "ti-2", text: "发布 v0.4 预览包", done: false, order: 1 },
+        { id: "ti-3", text: "整理收藏分组", done: true, order: 2 },
+      ],
+    },
+  ],
   groups: [
     {
       id: INBOX_GROUP_ID,
