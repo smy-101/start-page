@@ -1,6 +1,6 @@
 # 02 抽取 normalizeTodoCard:迁移修复与导入恢复的规范化合一
 
-Status: ready-for-agent
+Status: done
 
 来源:同批 code-review(Standards P2,Duplicated Code with drift)。
 
@@ -22,5 +22,9 @@ Status: ready-for-agent
 
 - 新增测试:当前版本备份携带非字符串 `color` → `restoreFrom` 后被剥;
 - `npm test` 全绿;v9→v10 迁移行为不变。
+
+## Comments
+
+- 2026-10-31 实现完成:`normalizeTodoCard` 落 migrations.ts(迁移终末修复与 restoreFrom 共用;宽锶回(可选 bound 供恢复随画布收窄)/color 剥非 string/height 钳或剥/残遗 span 剥离)。**span 换算不入共用函数**:migrations.test 754 行钉死「v10 残遗 span 只剥不换、宽保持缺省」,而 v9 备份换算属恢复侧前置——restoreFrom 先求 raw 宽(width ?? legacySpanWidth(span))再传入。输出改为不物化 undefined 值键(JSON 等价,既有 toEqual 断言全过)。新增红→绿测试:当前版备份 color:42 恢复后被剥(Object.hasOwn 验证键不存在);511 全绿。
 
 Blocked by: (none)

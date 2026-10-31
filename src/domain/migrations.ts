@@ -143,24 +143,13 @@ export function migrateState(state: BookmarkState): BookmarkState {
   if (!Array.isArray(next.todos)) {
     next = { ...next, todos: [] };
   }
-  // todos 修复(todo-card-size-color,v10):width 钳回(floor 取整、
-  // 钳 [TODO_W_MIN, TODO_W_MAX],非有限归 389);残留 span(v9 遗物)剥离;
-  // 非 string color 剥离。已是干净数组引用保留(幂等)
+  // todos 修复(todo-card-size-color,v10):统一走 normalizeTodoCard
+  // (width 钳回/color 剥非 string/height 钳回或剥/残遗 span 剥离)。
+  // 已是干净数组引用保留(幂等:干净状态整体原引用返回)
   else if (next.todos.some((t) => needsTodoRepair(t))) {
     next = {
       ...next,
-      todos: next.todos.map((t) => ({
-        ...t,
-        span: undefined,
-        width: t.width === undefined ? undefined : clampTodoWidth(t.width),
-        color: typeof t.color === "string" ? t.color : undefined,
-        // height:有限钳回(floor/越界),非有限/非数剥离为自适应
-        // (缺省是「不定长」而非定值,垃圾值不物化定长)
-        height:
-          typeof t.height === "number" && Number.isFinite(t.height)
-            ? clampTodoHeight(t.height)
-            : undefined,
-      })),
+      todos: next.todos.map((t) => normalizeTodoCard(t)),
     };
   }
   return next;
@@ -187,6 +176,45 @@ function isValidStep(value: number | undefined): boolean {
 function needsSizingRepair(g: { span?: number; columns?: number }): boolean {
   if (!isValidStep(g.span) || !isValidStep(g.columns)) return true;
   return g.span !== undefined && g.columns !== undefined && g.columns > g.span;
+}
+
+/**
+ * 待办卡字段规范化(todo-review-followups/02):迁移终末修复与导入
+ * 恢复(restoreFrom)共用的单一收口。宽钳回(floor/越界,非有限归
+ * 缺省 389;bound 供恢复路径随画布宽收窄,缺省仅 TODO_W_MAX)、
+ * color 非 string 剥离(修复漂移:恢复路径此前原样放行)、height 有限
+ * 钳回/非有限剥离为自适应(垃圾值不物化定长)、span 残遗(v9 遗物)
+ * 一律剥离。span 的 v9 换算不入此:v9→v10 属迁移步骤,v10 残遗 span
+ * 只剥不换(口径见 migrations.test「残留 span 剥离」),恢复侧需换算
+ * 时先自行求出 raw 宽再传入。输出不物化 undefined 值键(干净形状)。
+ */
+export function normalizeTodoCard<S extends TodoCard>(
+  t: S & { span?: unknown; width?: unknown; color?: unknown; height?: unknown },
+  opts?: { bound?: number }
+): S {
+  const rest: typeof t = { ...t };
+  const width = rest.width;
+  const color = rest.color;
+  const height = rest.height;
+  // 待规范四字段从副本剥离,再按条件物化(不残留 undefined 值键)
+  delete rest.span;
+  delete rest.width;
+  delete rest.color;
+  delete rest.height;
+  const clampedWidth =
+    width === undefined
+      ? undefined
+      : clampTodoWidth(Math.min(width as number, opts?.bound ?? Infinity));
+  const clampedHeight =
+    typeof height === "number" && Number.isFinite(height)
+      ? clampTodoHeight(height)
+      : undefined;
+  return {
+    ...rest,
+    ...(clampedWidth !== undefined ? { width: clampedWidth } : null),
+    ...(typeof color === "string" ? { color } : null),
+    ...(clampedHeight !== undefined ? { height: clampedHeight } : null),
+  } as S;
 }
 
 /** 待办卡字段需修复(todo-card-size-color v10;height 补 v11):残留

@@ -1305,6 +1305,30 @@ describe("待办卡导入导出(schema v8,todo-card)", () => {
     expect(Object.hasOwn(loaded as object, "height")).toBe(false);
   });
 
+  it("当前版本备份携带非 string color:恢复路径同样剥离(todo-review-followups/02 漂移修复)", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    // 手改备份(或旧导出器产物)携带非字符串 color:迁移修复会剥,但当前版
+    // 备份不经 migrateState——恢复路径此前原样放行入库(与迁移漂移)
+    const tampered = stateWithTodos();
+    tampered.todos = [
+      { ...tampered.todos![0], color: 42 as unknown as string },
+      { ...tampered.todos![0], id: "t-c2", color: "#9fe295" },
+    ];
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(tampered),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    expect((await adapter.load())?.todos).toMatchObject([
+      { id: tampered.todos![0].id },
+      { id: "t-c2", color: "#9fe295" },
+    ]);
+    const stripped = (await adapter.load())?.todos?.[0];
+    expect(Object.hasOwn(stripped as object, "color")).toBe(false);
+  });
+
   it("replace:越界坐标钳回(x 按画布右界 − CARD_W,y 压非负)", async () => {
     const adapter = createMemoryStorage();
     await createBookmarkStore(adapter);
