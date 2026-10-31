@@ -16,12 +16,23 @@ npm run typecheck  # tsc --noEmit
 npm run build      # 构建可加载的扩展产物到 dist/
 ```
 
-## 安装(加载 dist)
+## 安装
+
+### 方式一:下载现成构建(推荐)
+
+1. 到 [Releases](https://github.com/smy-101/start-page/releases) 下载最新的 `start-page-v*.zip` 并解压
+2. 打开 `chrome://extensions`,右上角开启「开发者模式」
+3. 点击「加载已解压的扩展程序」,选择解压出的目录
+4. 打开新标签页 → 显示「初曦」即安装成功。首次安装 Chrome 可能弹「改回 Google?」,选择「保持现状」保留新标签页覆盖
+
+> 想要未发版的最新 main 分支构建:到 [Actions](https://github.com/smy-101/start-page/actions) 最近一次 `build` 运行页底部 Artifacts 下载(需登录 GitHub)。
+
+### 方式二:自行构建(加载 dist)
 
 1. `npm install && npm run build`
 2. 打开 `chrome://extensions`,右上角开启「开发者模式」
 3. 点击「加载已解压的扩展程序」,选择本仓库的 **`dist/`** 目录
-4. 打开新标签页 → 显示「初曦」即安装成功。首次安装 Chrome 可能弹「改回 Google?」,选择「保持现状」保留新标签页覆盖
+4. 打开新标签页 → 显示「初曦」即安装成功(同上,选「保持现状」)
 5. 代码更新后重新 `npm run build`,再到 `chrome://extensions` 点扩展卡片上的刷新按钮
 
 注意:Chrome 品牌版 137+ 已禁用 `--load-extension` 启动参数,加载一律走 chrome://extensions 页面。

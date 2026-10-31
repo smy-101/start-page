@@ -1,0 +1,60 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 打 v* tag 时创建 Release 并上传产物
+
+jobs:
+  build:
+    name: Build & package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Package dist into zip
+        run: |
+          VERSION=$(jq -r '.version' dist/manifest.json)
+          ZIP="start-page-v${VERSION}.zip"
+          (cd dist && zip -qr "../$ZIP" .)
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      # 每次 push:zip 挂在 Actions 页面的 Artifacts(登录 GitHub 才能下载)
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP }}
+          path: ${{ env.ZIP }}
+          if-no-files-found: error
+
+      # 打 v* tag:创建 Release 并附上 zip,无需登录即可下载
+      - name: Create release with zip
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP }}
+          generate_release_notes: true
