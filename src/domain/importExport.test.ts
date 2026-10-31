@@ -9,6 +9,7 @@ import {
   parseBookmarksHtml,
 } from "./importExport";
 import { createMemoryStorage } from "../storage/memoryStorage";
+import { CARD_W } from "./canvas";
 import { createBookmarkStore } from "./store";
 import chromeExportHtml from "../../tests/fixtures/chrome-bookmarks-export.html?raw";
 
@@ -55,6 +56,7 @@ export function literalState(): BookmarkState {
         order: 0,
       },
     ],
+    todos: [],
   };
 }
 
@@ -1134,9 +1136,9 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
     const strSpan = v7Groups().map((g, i) =>
       i === 1 ? { ...g, span: "4" } : g
     );
-    expect((await importStateFromJson(bad, backup(strSpan), "replace")).ok).toBe(
-      false
-    );
+    expect(
+      (await importStateFromJson(bad, backup(strSpan), "replace")).ok
+    ).toBe(false);
   });
 
   it("replace 恢复:超档组降档连带降每行条数,x 按新宽钳;清单式 columns 不动", async () => {
@@ -1160,7 +1162,8 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
     );
 
     expect(
-      (await importStateFromJson(adapter, backup(fractional, 1200), "replace")).ok
+      (await importStateFromJson(adapter, backup(fractional, 1200), "replace"))
+        .ok
     ).toBe(true);
 
     const state = (await adapter.load())!;
@@ -1185,5 +1188,141 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
     const v6State = (await v6.load())!;
     expect(v6State.groups[1].span).toBeUndefined();
     expect(v6State.groups[1].columns).toBe(4);
+  });
+});
+
+describe("待办卡导入导出(schema v8,todo-card)", () => {
+  /** 带一张待办卡(两条目,一完成)的字面量状态(独立真值来源)。 */
+  function stateWithTodos(): BookmarkState {
+    return {
+      ...literalState(),
+      todos: [
+        {
+          id: "t-1",
+          title: "采购",
+          order: 0,
+          x: 405,
+          y: 0,
+          items: [
+            { id: "ti-1", text: "买咖啡豆", done: false, order: 0 },
+            { id: "ti-2", text: "买滤纸", done: true, order: 1 },
+          ],
+        },
+      ],
+    } as BookmarkState;
+  }
+
+  it("导出 JSON 携带待办卡(逐字)", () => {
+    const state = stateWithTodos();
+    expect(JSON.parse(exportStateAsJson(state)).todos).toEqual(state.todos);
+  });
+
+  it("HTML 导出不含待办文本(Netscape 格式装不下,静默跳过)", () => {
+    const html = exportStateAsHtml(stateWithTodos());
+    expect(html).not.toContain("买咖啡豆");
+    expect(html).not.toContain("采购");
+  });
+
+  it("v7 备份(无 todos)仍可导入:replace 后 todos 为空数组", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const v7 = { ...stateWithTodos(), schemaVersion: 7, todos: undefined };
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(v7),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    expect((await adapter.load())?.todos).toEqual([]);
+  });
+
+  it("todos 形状非法拒收:条目缺 done、卡缺坐标", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const base = stateWithTodos();
+    const badItem: BookmarkState = {
+      ...base,
+      todos: [
+        {
+          ...base.todos![0],
+          items: [{ id: "ti-x", text: "无完成态", order: 0 }] as never,
+        },
+      ],
+    };
+    const badCard: BookmarkState = {
+      ...base,
+      todos: [{ id: "t-x", title: "无坐标", order: 0, items: [] }] as never,
+    };
+    for (const bad of [badItem, badCard]) {
+      expect(
+        await importStateFromJson(adapter, JSON.stringify(bad), "replace")
+      ).toEqual({ ok: false, error: "invalid-import" });
+    }
+  });
+
+  it("replace:待办卡逐字恢复(id/坐标/完成态)", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(stateWithTodos()),
+      "replace"
+    );
+    expect(result.ok).toBe(true);
+    expect((await adapter.load())?.todos).toEqual(stateWithTodos().todos);
+  });
+
+  it("replace:越界坐标钳回(x 按画布右界 − CARD_W,y 压非负)", async () => {
+    const adapter = createMemoryStorage();
+    await createBookmarkStore(adapter);
+    const state = stateWithTodos();
+    state.todos = [{ ...state.todos![0], id: "t-out", x: 5000, y: -3 }];
+    await importStateFromJson(adapter, JSON.stringify(state), "replace");
+    expect((await adapter.load())?.todos?.[0]).toMatchObject({
+      x: 1200 - CARD_W,
+      y: 0,
+    });
+  });
+
+  it("merge:备份待办卡追加为新卡(重生成 id),现有待办保留", async () => {
+    const adapter = createMemoryStorage(stateWithTodos());
+    await createBookmarkStore(adapter);
+    const backup = stateWithTodos();
+    backup.todos = [
+      {
+        ...backup.todos![0],
+        id: "t-backup",
+        items: [{ id: "ti-backup", text: "备份条目", done: false, order: 0 }],
+      },
+    ];
+    const result = await importStateFromJson(
+      adapter,
+      JSON.stringify(backup),
+      "merge"
+    );
+    expect(result.ok).toBe(true);
+    const todos = (await adapter.load())?.todos ?? [];
+    expect(todos).toHaveLength(2);
+    expect(todos.map((t) => t.id)).toContain("t-1");
+    expect(todos.map((t) => t.id)).not.toContain("t-backup");
+    expect(todos.some((t) => t.items.some((i) => i.text === "备份条目"))).toBe(
+      true
+    );
+  });
+
+  it("merge 无待办的备份:现有待办原样保留(不被合并清空)", async () => {
+    const adapter = createMemoryStorage(stateWithTodos());
+    await createBookmarkStore(adapter);
+    const backup = stateWithTodos();
+    delete backup.todos;
+    await importStateFromJson(adapter, JSON.stringify(backup), "merge");
+    expect((await adapter.load())?.todos).toEqual(stateWithTodos().todos);
+  });
+
+  it("HTML 导入(合并)不动现有待办", async () => {
+    const adapter = createMemoryStorage(stateWithTodos());
+    await createBookmarkStore(adapter);
+    await importBookmarksFromHtml(adapter, chromeExportHtml);
+    expect((await adapter.load())?.todos).toEqual(stateWithTodos().todos);
   });
 });

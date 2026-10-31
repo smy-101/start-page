@@ -100,10 +100,7 @@ export interface BookmarkStore {
    * (span' = max(档位, cells)——拖出来的长度保持住,表单只是组内排版);
    * 档位脱离推导时物化写入;变宽重钳 x;同义(含缺省装满)不落盘。
    */
-  setGroupColumns(
-    id: GroupId,
-    columns: number
-  ): Promise<Result<Group>>;
+  setGroupColumns(id: GroupId, columns: number): Promise<Result<Group>>;
   /**
    * 组宽档位写回(schema v7,拖柄/键盘路径):钳
    * [1, min(6, 画布放得下的最大档)] 后落盘;每行条数存在且超档时自动降
@@ -125,11 +122,13 @@ export interface BookmarkStore {
 }
 
 function initialState(): BookmarkState {
-  // 画布宽缺省 = 自动档(schema v5):不写数值,渲染时撑满可用宽
+  // 画布宽缺省 = 自动档(schema v5):不写数值,渲染时撑满可用宽;
+  // todos 空数组(v8):升级不预置示例卡(ADR-0006)
   return {
     schemaVersion: SCHEMA_VERSION,
     groups: [createInboxGroup(0)],
     bookmarks: [],
+    todos: [],
   };
 }
 
@@ -150,6 +149,7 @@ function ensureInbox(state: BookmarkState): BookmarkState {
  * boot 回声抑制用:自身写入引发的 onChanged 回声携带与当前一致的状态,相等即可
  * 跳过重建;外部写入携带不同状态,不等即重建。数组顺序参与相等(顺序即语义);
  * 画布宽逐字比较(schema v5:缺省自动档 ≠ 钉住的固定宽)。
+ * todos 逐字段参与(schema v8,todo-card):待办勾选/增删也要触发回声重建。
  */
 export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
   if (a === b) return true;
@@ -157,7 +157,8 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
     a.schemaVersion !== b.schemaVersion ||
     a.canvasWidth !== b.canvasWidth ||
     a.groups.length !== b.groups.length ||
-    a.bookmarks.length !== b.bookmarks.length
+    a.bookmarks.length !== b.bookmarks.length ||
+    (a.todos ?? []).length !== (b.todos ?? []).length
   ) {
     return false;
   }
@@ -192,6 +193,35 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
       return false;
     }
   }
+  // 待办卡逐字段(schema v8):卡 id/标题/顺序/坐标 + 条目 id/文本/完成态/顺序
+  const todosA = a.todos ?? [];
+  const todosB = b.todos ?? [];
+  for (let i = 0; i < todosA.length; i++) {
+    const x = todosA[i];
+    const y = todosB[i];
+    if (
+      x.id !== y.id ||
+      x.title !== y.title ||
+      x.items.length !== y.items.length ||
+      x.order !== y.order ||
+      x.x !== y.x ||
+      x.y !== y.y
+    ) {
+      return false;
+    }
+    for (let j = 0; j < x.items.length; j++) {
+      const p = x.items[j];
+      const q = y.items[j];
+      if (
+        p.id !== q.id ||
+        p.text !== q.text ||
+        p.done !== q.done ||
+        p.order !== q.order
+      ) {
+        return false;
+      }
+    }
+  }
   return true;
 }
 
@@ -203,7 +233,9 @@ export function isFreshInstallState(state: BookmarkState): boolean {
   return (
     state.groups.length === 1 &&
     state.groups[0].id === INBOX_GROUP_ID &&
-    state.bookmarks.length === 0
+    state.bookmarks.length === 0 &&
+    // 待办卡也是内容(schema v8):建过待办不算全新安装,不出导入引导
+    (state.todos ?? []).length === 0
   );
 }
 

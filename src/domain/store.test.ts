@@ -46,6 +46,7 @@ describe("收藏库初始化", () => {
         { id: "g-news", name: "资讯", color: "#e99695", order: 1, x: 0, y: 0 },
       ],
       bookmarks: [],
+      todos: [],
     };
     const store = await createBookmarkStore(createMemoryStorage(existing));
 
@@ -507,6 +508,7 @@ describe("白板落点写回(board-whiteboard/02)", () => {
         { id: "g-b", name: "B", color: "#81a2be", order: 2, x: 0, y: 144 },
       ],
       bookmarks: [],
+      todos: [],
     });
     const save = vi.fn(base.save.bind(base));
     const adapter = Object.assign({}, base, { save });
@@ -614,6 +616,7 @@ describe("画布宽写回(canvas-bounds-align,schema v4)", () => {
         { id: "g-b", name: "B", color: "#81a2be", order: 2, x: 0, y: 144 },
       ],
       bookmarks: [],
+      todos: [],
     });
     const save = vi.fn(base.save.bind(base));
     const adapter = Object.assign({}, base, { save });
@@ -762,6 +765,7 @@ describe("每行条数写回(group-width-tint,schema v6)", () => {
         },
       ],
       bookmarks: [],
+      todos: [],
     });
     const save = vi.fn(base.save.bind(base));
     const adapter = Object.assign({}, base, { save });
@@ -899,7 +903,9 @@ describe("每行条数写回(group-width-tint,schema v6)", () => {
 
 describe("组宽档位写回(group-span-decouple,schema v7)", () => {
   /** 收集箱(0,0) + g-a(400,0) 的库(画布 1200);g 改 g-a 档位/坐标。 */
-  async function spanned(g: { span?: number; columns?: number; x?: number } = {}) {
+  async function spanned(
+    g: { span?: number; columns?: number; x?: number } = {}
+  ) {
     const base = createMemoryStorage({
       schemaVersion: SCHEMA_VERSION,
       canvasWidth: 1200,
@@ -924,6 +930,7 @@ describe("组宽档位写回(group-span-decouple,schema v7)", () => {
         },
       ],
       bookmarks: [],
+      todos: [],
     });
     const save = vi.fn(base.save.bind(base));
     const adapter = Object.assign({}, base, { save });
@@ -1052,5 +1059,83 @@ describe("组宽档位写回(group-span-decouple,schema v7)", () => {
     expect(statesEqual(a, b)).toBe(true);
     b.groups[1].span = 2;
     expect(statesEqual(a, b)).toBe(false);
+  });
+});
+
+describe("待办卡:初始化、状态相等与初始态判定(schema v8,todo-card/01)", () => {
+  /** 单张待办卡的缺省夹具(缺省覆盖项可覆写)。 */
+  function todoCard(
+    partial: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    return {
+      id: "t1",
+      title: "待办",
+      order: 0,
+      x: 0,
+      y: 0,
+      items: [{ id: "i1", text: "买咖啡豆", done: false, order: 0 }],
+      ...partial,
+    };
+  }
+
+  /** 全新安装基态(仅收集箱、零收藏)+ 可选待办卡。 */
+  function freshWith(todos: unknown[] = []): BookmarkState {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+      todos,
+    } as BookmarkState;
+  }
+
+  it("全新存储:todos 为空数组", async () => {
+    const store = await createBookmarkStore(createMemoryStorage());
+    expect(store.getState().todos).toEqual([]);
+  });
+
+  it("statesEqual:todos 逐字段参与相等(不同引用、内容一致 → 相等)", () => {
+    expect(statesEqual(freshWith([todoCard()]), freshWith([todoCard()]))).toBe(
+      true
+    );
+  });
+
+  it("statesEqual:卡标题、条目文本、完成态任一差异 → 不等", () => {
+    const base = freshWith([todoCard()]);
+    expect(statesEqual(base, freshWith([todoCard({ title: "清单" })]))).toBe(
+      false
+    );
+    expect(
+      statesEqual(
+        base,
+        freshWith([
+          todoCard({
+            items: [{ id: "i1", text: "买咖啡豆", done: true, order: 0 }],
+          }),
+        ])
+      )
+    ).toBe(false);
+    expect(
+      statesEqual(
+        base,
+        freshWith([
+          todoCard({
+            items: [{ id: "i1", text: "买滤纸", done: false, order: 0 }],
+          }),
+        ])
+      )
+    ).toBe(false);
+  });
+
+  it("isFreshInstallState:仅收集箱、零收藏、但有待办卡 → 非初始态", () => {
+    expect(isFreshInstallState(freshWith([todoCard()]))).toBe(false);
   });
 });

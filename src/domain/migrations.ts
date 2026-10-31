@@ -12,6 +12,8 @@
  * (缺省 = 1 = 存量宽行单列);仅剥离非法值(非有限/非整数/越 1..6)。
  * v6→v7 组宽档位(group-span-decouple):零数据改写——缺省档位从每行
  * 条数推导,v6 全部状态渲染逐字不变,仅升版本号。
+ * v7→v8 待办卡(todo-card,ADR-0006):零改写——补缺省 todos: []
+ * (升级不预置示例卡);分组/收藏引用原样保留。
  * 末尾统一修复(任何版本,含已是当前版):宽度存在但非法(NaN/越界)钳回;
  * 缺省 = 自动档,不补数值;columns/span 存在但非法一律剥离(缺省:
  * columns 装满 / span 从 columns 推导);合法 columns > 合法 span 时抬 span
@@ -61,6 +63,11 @@ export function migrateState(state: BookmarkState): BookmarkState {
     // v6 全部状态渲染逐字不变(groups 引用原样保留)
     next = { ...next, schemaVersion: 7 };
   }
+  if (next.schemaVersion < 8) {
+    // v7→v8 零改写(todo-card):分组/收藏引用原样保留;todos 缺省补空
+    // 数组在末尾统一修复处一并承担(v7 与 v8 缺失同路)
+    next = { ...next, schemaVersion: 8 };
+  }
   // 缺省 = 自动档(schema v5),修复仅针对已存在的非法值
   if (
     next.canvasWidth !== undefined &&
@@ -83,9 +90,13 @@ export function migrateState(state: BookmarkState): BookmarkState {
       }),
     };
   }
+  // todos 缺省/非数组(todo-card,v8):补空数组——手改 JSON 与损坏数据的
+  // 兑底;已是数组的原引用保留(幂等:干净状态整体原引用返回)
+  if (!Array.isArray(next.todos)) {
+    next = { ...next, todos: [] };
+  }
   return next;
 }
-
 /** 档位/每行条数共用合法域:缺省(与推导/装满同义)或有限整数 1..上限。 */
 function isValidStep(value: number | undefined): boolean {
   return (
@@ -95,14 +106,7 @@ function isValidStep(value: number | undefined): boolean {
 }
 
 /** 档位/每行条数需修复:任一非法,或合法 columns 超出合法 span。 */
-function needsSizingRepair(g: {
-  span?: number;
-  columns?: number;
-}): boolean {
+function needsSizingRepair(g: { span?: number; columns?: number }): boolean {
   if (!isValidStep(g.span) || !isValidStep(g.columns)) return true;
-  return (
-    g.span !== undefined &&
-    g.columns !== undefined &&
-    g.columns > g.span
-  );
+  return g.span !== undefined && g.columns !== undefined && g.columns > g.span;
 }

@@ -369,6 +369,7 @@ describe("schema v5 画布宽自动档(canvas-bounds-align/04)", () => {
     const current: BookmarkState = {
       ...v3CustomCoords(),
       schemaVersion: SCHEMA_VERSION,
+      todos: [],
     };
     const adapter = createMemoryStorage(current);
 
@@ -483,6 +484,7 @@ describe("schema v6 每行条数(group-width-tint)", () => {
     const current: BookmarkState = {
       ...v5State(),
       schemaVersion: SCHEMA_VERSION,
+      todos: [],
       groups: v5State().groups.map((g, i) =>
         i === 1 ? { ...g, columns: 2 } : g
       ),
@@ -509,7 +511,15 @@ describe("schema v7 组宽档位(group-span-decouple)", () => {
           x: 0,
           y: 0,
         },
-        { id: "g-a", name: "甲", color: "#e99695", order: 1, x: 405, y: 0, columns: 4 },
+        {
+          id: "g-a",
+          name: "甲",
+          color: "#e99695",
+          order: 1,
+          x: 405,
+          y: 0,
+          columns: 4,
+        },
         { id: "g-b", name: "乙", color: "#81a2be", order: 2, x: 0, y: 144 },
       ],
       bookmarks: [],
@@ -531,7 +541,7 @@ describe("schema v7 组宽档位(group-span-decouple)", () => {
   });
 
   it("幂等:已是 v7 的干净状态原引用返回", () => {
-    const state = { ...v6State(), schemaVersion: SCHEMA_VERSION };
+    const state = { ...v6State(), schemaVersion: SCHEMA_VERSION, todos: [] };
     expect(migrateState(state)).toBe(state);
   });
 
@@ -556,7 +566,10 @@ describe("schema v7 组宽档位(group-span-decouple)", () => {
       schemaVersion: SCHEMA_VERSION,
       groups: [{ ...v6State().groups[1], span: 2, columns: 4 }],
     };
-    expect(migrateState(state).groups[0]).toMatchObject({ span: 4, columns: 4 });
+    expect(migrateState(state).groups[0]).toMatchObject({
+      span: 4,
+      columns: 4,
+    });
   });
 });
 
@@ -587,5 +600,61 @@ describe("schema v7 防御补全(code-review):columns 非法值统一修复", ()
       groups: [{ ...base.groups[0], columns: Number.NaN }],
     });
     expect(nan.groups[0].columns).toBeUndefined();
+  });
+});
+
+describe("迁移 v7→v8:待办卡补缺省(todo-card)", () => {
+  /** 仅收集箱的 v7 基态(带画布坐标,无 todos 字段——v7 及更早均如此)。 */
+  function v7State(): BookmarkState {
+    return {
+      schemaVersion: 7,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+      ],
+      bookmarks: [],
+    } as BookmarkState;
+  }
+
+  it("v7 → v8:升版本并补缺省 todos 空数组;groups/bookmarks 引用原样", () => {
+    const v7 = v7State();
+    const migrated = migrateState(v7);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(migrated.todos).toEqual([]);
+    expect(migrated.groups).toBe(v7.groups);
+    expect(migrated.bookmarks).toBe(v7.bookmarks);
+  });
+
+  it("幂等:v8 干净状态原引用返回,已有 todos 逐字保留", () => {
+    const v8 = {
+      ...v7State(),
+      schemaVersion: SCHEMA_VERSION,
+      todos: [
+        {
+          id: "t1",
+          title: "待办",
+          order: 0,
+          x: 0,
+          y: 0,
+          items: [{ id: "i1", text: "买咖啡豆", done: false, order: 0 }],
+        },
+      ],
+    } as BookmarkState;
+    expect(migrateState(v8)).toBe(v8);
+  });
+
+  it("todos 非数组(损坏数据)→ 加载链修复为空数组", () => {
+    const broken = {
+      ...v7State(),
+      schemaVersion: SCHEMA_VERSION,
+      todos: "不是数组",
+    } as unknown as BookmarkState;
+    expect(migrateState(broken).todos).toEqual([]);
   });
 });

@@ -1,6 +1,8 @@
 /** 收藏:一条被保存的网页记录,必属且仅属一个分组(见 GLOSSARY.md)。 */
 export type BookmarkId = string;
 export type GroupId = string;
+/** 待办卡/待办条目 id(ADR-0006:画布第二种卡片)。 */
+export type TodoId = string;
 
 export interface Bookmark {
   id: BookmarkId;
@@ -42,11 +44,45 @@ export interface Group {
   span?: number;
 }
 
+/** 待办条目(ADR-0006):勾选框 + 文本,必属且仅属一张待办卡(嵌在卡内,自包含)。 */
+export interface TodoItem {
+  id: TodoId;
+  /** 修剪后的非空文本(写路径保证,空文本拒收) */
+  text: string;
+  /** 完成态:完成项划线沉卡底(toggle 是唯一沉底执行者,手工排序自由) */
+  done: boolean;
+  /** 卡内顺序,0..n−1;沉底/回升/排序时重排 */
+  order: number;
+}
+
+/**
+ * 待办卡(ADR-0006):画布上与分组卡并排的清单卡;不装收藏、不是分组。
+ * 定宽 CARD_W(无档位),x/y 与分组同语义;删除不进收集箱。
+ */
+export interface TodoCard {
+  id: TodoId;
+  /** 缺省「待办」;改名空文本回退缺省(inline 快改,不报错) */
+  title: string;
+  /** 条目嵌在卡内;顺序即 items 各自 order 排序后的稳定序 */
+  items: TodoItem[];
+  /** DOM/Tab 序(画布布局由 x/y 承担,同分组 order 的角色) */
+  order: number;
+  /** 画布横坐标(px):与分组同语义 */
+  x: number;
+  /** 画布纵坐标(px):画布向下无界 */
+  y: number;
+}
+
 /** 单一状态对象,整体持久化到 chrome.storage.local。 */
 export interface BookmarkState {
   schemaVersion: number;
   groups: Group[];
   bookmarks: Bookmark[];
+  /**
+   * 待办卡列表(schema v8,todo-card):可选是存量夹具兼容(迁移补缺省 []);
+   * store 引导后恒为数组,UI 消费处 `?? []` 兑底。
+   */
+  todos?: TodoCard[];
   /**
    * 画布宽(px,schema v4 起):拖柄钉住后入库,读取统一走 canvas.ts。
    * 缺省 = 自动档(schema v5):撑满可用宽(effectiveCanvasWidth);
@@ -79,13 +115,19 @@ export type DomainErrorCode =
   | "empty-group-color"
   | "invalid-import"
   | "invalid-group-order"
-  | "inbox-immutable";
+  | "inbox-immutable"
+  | "todo-not-found"
+  | "todo-item-not-found"
+  | "empty-todo-text"
+  | "invalid-todo-order";
 
 export type Result<T> =
   { ok: true; value: T } | { ok: false; error: DomainErrorCode };
 
 /**
  * 持久化数据结构版本,随结构演进递增(导入导出的 JSON 备份依赖它)。
+ * v8:状态新增可选 todos(待办卡,ADR-0006;todo-card);v7 及更早备份缺省
+ * 补空数组(零改写迁移),不预置示例卡。
  * v7:分组新增可选 span(组宽档位,与每行条数解耦;group-span-decouple);
  * v6 数据零改写迁移(缺省档位从 columns 推导)。
  * v6:分组新增可选 columns(每行条数;group-width-tint)。
@@ -94,7 +136,7 @@ export type Result<T> =
  * v3:分组新增画布坐标 x/y(ADR-0004 白板自由定位);v2 及更早备份仍可导入。
  * v2:收藏新增可选 icon(data URL);v1 备份仍可导入。
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /** 画布上的落点(px,见 canvas.ts 与 GLOSSARY「画布」)。 */
 export interface CanvasPos {

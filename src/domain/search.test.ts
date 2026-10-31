@@ -210,3 +210,34 @@ describe("搜索过滤:分组可见性与顺序", () => {
     expect(result.bookmarks.map((b) => b.id)).toEqual(["1", "2"]);
   });
 });
+
+describe("搜索过滤:待办卡可见性(todo-card,v8)", () => {
+  /** 带一张待办卡的状态(条目文本与查询词无交集时也隐藏——搜索不搜待办)。 */
+  function stateWithTodo(): BookmarkState {
+    return {
+      ...stateOf([]),
+      todos: [
+        {
+          id: "t-1",
+          title: "待办",
+          order: 0,
+          x: 405,
+          y: 0,
+          items: [{ id: "ti-1", text: "买咖啡豆", done: false, order: 0 }],
+        },
+      ],
+    } as BookmarkState;
+  }
+
+  it("非空查询:待办卡整体隐藏(todos 置空,不参与文本匹配)", () => {
+    const filtered = filterState(stateWithTodo(), "咖啡");
+    expect(filtered.todos).toEqual([]);
+    // 同查询下无命中收藏 → 空状态照常成立
+    expect(filtered.groups).toEqual([]);
+  });
+
+  it("空查询:原样返回,待办卡保留(引用不变)", () => {
+    const state = stateWithTodo();
+    expect(filterState(state, "")).toBe(state);
+  });
+});
