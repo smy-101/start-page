@@ -1,6 +1,6 @@
 # 02 store 待办 CRUD 与落点写回
 
-Status: ready-for-agent
+Status: done
 
 BookmarkStore 新增:createTodo(缺省标题「待办」、画布底部追加含待办推算)、
 renameTodo(空回退「待办」)、deleteTodo、addTodoItem(空拒、插未完成区末)、

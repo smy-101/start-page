@@ -8,7 +8,7 @@ import type { GroupPositionInput } from "../domain/store";
 import { INBOX_GROUP_ID, SCHEMA_VERSION } from "../domain/store";
 import { CARD_W } from "../domain/canvas";
 import { byOrder } from "../domain/types";
-import type { BookmarkState, GroupId } from "../domain/types";
+import type { BookmarkState, GroupId, TodoCard, TodoId } from "../domain/types";
 
 /**
  * 白板(board-whiteboard/02):Pointer 拖拽落点吸附、自动整理装箱、
@@ -56,8 +56,26 @@ type Board = {
   onResizeGroup: Mock;
   onSetGroupColumns: Mock;
   onEnterWhiteboard: Mock;
+  onCreateTodo: Mock;
+  onToggleTodoItem: Mock;
+  onSetTodoPositions: Mock;
   rerender(next: BookmarkState, overrides?: Partial<WhiteboardProps>): void;
 };
+
+/** 待办卡夹具:「采购」两条目,画布 (810, 0)。 */
+function seedTodo(): TodoCard {
+  return {
+    id: "t-1",
+    title: "采购",
+    order: 0,
+    x: 810,
+    y: 0,
+    items: [
+      { id: "ti-1", text: "买咖啡豆", done: false, order: 0 },
+      { id: "ti-2", text: "买滤纸", done: true, order: 1 },
+    ],
+  };
+}
 
 function renderBoard(
   initial: BookmarkState = seededState(),
@@ -96,6 +114,25 @@ function renderBoard(
     },
   }));
   const onEnterWhiteboard = vi.fn();
+  const todoOk = vi.fn(async () => ({ ok: true as const, value: seedTodo() }));
+  const onCreateTodo = todoOk;
+  const onRenameTodo = todoOk;
+  const onAddTodoItem = todoOk;
+  const onEditTodoItem = todoOk;
+  const onToggleTodoItem = vi.fn(async () => ({
+    ok: true as const,
+    value: seedTodo(),
+  }));
+  const onRemoveTodoItem = todoOk;
+  const onReorderTodoItems = todoOk;
+  const onDeleteTodo = vi.fn(async (id: TodoId) => ({
+    ok: true as const,
+    value: id,
+  }));
+  const onSetTodoPositions = vi.fn(async () => ({
+    ok: true as const,
+    value: [seedTodo()],
+  }));
   // 拖拽回调束:单对象 prop(稳定身份,与 App 经 useCardDnD 供给同形)
   const handlers = {
     onCardDragStart: vi.fn(),
@@ -122,6 +159,15 @@ function renderBoard(
     onResizeCanvas,
     onResizeGroup,
     onSetGroupColumns,
+    onRenameTodo,
+    onDeleteTodo,
+    onAddTodoItem,
+    onEditTodoItem,
+    onToggleTodoItem,
+    onRemoveTodoItem,
+    onReorderTodoItems,
+    onSetTodoPositions,
+    onCreateTodo,
     handlers,
     onEdit: vi.fn(),
     onDelete: vi.fn(),
@@ -134,6 +180,9 @@ function renderBoard(
     onResizeGroup,
     onSetGroupColumns,
     onEnterWhiteboard,
+    onCreateTodo,
+    onToggleTodoItem,
+    onSetTodoPositions,
     rerender(next, extra) {
       view.rerender(
         <Whiteboard
@@ -1026,5 +1075,73 @@ describe("组右缘调宽拖柄:回流哨兵的钳回分歧(group-span-decouple)
     board.rerender(clamped);
     // 哨兵解除:渲染采纳持久 2 档宽,不再卡在 602
     expect(parseFloat(groupA.style.width)).toBe(412);
+  });
+});
+
+describe("白板:待办卡集成(todo-card/04)", () => {
+  function stateWithTodo(): BookmarkState {
+    return { ...seededState(), todos: [seedTodo()] };
+  }
+
+  it("待办卡渲染在画布,坐标来自存储;日常态勾选透传、无「新建待办」入口", () => {
+    const board = renderBoard(stateWithTodo());
+    const todo = document.querySelector("section.todo");
+    expect(todo).toBeTruthy();
+    expect(todo).toHaveStyle({ left: "810px", top: "0px" });
+    expect(screen.queryByRole("button", { name: "新建待办" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "买咖啡豆" }));
+    expect(board.onToggleTodoItem).toHaveBeenCalledWith("t-1", "ti-1");
+  });
+
+  it("白板模式:工具行「新建待办」入口;搜索过滤态禁用", () => {
+    const board = renderBoard(undefined, { whiteboardMode: true });
+    fireEvent.click(screen.getByRole("button", { name: "新建待办" }));
+    expect(board.onCreateTodo).toHaveBeenCalledTimes(1);
+    board.rerender(seededState(), { searching: true });
+    expect(screen.getByRole("button", { name: "新建待办" })).toBeDisabled();
+  });
+
+  it("拖拽待办卡:松手吸附网格写回 onSetTodoPositions,不惊动分组落点", () => {
+    const board = renderBoard(stateWithTodo(), { whiteboardMode: true });
+    const todo = document.querySelector<HTMLElement>("section.todo")!;
+    dragBy(todo, { x: 30, y: 40 }, { x: 101, y: 90 });
+    expect(todo).toHaveAttribute("data-drag-active", "true");
+    expect(todo).toHaveStyle({ left: "71px", top: "50px" });
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointerup"));
+    });
+    // 71→64、50→48(16px 网格吸附)
+    expect(board.onSetTodoPositions).toHaveBeenCalledWith([
+      { id: "t-1", x: 64, y: 48 },
+    ]);
+    expect(board.onSetGroupPositions).not.toHaveBeenCalled();
+  });
+
+  it("日常态拖待办:同分组门禁——出 nudge 引导,不写落点", () => {
+    const board = renderBoard(stateWithTodo());
+    const todo = document.querySelector<HTMLElement>("section.todo")!;
+    dragBy(todo, { x: 10, y: 10 }, { x: 40, y: 40 });
+    expect(queryNudge()).toBeTruthy();
+    expect(board.onSetTodoPositions).not.toHaveBeenCalled();
+  });
+
+  it("自动整理:待办与分组同批装箱,各自批量写回", () => {
+    const board = renderBoard(stateWithTodo(), { whiteboardMode: true });
+    withHeight(sectionOf("收集箱"), 100);
+    withHeight(sectionOf("甲组"), 200);
+    withHeight(sectionOf("乙组"), 100);
+    withHeight(document.querySelector<HTMLElement>("section.todo")!, 120);
+    fireEvent.click(screen.getByRole("button", { name: "自动整理" }));
+    expect(board.onSetGroupPositions).toHaveBeenCalledTimes(1);
+    const groupBatch = board.onSetGroupPositions.mock.calls[0][0];
+    expect(groupBatch).toHaveLength(3);
+    expect(board.onSetTodoPositions).toHaveBeenCalledTimes(1);
+    const todoBatch = board.onSetTodoPositions.mock.calls[0][0];
+    expect(todoBatch).toHaveLength(1);
+  });
+
+  it("搜索过滤态(todos 已被上游置空):不渲染待办卡", () => {
+    renderBoard({ ...seededState(), todos: [] }, { searching: true });
+    expect(document.querySelector("section.todo")).toBeNull();
   });
 });

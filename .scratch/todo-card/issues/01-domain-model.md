@@ -1,6 +1,6 @@
 # 01 领域模型与迁移(schema v8)
 
-Status: ready-for-agent
+Status: done
 
 types.ts 加 `TodoItem`/`TodoCard`/`todos?`、`SCHEMA_VERSION = 8`;
 迁移 v7→v8 补缺省 `todos: []`;`statesEqual` 纳入 todos;

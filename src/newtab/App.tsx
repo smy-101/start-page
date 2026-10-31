@@ -15,6 +15,7 @@ import type {
   GroupId,
   Result,
   StorageAdapter,
+  TodoId,
 } from "../domain/types";
 import {
   createBookmarkStore,
@@ -55,7 +56,7 @@ import { domainErrorText } from "./messages";
 import { PlusIcon, SettingsIcon } from "./Icon";
 import { loadCollapsedGroups, saveCollapsedGroups } from "./collapsedGroups";
 import { useCardDnD } from "./useCardDnD";
-import type { GroupPositionInput } from "../domain/store";
+import type { GroupPositionInput, TodoPositionInput } from "../domain/store";
 
 const chromeStorage = createChromeStorage();
 const chromeSettingsStorage = createChromeSettingsStorage();
@@ -267,6 +268,53 @@ export function App({
   const handleSetGroupPositions = useCallback(
     (positions: GroupPositionInput[]) =>
       run(() => storeRef.current!.setGroupPositions(positions)),
+    [run]
+  );
+
+  // ---- 待办卡(todo-card,ADR-0006):共享回调全部稳定身份(memo 契约) ----
+
+  const handleCreateTodo = useCallback(
+    () => run(() => storeRef.current!.createTodo()),
+    [run]
+  );
+  const handleRenameTodo = useCallback(
+    (id: TodoId, title: string) =>
+      refreshOnOk(() => storeRef.current!.renameTodo(id, title)),
+    [refreshOnOk]
+  );
+  const handleDeleteTodo = useCallback(
+    (id: TodoId) => refreshOnOk(() => storeRef.current!.deleteTodo(id)),
+    [refreshOnOk]
+  );
+  const handleAddTodoItem = useCallback(
+    (id: TodoId, text: string) =>
+      refreshOnOk(() => storeRef.current!.addTodoItem(id, text)),
+    [refreshOnOk]
+  );
+  const handleEditTodoItem = useCallback(
+    (todoId: TodoId, itemId: TodoId, text: string) =>
+      refreshOnOk(() => storeRef.current!.editTodoItem(todoId, itemId, text)),
+    [refreshOnOk]
+  );
+  const handleToggleTodoItem = useCallback(
+    (todoId: TodoId, itemId: TodoId) =>
+      refreshOnOk(() => storeRef.current!.toggleTodoItem(todoId, itemId)),
+    [refreshOnOk]
+  );
+  const handleRemoveTodoItem = useCallback(
+    (todoId: TodoId, itemId: TodoId) =>
+      refreshOnOk(() => storeRef.current!.removeTodoItem(todoId, itemId)),
+    [refreshOnOk]
+  );
+  const handleReorderTodoItems = useCallback(
+    (todoId: TodoId, itemIds: readonly TodoId[]) =>
+      refreshOnOk(() => storeRef.current!.reorderTodoItems(todoId, itemIds)),
+    [refreshOnOk]
+  );
+  /** 待办卡落点写回(todo-card/04):拖拽松手/自动整理 → 批量落位 */
+  const handleSetTodoPositions = useCallback(
+    (positions: TodoPositionInput[]) =>
+      run(() => storeRef.current!.setTodoPositions(positions)),
     [run]
   );
 
@@ -553,6 +601,15 @@ export function App({
         onResizeCanvas={handleResizeCanvas}
         onResizeGroup={handleResizeGroup}
         onSetGroupColumns={handleSetGroupColumns}
+        onCreateTodo={handleCreateTodo}
+        onRenameTodo={handleRenameTodo}
+        onDeleteTodo={handleDeleteTodo}
+        onAddTodoItem={handleAddTodoItem}
+        onEditTodoItem={handleEditTodoItem}
+        onToggleTodoItem={handleToggleTodoItem}
+        onRemoveTodoItem={handleRemoveTodoItem}
+        onReorderTodoItems={handleReorderTodoItems}
+        onSetTodoPositions={handleSetTodoPositions}
         onEnterWhiteboard={handleEnterWhiteboard}
         handlers={dragHandlers}
         onEdit={handleCardEdit}

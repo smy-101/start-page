@@ -15,9 +15,16 @@ import type {
   Group,
   GroupId,
   Result,
+  TodoCard,
+  TodoId,
 } from "../domain/types";
-import type { BookmarkPatch, GroupPositionInput } from "../domain/store";
+import type {
+  BookmarkPatch,
+  GroupPositionInput,
+  TodoPositionInput,
+} from "../domain/store";
 import {
+  CARD_W,
   MAX_CANVAS_W,
   MIN_CANVAS_W,
   appendPositions,
@@ -32,6 +39,7 @@ import {
 } from "../domain/canvas";
 import type { AlignGuide, CanvasPos, Rect } from "../domain/canvas";
 import { GroupSection } from "./GroupSection";
+import { TodoSection } from "./TodoSection";
 import type { DropHint, DragHandlers } from "./useCardDnD";
 import { useGroupedBookmarks } from "./useGroupedBookmarks";
 
@@ -111,10 +119,33 @@ export type WhiteboardProps = {
   /** 收藏排序拖拽回调束(useCardDnD 出口,引用稳定):整束直透 GroupSection,
    * 本组件只自用 onBoardDragLeave(滚动壳拖离清指示线) */
   handlers: DragHandlers;
+
+  // ---- 待办卡(todo-card,ADR-0006):共享回调(稳定身份),直透 TodoSection ----
+
+  /** 新建待办卡(白板工具行入口) */
+  onCreateTodo(): Promise<Result<TodoCard>>;
+  onRenameTodo(id: TodoId, title: string): Promise<Result<TodoCard>>;
+  onDeleteTodo(id: TodoId): Promise<Result<TodoId>>;
+  onAddTodoItem(id: TodoId, text: string): Promise<Result<TodoCard>>;
+  onEditTodoItem(
+    todoId: TodoId,
+    itemId: TodoId,
+    text: string
+  ): Promise<Result<TodoCard>>;
+  onToggleTodoItem(todoId: TodoId, itemId: TodoId): Promise<Result<TodoCard>>;
+  onRemoveTodoItem(todoId: TodoId, itemId: TodoId): Promise<Result<TodoCard>>;
+  onReorderTodoItems(
+    todoId: TodoId,
+    itemIds: readonly TodoId[]
+  ): Promise<Result<TodoCard>>;
+  /** 待办卡落点批量写回:拖拽松手/自动整理,钳界按定宽 CARD_W(store 收口) */
+  onSetTodoPositions(
+    positions: readonly TodoPositionInput[]
+  ): Promise<Result<TodoCard[]>>;
 };
 
-/** Pointer 拖拽会话的被拖卡跟手坐标(未吸附;松手才吸附写回)。 */
-type DragPos = { id: GroupId; x: number; y: number };
+/** Pointer 拖拽会话的被拖卡跟手坐标(未吸附;松手才吸附写回);id 兼分组/待办卡。 */
+type DragPos = { id: string; x: number; y: number };
 
 export function Whiteboard({
   state,
@@ -132,6 +163,15 @@ export function Whiteboard({
   onResizeCanvas,
   onResizeGroup,
   onSetGroupColumns,
+  onCreateTodo,
+  onRenameTodo,
+  onDeleteTodo,
+  onAddTodoItem,
+  onEditTodoItem,
+  onToggleTodoItem,
+  onRemoveTodoItem,
+  onReorderTodoItems,
+  onSetTodoPositions,
   handlers,
   onEdit,
   onDelete,
@@ -140,7 +180,20 @@ export function Whiteboard({
     () => [...state.groups].sort(byOrder),
     [state.groups]
   );
-  const ids = useMemo(() => groupsByOrder.map((g) => g.id), [groupsByOrder]);
+  // 待办卡(todo-card):DOM/Tab 序在分组之后(各自 order 内有序);
+  // 搜索过滤态上游 filterState 已把 todos 置空,此处自然不渲染
+  const todosByOrder = useMemo(
+    () => [...(state.todos ?? [])].sort(byOrder),
+    [state.todos]
+  );
+  const ids = useMemo(
+    () => [...groupsByOrder.map((g) => g.id), ...todosByOrder.map((t) => t.id)],
+    [groupsByOrder, todosByOrder]
+  );
+  const todoIds = useMemo(
+    () => new Set(todosByOrder.map((t) => t.id)),
+    [todosByOrder]
+  );
   const grouped = useGroupedBookmarks(state.bookmarks, groupsByOrder);
   const { itemRef, idOf, heightOf, heights } = useCardRegistry(ids);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -189,51 +242,65 @@ export function Whiteboard({
   const heightsRef = useRef(heights);
   heightsRef.current = heights;
 
-  // ---- 落点表:坐标来自分组数据(持久);引用稳定(memo 契约),
-  // 数值未变的格子沿用旧对象,无关渲染不打断 GroupSection 的 memo。
-  // 无坐标的分组(运行时损坏防御)落画布底部追加位,同新建分组口径。 ----
-  const placementsRef = useRef(new Map<GroupId, CanvasPos>());
+  // ---- 落点表:坐标来自分组/待办数据(持久);引用稳定(memo 契约),
+  // 数值未变的格子沿用旧对象,无关渲染不打断 GroupSection/TodoSection 的 memo。
+  // 无坐标的卡(运行时损坏防御)落画布底部追加位,同新建口径。 ----
+  const placementsRef = useRef(new Map<string, CanvasPos>());
   const placements = useMemo(() => {
     const prev = placementsRef.current;
-    const known = groupsByOrder.filter(
-      (g) => Number.isFinite(g.x) && Number.isFinite(g.y)
+    const cards = [
+      ...groupsByOrder.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+      ...todosByOrder.map((t) => ({ id: t.id, x: t.x, y: t.y })),
+    ];
+    const known = cards.filter(
+      (c) => Number.isFinite(c.x) && Number.isFinite(c.y)
     );
     const appends =
-      known.length < groupsByOrder.length
-        ? appendPositions(known, groupsByOrder.length - known.length)
+      known.length < cards.length
+        ? appendPositions(known, cards.length - known.length)
         : [];
     let appendAt = 0;
-    const next = new Map<GroupId, CanvasPos>();
-    for (const g of groupsByOrder) {
+    const next = new Map<string, CanvasPos>();
+    for (const card of cards) {
       const pos: CanvasPos =
-        Number.isFinite(g.x) && Number.isFinite(g.y)
-          ? { x: g.x, y: g.y }
+        Number.isFinite(card.x) && Number.isFinite(card.y)
+          ? { x: card.x, y: card.y }
           : appends[appendAt++];
-      const kept = prev.get(g.id);
-      next.set(g.id, kept && kept.x === pos.x && kept.y === pos.y ? kept : pos);
+      const kept = prev.get(card.id);
+      next.set(
+        card.id,
+        kept && kept.x === pos.x && kept.y === pos.y ? kept : pos
+      );
     }
     placementsRef.current = next;
     return next;
-  }, [groupsByOrder]);
+  }, [groupsByOrder, todosByOrder]);
 
-  /** 渲染落点:被拖卡用跟手坐标(每帧新对象;其余引用稳定)。 */
-  function placementOf(group: Group): CanvasPos | null {
-    return drag?.id === group.id
+  /** 渲染落点:被拖卡用跟手坐标(每帧新对象;其余引用稳定);分组/待办通用。 */
+  function placementOf(card: { id: string }): CanvasPos | null {
+    return drag?.id === card.id
       ? { x: drag.x, y: drag.y }
-      : (placements.get(group.id) ?? null);
+      : (placements.get(card.id) ?? null);
   }
 
-  // 各组渲染宽(group-span-decouple):档位推导,拖拽钳界/对齐/哨兵共用;
-  // 调宽拖柄在组内本地预览,提交后经持久档位回流到本表
+  // 各卡渲染宽:分组按档位推导(group-span-decouple),待办卡恒 CARD_W
+  // (ADR-0006 定宽);拖拽钳界/对齐/装箱共用
   const widthOf = useCallback(
-    (id: GroupId): number =>
-      groupWidthOf(groupSpanOf(groupsByOrder.find((g) => g.id === id) ?? {})),
-    [groupsByOrder]
+    (id: string): number =>
+      todoIds.has(id)
+        ? CARD_W
+        : groupWidthOf(
+            groupSpanOf(groupsByOrder.find((g) => g.id === id) ?? {})
+          ),
+    [groupsByOrder, todoIds]
   );
   const widthOfRef = useRef(widthOf);
   widthOfRef.current = widthOf;
+  // 待办 id 集 ref 镜像:window 稳定订阅里判卡型用(落点写回分叉)
+  const todoIdsRef = useRef(todoIds);
+  todoIdsRef.current = todoIds;
 
-  // 画布高随内容增长:最底卡片底边 + 底衬(测不出高度时退化为坐标底)
+  // 画布高随内容增长:最底卡(分组与待办)底边 + 底衬(测不出高度时退化为坐标底)
   let canvasMinH = CANVAS_PAD;
   for (const g of groupsByOrder) {
     const top = drag?.id === g.id ? drag.y : placements.get(g.id)?.y;
@@ -243,6 +310,14 @@ export function Whiteboard({
         top + (heights[g.id] ?? 0) + CANVAS_PAD
       );
   }
+  for (const t of todosByOrder) {
+    const top = drag?.id === t.id ? drag.y : placements.get(t.id)?.y;
+    if (top !== undefined)
+      canvasMinH = Math.max(
+        canvasMinH,
+        top + (heights[t.id] ?? 0) + CANVAS_PAD
+      );
+  }
 
   // ---- Pointer 拖拽 / 右缘调宽(canvas-bounds-align)----
   // 抓取偏移与会话坐标存 ref(会话坐标的 state 只为驱动重渲染);
@@ -250,7 +325,7 @@ export function Whiteboard({
   // intentRef 是日常态的拖动意图起点(board-whiteboard/03):不 preventDefault、
   // 不进拖拽会话,位移超阈即出 nudge 后即弃。
   const grabRef = useRef<{
-    id: GroupId;
+    id: string;
     grabX: number;
     grabY: number;
   } | null>(null);
@@ -374,7 +449,7 @@ export function Whiteboard({
     // 交互控件不抢:链接/按钮/表单照常点击,不给拖拽
     if (target.closest("a,button,input,textarea,select,[contenteditable]"))
       return;
-    const section = target.closest<HTMLElement>(".group");
+    const section = target.closest<HTMLElement>(".group, .todo");
     if (!section || !canvasRef.current?.contains(section)) return;
     const id = idOf(section);
     const pos = id ? placements.get(id) : undefined;
@@ -465,7 +540,12 @@ export function Whiteboard({
           : Math.round(pos.y / SNAP) * SNAP;
         dropPendingRef.current = { id: grab.id, x, y };
         setDrag({ id: grab.id, x, y });
-        void onSetGroupPositions([{ id: grab.id, x, y }]);
+        // 落点写回分卡型:待办走 onSetTodoPositions,分组走原通道
+        if (todoIdsRef.current.has(grab.id)) {
+          void onSetTodoPositions([{ id: grab.id as TodoId, x, y }]);
+        } else {
+          void onSetGroupPositions([{ id: grab.id as GroupId, x, y }]);
+        }
         return;
       }
       if (resizing) {
@@ -487,7 +567,7 @@ export function Whiteboard({
       window.removeEventListener("pointercancel", cancelSession);
       stopAutoScroll();
     };
-  }, [onSetGroupPositions, onResizeCanvas]);
+  }, [onSetGroupPositions, onResizeCanvas, onSetTodoPositions, todoIds]);
 
   // 卸载清 rAF(会话监听器由上方 effect 的清理承担)
   useEffect(() => stopAutoScroll, []);
@@ -531,19 +611,38 @@ export function Whiteboard({
   }, [whiteboardMode, searching]);
 
   // ---- 自动整理:量高 → packCanvas 贪心装箱回坐标(零高退化已内聚
-  // 在领域模块,与 v2→v3 迁移共用 spreadPositions 策略;列数随画布宽自适应)。 ----
+  // 在领域模块,与 v2→v3 迁移共用 spreadPositions 策略;列数随画布宽自适应);
+  // 待办卡同批装箱(todo-card/04),按卡型分两批写回。 ----
   const pack = useCallback(() => {
-    if (ids.length === 0) return;
+    const groupIds = groupsByOrder.map((g) => g.id);
+    const todoCardIds = todosByOrder.map((t) => t.id);
+    const all = [...groupIds, ...todoCardIds];
+    if (all.length === 0) return;
     const positions = packCanvas(
-      ids.map((id) => heightOf(id)),
+      all.map((id) => heightOf(id)),
       canvasWRef.current,
-      // 宽度感知装箱(group-width-tint):各组按各自渲染宽占槽
-      ids.map((id) => widthOfRef.current(id))
+      // 宽度感知装箱(group-width-tint):各卡按各自渲染宽占槽(待办 CARD_W)
+      all.map((id) => widthOfRef.current(id))
     );
     void onSetGroupPositions(
-      ids.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }))
+      groupIds.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }))
     );
-  }, [ids, heightOf, onSetGroupPositions]);
+    if (todoCardIds.length > 0) {
+      void onSetTodoPositions(
+        todoCardIds.map((id, i) => ({
+          id,
+          x: positions[groupIds.length + i].x,
+          y: positions[groupIds.length + i].y,
+        }))
+      );
+    }
+  }, [
+    groupsByOrder,
+    todosByOrder,
+    heightOf,
+    onSetGroupPositions,
+    onSetTodoPositions,
+  ]);
 
   // 组头等非收藏卡的原生 dragstart 被画布拦下(捕获阶段,避免文字选区
   // 拖拽劫持 pointermove 会话);收藏卡(.card,含浏览态链接拖曳)照常
@@ -592,6 +691,14 @@ export function Whiteboard({
               ? "搜索过滤中,拖拽与整理暂不可用"
               : `拖动分组卡任意摆放 · 对齐自动吸附 · 画布自动撑满,拖右缘固定宽(${MIN_CANVAS_W}–${MAX_CANVAS_W}px)`}
           </span>
+          <button
+            type="button"
+            className="whiteboard-new-todo"
+            onClick={() => void onCreateTodo()}
+            disabled={searching}
+          >
+            新建待办
+          </button>
           <button
             type="button"
             className="whiteboard-pack"
@@ -647,6 +754,23 @@ export function Whiteboard({
               />
             );
           })}
+          {todosByOrder.map((todo) => (
+            <TodoSection
+              key={todo.id}
+              todo={todo}
+              placement={placementOf(todo)}
+              whiteboardMode={whiteboardMode}
+              dragActive={drag?.id === todo.id}
+              elementRef={itemRef(todo.id)}
+              onRename={onRenameTodo}
+              onDeleteTodo={onDeleteTodo}
+              onAddItem={onAddTodoItem}
+              onEditItem={onEditTodoItem}
+              onToggleItem={onToggleTodoItem}
+              onRemoveItem={onRemoveTodoItem}
+              onReorderItems={onReorderTodoItems}
+            />
+          ))}
           {/* 对齐辅助线(canvas-bounds-align):拖中才有;画布线贯穿整幅 */}
           {guides.map((guide, i) =>
             guide.axis === "x" ? (
@@ -719,12 +843,12 @@ export function Whiteboard({
  * 画布高随测随长,StrictMode 双调用下时序确定(原型 ref 版翻车教训)。
  * jsdom 无 RO、量出恒 0 → 画布高退化、自动整理走零高铺开,行为不受影响。
  */
-function useCardRegistry(ids: readonly GroupId[]) {
-  const idToEl = useRef(new Map<GroupId, HTMLElement>());
-  const elToId = useRef(new Map<HTMLElement, GroupId>());
+function useCardRegistry(ids: readonly string[]) {
+  const idToEl = useRef(new Map<string, HTMLElement>());
+  const elToId = useRef(new Map<HTMLElement, string>());
   const [heights, setHeights] = useState<Record<string, number>>({});
 
-  const register = useCallback((id: GroupId, el: HTMLElement | null) => {
+  const register = useCallback((id: string, el: HTMLElement | null) => {
     const forward = idToEl.current;
     const reverse = elToId.current;
     const old = forward.get(id);
@@ -737,8 +861,8 @@ function useCardRegistry(ids: readonly GroupId[]) {
     }
   }, []);
 
-  // 回调按 id 缓存:渲染间身份稳定,不打断 GroupSection 的 memo
-  const refCache = useRef(new Map<GroupId, (el: HTMLElement | null) => void>());
+  // 回调按 id 缓存:渲染间身份稳定,不打断 GroupSection/TodoSection 的 memo
+  const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const itemRef = useCallback(
     (id: GroupId) => {
       let fn = refCache.current.get(id);
@@ -768,7 +892,7 @@ function useCardRegistry(ids: readonly GroupId[]) {
         }
       }
       for (const key of Object.keys(next)) {
-        if (!ids.includes(key as GroupId)) {
+        if (!ids.includes(key)) {
           delete next[key];
           changed = true;
         }
@@ -797,7 +921,7 @@ function useCardRegistry(ids: readonly GroupId[]) {
   }, [ids]);
 
   const idOf = useCallback(
-    (el: HTMLElement): GroupId | undefined => elToId.current.get(el),
+    (el: HTMLElement): string | undefined => elToId.current.get(el),
     []
   );
 
