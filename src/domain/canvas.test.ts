@@ -19,11 +19,14 @@ import {
   DEFAULT_CANVAS_W,
   effectiveCanvasWidth,
   GAP,
+  groupCellsForWidth,
   groupCellsOf,
-  groupSpanOf,
   groupWidthOf,
-  maxSpanForCanvas,
-  nearestGroupSpan,
+  groupWidthPxOf,
+  GROUP_W_MAX,
+  GROUP_W_MIN,
+  clampGroupWidth,
+  normalizeGroupWidth,
   TODO_W_MAX,
   TODO_W_MIN,
   TODO_H_MAX,
@@ -303,43 +306,69 @@ describe("每行条数几何(group-width-tint,schema v6;档 1 调校 2026-11-16)
     expect(groupWidthOf(1) - GROUP_EDGE).toBeLessThan(2 * CELL_W + CELL_GAP);
     expect(groupWidthOf(2) - GROUP_EDGE).toBe(2 * CELL_W + CELL_GAP);
   });
-
-  it("nearestGroupSpan:吸附最近列边界,越界钳回 1..上限", () => {
-    expect(nearestGroupSpan(222)).toBe(1);
-    expect(nearestGroupSpan(316)).toBe(1); // 距 W(1)=222 差 94 < 距 W(2)=412 差 96
-    expect(nearestGroupSpan(318)).toBe(2); // 过中点 317
-    expect(nearestGroupSpan(389.33)).toBe(2); // 旧档 1 宽(CARD_W)现吸附档 2
-    expect(nearestGroupSpan(10000)).toBe(MAX_GROUP_COLUMNS);
-    expect(nearestGroupSpan(-50)).toBe(1);
-  });
-
-  it("maxSpanForCanvas:界内放得下的最大列数,至少 1", () => {
-    expect(maxSpanForCanvas(720)).toBe(3); // W(3)=602 ≤ 720 < W(4)=792
-    expect(maxSpanForCanvas(DEFAULT_CANVAS_W)).toBe(MAX_GROUP_COLUMNS); // W(6)=1172 ≤ 1200
-    expect(maxSpanForCanvas(2400)).toBe(MAX_GROUP_COLUMNS);
-    expect(maxSpanForCanvas(100)).toBe(1);
-  });
 });
 
-describe("组宽档位推导(group-span-decouple,schema v7)", () => {
-  it("groupSpanOf:span 优先;缺省从 columns 推导(v6 存量零改写);非法回退链终归 1", () => {
-    expect(groupSpanOf({ span: 4, columns: 1 })).toBe(4);
-    expect(groupSpanOf({ columns: 4 })).toBe(4);
-    expect(groupSpanOf({})).toBe(1);
-    // 非法 span(非整数/越界)回退 columns;两者皆非法归 1
-    expect(groupSpanOf({ span: 0, columns: 3 })).toBe(3);
-    expect(groupSpanOf({ span: 2.5, columns: 3 })).toBe(3);
-    expect(groupSpanOf({ span: 99, columns: 0 })).toBe(1);
+describe("组自由宽几何(group-width-free,schema v13)", () => {
+  it("界限与档位数学同源:下限 = 单格恰装 W(1),上限 = 画布宽上限", () => {
+    // 对称旋钮定案:下限与 groupWidthOf(1) 同源、上限与画布同界,
+    // 此断言钉住不让它被无意识改掉
+    expect(GROUP_W_MIN).toBe(groupWidthOf(1));
+    expect(GROUP_W_MAX).toBe(MAX_CANVAS_W);
   });
 
-  it("groupCellsOf:columns 缺省 = 装满(随档位);防御钳 ≤ 档位", () => {
-    expect(groupCellsOf({ span: 4 })).toBe(4);
+  it("clampGroupWidth:钳 [222, 2400];floor 取整;非有限归下界", () => {
+    expect(clampGroupWidth(300)).toBe(300);
+    expect(clampGroupWidth(100)).toBe(GROUP_W_MIN);
+    expect(clampGroupWidth(9999)).toBe(GROUP_W_MAX);
+    expect(clampGroupWidth(300.6)).toBe(300); // 取整一律 floor
+    // 非有限归下界(宽的「缺省」是推导而非定值,垃圾输入当最近的
+    // 合法界;与 clampGroupHeight 同口径)
+    expect(clampGroupWidth(Number.NaN)).toBe(GROUP_W_MIN);
+    expect(clampGroupWidth(Number.POSITIVE_INFINITY)).toBe(GROUP_W_MIN);
+  });
+
+  it("normalizeGroupWidth:有限钳回、非有限/非数剥离为 undefined", () => {
+    expect(normalizeGroupWidth(484)).toBe(484);
+    expect(normalizeGroupWidth(100)).toBe(GROUP_W_MIN);
+    expect(normalizeGroupWidth(484.6)).toBe(484);
+    expect(normalizeGroupWidth(Number.NaN)).toBeUndefined();
+    expect(normalizeGroupWidth("400")).toBeUndefined();
+  });
+
+  it("groupCellsForWidth:恰为 groupWidthOf 的逆——档宽恰装、界间向下取整、钳 1..上限", () => {
+    // 档宽边界恰装:W(k) → k(全部 6 档)
+    for (let c = 1; c <= MAX_GROUP_COLUMNS; c++) {
+      expect(groupCellsForWidth(groupWidthOf(c))).toBe(c);
+    }
+    // 界间向下取整:W(2)−1 = 411 → 1;W(3)−2 = 600 → 2
+    expect(groupCellsForWidth(411)).toBe(1);
+    expect(groupCellsForWidth(600)).toBe(2);
+    // 越界钳:窄至负宽仍 1;超宽封顶上限
+    expect(groupCellsForWidth(0)).toBe(1);
+    expect(groupCellsForWidth(9999)).toBe(MAX_GROUP_COLUMNS);
+  });
+
+  it("groupCellsOf:columns 缺省 = 装满(随宽);防御钳 ≤ 装满", () => {
+    expect(groupCellsOf({ width: 982 })).toBe(5);
     expect(groupCellsOf({ columns: 3 })).toBe(3);
     expect(groupCellsOf({})).toBe(1);
     // 宽组清单式:本功能的落点形态
-    expect(groupCellsOf({ span: 4, columns: 1 })).toBe(1);
-    // 防御:columns 越档(写路径不产生,手改 JSON 可能)钳回档位
-    expect(groupCellsOf({ span: 2, columns: 4 })).toBe(2);
+    expect(groupCellsOf({ width: 982, columns: 1 })).toBe(1);
+    // 防御:columns 越装满(写路径不产生,手改 JSON 可能)钳回装满
+    expect(groupCellsOf({ width: 412, columns: 4 })).toBe(2);
+  });
+
+  it("groupWidthPxOf:width 优先(存在则钳回);缺省从每行条数推导装满", () => {
+    expect(groupWidthPxOf({ width: 500 })).toBe(500);
+    expect(groupWidthPxOf({ width: 100 })).toBe(GROUP_W_MIN);
+    expect(groupWidthPxOf({ width: 5000 })).toBe(GROUP_W_MAX);
+    // 非有限归下界(同 clampGroupWidth 口径)
+    expect(groupWidthPxOf({ width: Number.NaN })).toBe(GROUP_W_MIN);
+    // 缺省推导:columns 4 → W(4);全缺省 → 单格恰装(v12 存量口径)
+    expect(groupWidthPxOf({ columns: 4 })).toBe(groupWidthOf(4));
+    expect(groupWidthPxOf({})).toBe(groupWidthOf(1));
+    // 清单式:宽已物化,推导不再随 columns 缩
+    expect(groupWidthPxOf({ width: 982, columns: 1 })).toBe(982);
   });
 });
 

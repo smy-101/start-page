@@ -903,10 +903,10 @@ describe("每行条数写回(group-width-tint,schema v6)", () => {
   });
 });
 
-describe("组宽档位写回(group-span-decouple,schema v7)", () => {
-  /** 收集箱(0,0) + g-a(400,0) 的库(画布 1200);g 改 g-a 档位/坐标。 */
-  async function spanned(
-    g: { span?: number; columns?: number; x?: number } = {}
+describe("组宽写回(group-width-free,schema v13)", () => {
+  /** 收集箱(0,0) + g-a(400,0) 的库(画布 1200);g 改 g-a 宽/条数/坐标。 */
+  async function widened(
+    g: { width?: number; columns?: number; x?: number } = {}
   ) {
     const base = createMemoryStorage({
       schemaVersion: SCHEMA_VERSION,
@@ -927,139 +927,149 @@ describe("组宽档位写回(group-span-decouple,schema v7)", () => {
           order: 1,
           x: g.x ?? 400,
           y: 0,
-          span: g.span,
+          width: g.width,
           columns: g.columns,
         },
       ],
       bookmarks: [],
       todos: [],
-    });
+    } as BookmarkState);
     const save = vi.fn(base.save.bind(base));
     const adapter = Object.assign({}, base, { save });
     const store = await createBookmarkStore(adapter);
     return { store, save };
   }
 
-  it("表单改每行条数不缩宽(v6 存量零改写路径):columns 4 → 一行 1 条,物化 span 4", async () => {
-    const { store, save } = await spanned({ columns: 4 });
+  it("表单改每行条数不缩宽(v12 存量零改写路径):columns 4 → 一行 1 条,物化 width 792", async () => {
+    const { store, save } = await widened({ columns: 4 });
 
     const result = await store.setGroupColumns("g-a", 1);
 
     expect(result).toMatchObject({
       ok: true,
-      value: { columns: 1, span: 4, x: 400 },
+      value: { columns: 1, width: 792, x: 400 },
     });
-    expect(store.getState().groups[1]).toMatchObject({ columns: 1, span: 4 });
+    expect(store.getState().groups[1]).toMatchObject({
+      columns: 1,
+      width: 792,
+    });
     expect(save).toHaveBeenCalled();
   });
 
-  it("表单改每行条数不缩宽(已物化档位):span 4 保持,仅 columns 变", async () => {
-    const { store } = await spanned({ span: 4, columns: 2 });
+  it("表单改每行条数不缩宽(已物化宽):width 792 保持,仅 columns 变", async () => {
+    const { store } = await widened({ width: 792, columns: 2 });
 
     await store.setGroupColumns("g-a", 1);
 
-    expect(store.getState().groups[1]).toMatchObject({ span: 4, columns: 1 });
+    expect(store.getState().groups[1]).toMatchObject({
+      width: 792,
+      columns: 1,
+    });
   });
 
-  it("表单选更大每行条数自动升档:span 2 → 一行 3 条 → span 3 + x 重钳(598 = 1200 − 602)", async () => {
-    const { store } = await spanned({ span: 2, columns: 1, x: 1000 });
+  it("表单选更大每行条数自动拉宽:宽 412 → 一行 3 条 → 602 + x 重钳(598 = 1200 − 602)", async () => {
+    const { store } = await widened({ width: 412, columns: 1, x: 1000 });
 
     await store.setGroupColumns("g-a", 3);
 
     expect(store.getState().groups[1]).toMatchObject({
-      span: 3,
+      width: 602,
       columns: 3,
       x: 598,
     });
   });
 
-  it("表单同义不落盘:cells 与 spanEff 均不变", async () => {
-    const { store, save } = await spanned({ span: 4, columns: 1 });
+  it("表单同义不落盘:cells 与生效宽均不变", async () => {
+    const { store, save } = await widened({ width: 792, columns: 1 });
 
     await store.setGroupColumns("g-a", 1);
 
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("setGroupSpan 拖宽:物化档位、columns 保持缺省装满;x 按新宽重钳", async () => {
-    const { store } = await spanned({ x: 1000 });
+  it("setGroupWidth 拖宽:物化宽(16px 网格吸附在组件)、columns 保持缺省装满;x 按新宽重钳", async () => {
+    const { store } = await widened({ x: 1000 });
 
-    const result = await store.setGroupSpan("g-a", 3);
+    const result = await store.setGroupWidth("g-a", 602);
 
     expect(result).toMatchObject({
       ok: true,
-      value: { span: 3, columns: undefined, x: 598 },
+      value: { width: 602, columns: undefined, x: 598 },
     });
     expect(store.getState().groups[1].columns).toBeUndefined();
   });
 
-  it("setGroupSpan 拖窄:装满组自动降(columns 4 → 2);清单式 columns 1 不动", async () => {
-    const { store } = await spanned({ span: 4, columns: 4 });
+  it("setGroupWidth 拖窄:装满组条数自动跟降(columns 4 → 2);清单式 columns 1 不动", async () => {
+    const { store } = await widened({ width: 792, columns: 4 });
 
-    await store.setGroupSpan("g-a", 2);
+    await store.setGroupWidth("g-a", 412);
 
-    expect(store.getState().groups[1]).toMatchObject({ span: 2, columns: 2 });
+    expect(store.getState().groups[1]).toMatchObject({
+      width: 412,
+      columns: 2,
+    });
 
-    const second = await spanned({ span: 4, columns: 1 });
-    await second.store.setGroupSpan("g-a", 2);
+    const second = await widened({ width: 792, columns: 1 });
+    await second.store.setGroupWidth("g-a", 412);
     expect(second.store.getState().groups[1]).toMatchObject({
-      span: 2,
+      width: 412,
       columns: 1,
     });
   });
 
-  it("setGroupSpan 钳界与同义:越上限归 6;窄画布按最大档;同值不落盘", async () => {
-    const { store, save } = await spanned({ span: 2, columns: 1 });
+  it("setGroupWidth 钳界与同义:越上限归画布宽;窄画布按画布宽;同值不落盘", async () => {
+    const { store, save } = await widened({ width: 412, columns: 1 });
     save.mockClear();
 
-    await store.setGroupSpan("g-a", 2);
+    await store.setGroupWidth("g-a", 412);
     expect(save).not.toHaveBeenCalled();
 
-    // 缺省装满组同档也不落盘(columns 缺省 ≡ 装满,不物化)
-    const pristine = await spanned({ span: 2 });
-    await pristine.store.setGroupSpan("g-a", 2);
+    // 缺省装满组同宽也不落盘(columns 缺省 ≡ 装满,不物化)
+    const pristine = await widened({ columns: 2 });
+    await pristine.store.setGroupWidth("g-a", 412);
     expect(pristine.save).not.toHaveBeenCalled();
 
-    expect(await store.setGroupSpan("g-a", 99)).toMatchObject({
+    // 越绝对上限归画布宽(组宽无处超过画布;2400 绝对界只是哨兵)
+    expect(await store.setGroupWidth("g-a", 9999)).toMatchObject({
       ok: true,
-      value: { span: 6 },
+      value: { width: 1200 },
     });
 
     await store.setCanvasWidth(720);
-    expect(await store.setGroupSpan("g-a", 6)).toMatchObject({
+    expect(await store.setGroupWidth("g-a", 900)).toMatchObject({
       ok: true,
-      value: { span: 3 },
+      value: { width: 720 },
     });
   });
 
-  it("setGroupSpan 未知分组被拒", async () => {
-    const { store, save } = await spanned();
+  it("setGroupWidth 未知分组被拒", async () => {
+    const { store, save } = await widened();
 
-    expect(await store.setGroupSpan("g-none", 2)).toEqual({
+    expect(await store.setGroupWidth("g-none", 500)).toEqual({
       ok: false,
       error: "group-not-found",
     });
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("缩画布:超档组降档,x 按新宽重钳(118 = 720 − 602);columns ≤ 档位不动", async () => {
-    const { store } = await spanned({ span: 4, columns: 2 });
+  it("缩画布:超宽组收窄到画布宽,x 按新宽重钳(0 = 720 − 720);条数连带降到装满", async () => {
+    const { store } = await widened({ width: 792, columns: 2 });
 
     await store.setCanvasWidth(720);
 
     expect(store.getState().groups[1]).toMatchObject({
-      span: 3,
+      width: 720,
       columns: 2,
-      x: 118,
+      x: 0,
     });
   });
 
-  it("statesEqual 纳入 span 比较", async () => {
-    const { store } = await spanned({ span: 4, columns: 1 });
+  it("statesEqual 纳入 width 比较", async () => {
+    const { store } = await widened({ width: 792, columns: 1 });
     const a = store.getState();
     const b = structuredClone(a);
     expect(statesEqual(a, b)).toBe(true);
-    b.groups[1].span = 2;
+    b.groups[1].width = 500;
     expect(statesEqual(a, b)).toBe(false);
   });
 });

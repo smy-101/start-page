@@ -325,9 +325,9 @@ describe("分组管理:每行条数(group-width-tint)", () => {
   });
 });
 
-describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () => {
-  /** 预置工作组带档位字段(拖宽等效);g-work 由 overrides 覆盖。 */
-  async function renderSpanned(overrides: { span?: number; columns?: number }) {
+describe("组宽:表单改每行条数不缩宽(group-width-free)", () => {
+  /** 预置工作组带自由宽字段(拖宽等效);g-work 由 overrides 覆盖。 */
+  async function renderWiden(overrides: { width?: number; columns?: number }) {
     const state = seededState();
     state.groups = state.groups.map((g) =>
       g.id === "g-work" ? { ...g, ...overrides } : g
@@ -342,8 +342,8 @@ describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () 
       .gridTemplateColumns;
   }
 
-  it("拖宽(span 4)后表单改一行 1 条:组宽保持 792,网格单列拉满整行", async () => {
-    const work = await renderSpanned({ span: 4 });
+  it("拖宽(792)后表单改一行 1 条:组宽保持 792,网格单列拉满整行", async () => {
+    const work = await renderWiden({ width: 792 });
     enterWhiteboardMode();
 
     fireEvent.click(
@@ -361,8 +361,8 @@ describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () 
     expect(parseFloat(work.style.width)).toBe(792);
   });
 
-  it("v6 存量(columns 4 无 span)同路径:零改写迁移下表单不缩宽", async () => {
-    const work = await renderSpanned({ columns: 4 });
+  it("v12 存量(columns 4 无 width)同路径:零改写迁移下表单不缩宽", async () => {
+    const work = await renderWiden({ columns: 4 });
     enterWhiteboardMode();
 
     fireEvent.click(
@@ -379,8 +379,8 @@ describe("组宽档位:表单改每行条数不缩宽(group-span-decouple)", () 
     expect(parseFloat(work.style.width)).toBe(792);
   });
 
-  it("表单选更大每行条数自动升档:span 2 → 一行 3 条 → 组宽 602", async () => {
-    const work = await renderSpanned({ span: 2, columns: 1 });
+  it("表单选更大每行条数自动拉宽:宽 412 → 一行 3 条 → 组宽 602", async () => {
+    const work = await renderWiden({ width: 412, columns: 1 });
     enterWhiteboardMode();
 
     fireEvent.click(

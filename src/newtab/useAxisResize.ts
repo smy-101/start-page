@@ -7,7 +7,7 @@ import type {
 /**
  * 轴向拖拽调尺寸(todo-review-followups/01):preview/committed 双状态 +
  * 回流哨兵 + 指针监听 + 键盘步进的深 module,收敛待办卡调宽/调高与
- * 分组卡档位调宽三份孪生实现。
+ * 分组卡调宽三份孪生实现。
  *
  * - delta 制(基数 + 指针位移),不依赖 rect——jsdom 几何全 0 亦可测;
  * - 拖中连续预览钳 [min,max];松手 snap 吸附后再钳,已提交值留到持久

@@ -347,14 +347,14 @@ export function App({
     [run]
   );
 
-  /** 组宽档位写回(group-span-decouple):组右缘拖柄/键盘 → store 钳回落盘 */
+  /** 组宽写回(group-width-free 自由宽):组右缘拖柄/键盘 → store 钳回落盘 */
   const handleResizeGroup = useCallback(
-    (id: GroupId, span: number) =>
-      run(() => storeRef.current!.setGroupSpan(id, span)),
+    (id: GroupId, width: number) =>
+      run(() => storeRef.current!.setGroupWidth(id, width)),
     [run]
   );
 
-  /** 每行条数写回(group-span-decouple):组头表单 → store 只升不降落盘 */
+  /** 每行条数写回(group-width-free):组头表单 → store 只升不降落盘 */
   const handleSetGroupColumns = useCallback(
     (id: GroupId, columns: number) =>
       run(() => storeRef.current!.setGroupColumns(id, columns)),

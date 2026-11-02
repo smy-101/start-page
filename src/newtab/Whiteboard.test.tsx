@@ -913,12 +913,12 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("组宽随档位推导入渲染;拖柄拖动预览,松手吸附档位写回", () => {
+  it("组宽缺省从每行条数推导渲染;拖柄拖动预览,松手 16px 网格吸附写回", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     const handle = groupHandle("甲组");
     const groupA = sectionOf("甲组");
 
-    // 缺省 = 档 1 = 222(单格恰装,档 1 调校 2026-11-16)
+    // 缺省 = 单格恰装 222(自由宽下限,groupWidthOf(1))
     expect(parseFloat(groupA.style.width)).toBe(222);
 
     // jsdom 几何全 0 无碍:拖柄会话 delta 制(起点宽 + 指针位移)
@@ -928,34 +928,35 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
       );
     });
     expect(groupA).toHaveAttribute("data-resizing", "true");
-    // 拖宽 300 → 预览 522(clamp 界内),最近档位 = 3(距 W(3)=602 差 80 < 距 W(2)=412 差 110)
+    // 拖宽 300 → 连续预览 522(clamp 界内),徽标报 px(装满只报宽)
     act(() => {
       window.dispatchEvent(
         pointerEvent("pointermove", { clientX: 400, clientY: 30 })
       );
     });
     expect(parseFloat(groupA.style.width)).toBe(522);
-    expect(screen.getByText("宽 3 列")).toBeInTheDocument();
+    expect(screen.getByText("522 px")).toBeInTheDocument();
 
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
     });
-    // 松手:吸附档位写回 3;已提交宽留到持久回流再清(不闪回旧宽)
-    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 3);
+    // 松手:吸附最近 16px 网格(522 → 528)写回;已提交宽留到持久回流
+    // 再清(不闪回旧宽)
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 528);
     expect(groupA).not.toHaveAttribute("data-resizing");
-    expect(parseFloat(groupA.style.width)).toBe(602);
+    expect(parseFloat(groupA.style.width)).toBe(528);
 
-    // 持久档位回流:哨兵清场,组宽保持推导值
+    // 持久宽回流:哨兵清场,组宽保持持久值
     const settled = seededState();
     settled.groups = settled.groups.map((g) =>
-      g.id === "g-a" ? { ...g, span: 3 } : g
+      g.id === "g-a" ? { ...g, width: 528 } : g
     );
     board.rerender(settled);
-    expect(parseFloat(groupA.style.width)).toBe(602);
+    expect(parseFloat(groupA.style.width)).toBe(528);
   });
 
-  it("拖柄钳界:预览不越 [W(1), W(最大档)];画布窄时上界收窄", () => {
-    // 画布钉 720:最大档 3(W(4)=792 > 720)
+  it("拖柄钳界:预览不越 [222, 画布宽];画布窄时上界收窄", () => {
+    // 画布钉 720:上界 = 画布宽(组宽无处超过画布)
     const narrow = seededState();
     narrow.canvasWidth = 720;
     const board = renderBoard(narrow, { whiteboardMode: true });
@@ -971,22 +972,25 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
         pointerEvent("pointermove", { clientX: 9999, clientY: 0 })
       );
     });
-    // 预览钳在 W(3)=602,松手吸附 3 档
-    expect(parseFloat(sectionOf("甲组").style.width)).toBe(602);
+    // 预览钳在 720(恰 16px 网格,松手吸附不变)
+    expect(parseFloat(sectionOf("甲组").style.width)).toBe(720);
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
     });
-    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 3);
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 720);
   });
 
-  it("键盘:←/→ 步进一档写回;日常态无拖柄不可聚焦", () => {
+  it("键盘:←/→ 步进一格 16px 网格写回;日常态无拖柄不可聚焦", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     const handle = groupHandle("甲组");
 
+    // 222 → 上一格网格:floor(222/16)+1 = 14 → 224;回退吃本地已提交值:
+    // ceil(224/16)−1 = 13 → 208,越下界 222 钳回(下限非 16 对齐,格点
+    // 208 < 222 由 hook 统一钳界)
     fireEvent.keyDown(handle, { key: "ArrowRight" });
-    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 2);
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 224);
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
-    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 1);
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 222);
   });
 
   it("指针取消:只清预览不写回", () => {
@@ -1032,10 +1036,10 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
     expect(board.onSetGroupPositions).not.toHaveBeenCalled();
   });
 
-  it("清单式组(span 4, columns 1):宽组单列拉满;拖窄徽标注明一行条数", () => {
+  it("清单式组(width 792, columns 1):宽组单列拉满;拖窄徽标注明一行条数", () => {
     const listed = seededState();
     listed.groups = listed.groups.map((g) =>
-      g.id === "g-a" ? { ...g, span: 4, columns: 1 } : g
+      g.id === "g-a" ? { ...g, width: 792, columns: 1 } : g
     );
     // 甲组得有收藏才渲染网格(空组只有占位文案)
     listed.bookmarks = [
@@ -1058,7 +1062,7 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
       "repeat(1, minmax(184px, 1fr))"
     );
 
-    // 拖窄预览:cells 不随档位升(清单式保持 1),徽标同时报档位与条数
+    // 拖窄预览 642:装满 3 条但显式条数保持 1(清单式),徽标同时报宽与条数
     const handle = groupHandle("甲组");
     act(() => {
       handle.dispatchEvent(
@@ -1070,11 +1074,11 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
         pointerEvent("pointermove", { clientX: -50, clientY: 30 })
       );
     });
-    expect(screen.getByText("宽 3 列 · 一行 1 条")).toBeInTheDocument();
+    expect(screen.getByText("642 px · 一行 1 条")).toBeInTheDocument();
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
     });
-    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 3);
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 640);
   });
 
   it("拖拽钳界按各组宽:两列组拖到右缘外钳在 1200 − 412", () => {
@@ -1093,8 +1097,8 @@ describe("组右缘调宽拖柄(group-width-tint)", () => {
   });
 });
 
-describe("组右缘调宽拖柄:回流哨兵的钳回分歧(group-span-decouple)", () => {
-  it("store 钳回不同档位(窄画布降档)时本地已提交宽解除,采纳持久值", () => {
+describe("组右缘调宽拖柄:回流哨兵的钳回分歧(group-width-free)", () => {
+  it("store 钳回不同宽(窄画布收窄)时本地已提交宽解除,采纳持久值", () => {
     const board = renderBoard(undefined, { whiteboardMode: true });
     const handle = screen.getByRole("separator", {
       name: "调整分组 甲组 宽度",
@@ -1114,16 +1118,16 @@ describe("组右缘调宽拖柄:回流哨兵的钳回分歧(group-span-decouple)
     act(() => {
       window.dispatchEvent(pointerEvent("pointerup"));
     });
-    // 请求 3 档(W(3)=602),但 store 画布更窄只给了 2 档
-    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 3);
-    expect(parseFloat(groupA.style.width)).toBe(602);
+    // 请求吸附宽 528,但 store 画布更窄只给了 412
+    expect(board.onResizeGroup).toHaveBeenCalledWith("g-a", 528);
+    expect(parseFloat(groupA.style.width)).toBe(528);
 
     const clamped = seededState();
     clamped.groups = clamped.groups.map((g) =>
-      g.id === "g-a" ? { ...g, span: 2 } : g
+      g.id === "g-a" ? { ...g, width: 412 } : g
     );
     board.rerender(clamped);
-    // 哨兵解除:渲染采纳持久 2 档宽,不再卡在 602
+    // 哨兵解除:渲染采纳持久宽,不再卡在 528
     expect(parseFloat(groupA.style.width)).toBe(412);
   });
 });

@@ -84,9 +84,9 @@ const seed: BookmarkState = {
       x: 0,
       y: 0,
     },
-    // 档位/每行条数各异(group-span-decouple):装满 3 档 / 装满 2 档 /
-    // 缺省单列 / 清单式(span 4 + 一行 1 条,条目拉满整行)混排,
-    // 供视觉评审;组宽随档位推导
+    // 组宽/每行条数各异(group-width-free):装满 3 条 / 装满 2 条 /
+    // 缺省单列 / 清单式(宽 792 + 一行 1 条,条目拉满整行)混排,
+    // 供视觉评审;缺省宽从每行条数推导
     {
       id: "g-dev",
       name: "前端开发",
@@ -121,7 +121,8 @@ const seed: BookmarkState = {
       x: 630,
       y: 260,
     },
-    // 清单式:拖宽到 4 档后表单改一行 1 条——宽组保持、条目拉满整行
+    // 清单式:拖宽后表单改一行 1 条——宽组保持、条目拉满整行
+    // (v13 前为 span 4,自由宽下直接钉 792 px)
     {
       id: "g-tools",
       name: "常用工具",
@@ -129,7 +130,7 @@ const seed: BookmarkState = {
       order: 5,
       x: 0,
       y: 880,
-      span: 4,
+      width: 792,
       columns: 1,
     },
     // 定长高样例(group-height):height 钉住组高,收藏溢出在网格区

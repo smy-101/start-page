@@ -25,24 +25,30 @@
  * undefined = 自适应,v10 全部状态渲染逐字不变,仅升版本号。
  * v11→v12 组定长高(group-height):零数据改写——缺省 undefined =
  * 自适应,v11 全部状态渲染逐字不变,仅升版本号。
+ * v12→v13 组自由宽(group-width-free):档位制退役——已存 span 按旧档
+ * 位数学换算为 px 存 width、剥离 span;无 span 的组零改写(缺省宽从
+ * 每行条数推导,渲染逐字不变)。
  * 末尾统一修复(任何版本,含已是当前版):宽度存在但非法(NaN/越界)钳回;
- * 缺省 = 自动档,不补数值;columns/span 存在但非法一律剥离(缺省:
- * columns 装满 / span 从 columns 推导);合法 columns > 合法 span 时抬 span
- * 到 columns(宽到装得下,不丢排版;手改 JSON 的兑底);
+ * 缺省 = 自动档,不补数值;columns 存在但非法剥离(缺省 = 装满);
+ * 分组 span 残遗(v12 遗物)一律剥离;分组 width 非法:有限越界/非整
+ * 数钳回、非有限/非数剥离回推导(垃圾值不物化定宽);合法 columns
+ * 装不进钳后宽时抬宽到恰装(宽到装得下,不丢排版;手改 JSON 的兑底);
  * todos 里非法 width(非有限/越界/非整数)钳回、残留 span(v9 遗物)
  * 剥离、非 string color 剥离;非法 height(非有限剥离——高的缺省是
  * 「不定长」而非定值,垃圾值归 undefined 而非物化定长;有限越界/非整数
  * 钳回 [176, 720]);分组非法 height 同口径钳回/剥离(group-height,v12)。
  * 幂等:已是当前版本且无需修复的状态原引用返回(不重排、不落盘)。
  */
-import type { BookmarkState, TodoCard } from "./types";
+import type { BookmarkState, Group, TodoCard } from "./types";
 import { byOrder } from "./types";
 import {
   CARD_W,
   DEFAULT_CANVAS_W,
   MAX_GROUP_COLUMNS,
   clampCanvasWidth,
+  groupWidthOf,
   normalizeGroupHeight,
+  normalizeGroupWidth,
   clampTodoHeight,
   clampTodoWidth,
   spreadPositions,
@@ -125,6 +131,25 @@ export function migrateState(state: BookmarkState): BookmarkState {
     // 在末尾统一修复处承担(v11 与 v12 同路,口径同待办卡 height)
     next = { ...next, schemaVersion: 12 };
   }
+  if (next.schemaVersion < 13) {
+    // v12→v13(自由宽):档位制退役——已存 span 按旧档位数学换算为 px
+    // 存 width、剥离 span;无 span 的组零改写(缺省宽从每行条数推导,
+    // 渲染逐字不变)。非法档位(非整数/越 1..6)不换算,交终末修复剥
+    // 离回推导(口径同 v12 及更早的非法 span 剥离)
+    let converted = false;
+    const groups = next.groups.map((gRaw: Group & { span?: number }) => {
+      if (gRaw.width !== undefined) {
+        if (gRaw.span === undefined) return gRaw;
+        converted = true;
+        return { ...gRaw, span: undefined };
+      }
+      if (gRaw.span === undefined || !isValidStep(gRaw.span)) return gRaw;
+      converted = true;
+      return { ...gRaw, width: groupWidthOf(gRaw.span), span: undefined };
+    });
+    if (converted) next = { ...next, groups };
+    next = { ...next, schemaVersion: 13 };
+  }
   // 缺省 = 自动档(schema v5),修复仅针对已存在的非法值
   if (
     next.canvasWidth !== undefined &&
@@ -132,10 +157,11 @@ export function migrateState(state: BookmarkState): BookmarkState {
   ) {
     next = { ...next, canvasWidth: clampCanvasWidth(next.canvasWidth) };
   }
-  // 统一修复(含已是当前版的状态):columns/span 非法一律剥离;
-  // 合法 columns > 合法 span 抬 span(幂等:干净状态 groups 引用不变,
-  // 整体原引用返回);height 非法钳回/剥离(group-height,v12,
-  // 口径同待办卡:有限越界/非整数钳回,非有限/非数剥离为自适应)
+  // 统一修复(含已是当前版的状态):columns 非法剥离、分组 span 残遗
+  // (v12 遗物)剥离、width 非法钳回/剥离回推导、合法 columns 装不进
+  // 钳后宽时抬宽(幂等:干净状态 groups 引用不变,整体原引用返回);
+  // height 非法钳回/剥离(group-height,v12,口径同待办卡:有限越界/
+  // 非整数钳回,非有限/非数剥离为自适应)
   if (
     next.groups.some(
       (g) =>
@@ -146,21 +172,33 @@ export function migrateState(state: BookmarkState): BookmarkState {
     next = {
       ...next,
       groups: next.groups.map((g) => {
-        const columns = isValidStep(g.columns) ? g.columns : undefined;
-        const span = isValidStep(g.span) ? g.span : undefined;
-        const sized =
-          columns !== undefined && span !== undefined && columns > span
-            ? { ...g, columns, span: columns }
-            : { ...g, columns, span };
+        const raw = g as typeof g & { span?: unknown; width?: unknown };
+        const columns = isValidStep(raw.columns) ? raw.columns : undefined;
+        const width = normalizeGroupWidth(raw.width);
+        // 合法 columns 装不进钳后宽 → 抬宽到恰装(宽到装得下,不丢排版)
+        const raised =
+          width !== undefined &&
+          columns !== undefined &&
+          groupWidthOf(columns) > width
+            ? groupWidthOf(columns)
+            : width;
+        // 残遗 span 与旧 width/columns 剥离后按条件物化(不残留 undefined
+        // 值键,同 restoreFrom 口径)
+        const { span: _span, width: _width, columns: _columns, ...rest } = raw;
+        const sized = {
+          ...rest,
+          ...(columns !== undefined ? { columns } : null),
+          ...(raised !== undefined ? { width: raised } : null),
+        };
         const height = (sized as { height?: unknown }).height;
         if (!needsGroupHeightRepair(height)) return sized;
         // 单一收口 normalizeGroupHeight;剥离不残留 undefined 值键
-        // (同 restoreFrom 口径;columns/span 物化是 sizing 修复旧形状)
+        // (同 restoreFrom 口径)
         const normalized = normalizeGroupHeight(height);
-        const { height: _stripped, ...rest } = sized;
+        const { height: _stripped, ...restH } = sized;
         return normalized !== undefined
-          ? { ...rest, height: normalized }
-          : rest;
+          ? { ...restH, height: normalized }
+          : restH;
       }),
     };
   }
@@ -198,10 +236,22 @@ function isValidStep(value: number | undefined): boolean {
   );
 }
 
-/** 档位/每行条数需修复:任一非法,或合法 columns 超出合法 span。 */
-function needsSizingRepair(g: { span?: number; columns?: number }): boolean {
-  if (!isValidStep(g.span) || !isValidStep(g.columns)) return true;
-  return g.span !== undefined && g.columns !== undefined && g.columns > g.span;
+/** 组宽/每行条数需修复:残遗 span(v12 遗物)、columns 或 width 非法,
+ * 或合法 columns 装不进钳后宽(抬宽,不丢排版)。 */
+function needsSizingRepair(g: {
+  span?: unknown;
+  width?: unknown;
+  columns?: number;
+}): boolean {
+  if (g.span !== undefined) return true;
+  if (!isValidStep(g.columns)) return true;
+  const width = normalizeGroupWidth(g.width);
+  if (g.width !== undefined && width !== g.width) return true;
+  return (
+    width !== undefined &&
+    g.columns !== undefined &&
+    groupWidthOf(g.columns) > width
+  );
 }
 
 /** 组定长高需修复(group-height,v12):非数/非有限 → 剥离为自适应;

@@ -19,14 +19,16 @@ import { normalizeUrl } from "./url";
 import {
   CARD_W,
   MAX_CANVAS_W,
+  MAX_GROUP_COLUMNS,
   appendPositions,
   canvasWidthOf,
   clampCanvasWidth,
-  normalizeGroupHeight,
-  clampToCanvas,
-  groupSpanOf,
+  clampGroupWidth,
+  groupCellsForWidth,
   groupWidthOf,
-  maxSpanForCanvas,
+  normalizeGroupHeight,
+  normalizeGroupWidth,
+  clampToCanvas,
 } from "./canvas";
 import { legacySpanWidth, migrateState, normalizeTodoCard } from "./migrations";
 
@@ -332,9 +334,11 @@ function isGroupShape(v: unknown, requireCoords: boolean): v is Group {
     typeof g.order === "number" &&
     // 画布坐标(schema v3 起):v3 备份必携带且为数字;更早版本无此字段
     (!requireCoords || (typeof g.x === "number" && typeof g.y === "number")) &&
-    // 每行条数(schema v6 起)/组宽档位(schema v7 起):可缺省,
-    // 给了就必须是数字(非法值迁移链剥离)
+    // 每行条数(schema v6 起)/组宽(schema v13 起):可缺省,
+    // 给了就必须是数字(非法值恢复路径剥离/钳回);span 为 v7–v12
+    // 遗物,同数字口径放行(恢复路径换算或剥离)
     (g.columns === undefined || typeof g.columns === "number") &&
+    (g.width === undefined || typeof g.width === "number") &&
     (g.span === undefined || typeof g.span === "number")
   );
 }
@@ -427,10 +431,9 @@ function parseStateJson(raw: string): Result<BookmarkState> {
 }
 
 /**
- * 替换全部:清空后恢复备份(id/顺序/颜色/备注/坐标逐字保留),画布宽随备份
- * (固定宽钳回;缺省 = 自动档,坐标按上限钳界,与 store 自动档同口径),
- * 超档组降档、每行条数连带降到档位(同 setCanvasWidth 口径),按各自宽钳 x;
- * 缺省组不物化 span(渲染口径从 columns 推导,v6 备份往返不变形),
+ * 超宽组收窄到画布宽、每行条数连带降到装满(同 setCanvasWidth 口径),
+ * 按各自宽钳 x;缺省组不物化 width(渲染口径从每行条数推导,v6 备份
+ * 往返不变形;推导宽超界时例外,收窄物化),
  * 同时修复损坏备份:补回缺失收集箱、孤儿收藏收回收集箱、备份内重复 URL 只留首条。
  */
 function restoreFrom(backup: BookmarkState): {
@@ -439,29 +442,47 @@ function restoreFrom(backup: BookmarkState): {
 } {
   const canvasWidth = canvasWidthOf(backup);
   const bound = canvasWidth ?? MAX_CANVAS_W;
-  const maxColumns = maxSpanForCanvas(bound);
   const groups: Group[] = backup.groups.map((g) => {
-    const spanRaw = groupSpanOf(g);
-    const spanClamped = Math.min(spanRaw, maxColumns);
-    // 非整数 = 非法(v7 同版备份绕过迁移链):按缺省装满处理,不落库
-    const columns =
-      g.columns === undefined || !Number.isInteger(g.columns)
-        ? undefined
-        : Math.min(g.columns, spanClamped);
-    // 缺省组(span 未存且未超档)保持缺省,不物化;其余写钳后档位
-    const span =
-      g.span !== undefined || spanClamped !== spanRaw ? spanClamped : undefined;
-    // 组定长高(group-height,v12):同版备份绕过迁移链,此处收口——
+    const raw = g as Group & { span?: number };
+    // 每行条数:非法(非有限整数/越 1..6)剥离回装满
+    const validColumns =
+      raw.columns !== undefined &&
+      Number.isInteger(raw.columns) &&
+      raw.columns >= 1 &&
+      raw.columns <= MAX_GROUP_COLUMNS;
+    // 组宽(group-width-free,v13):width 优先(单一收口 normalizeGroupWidth
+    // 钳回/剥离);残遗 span(v12 遗物,同版备份绕迁移链)按旧档位数学
+    // 换算,非法档位不换算交推导;宽随画布宽收窄(同待办卡口径);
+    // 缺省组不物化——推导宽超界时例外,收窄物化
+    const legacyWidth =
+      raw.span !== undefined &&
+      Number.isInteger(raw.span) &&
+      raw.span >= 1 &&
+      raw.span <= MAX_GROUP_COLUMNS
+        ? groupWidthOf(raw.span)
+        : undefined;
+    const requested = normalizeGroupWidth(raw.width) ?? legacyWidth;
+    const derived = groupWidthOf(validColumns ? raw.columns! : 1);
+    const width =
+      requested !== undefined
+        ? clampGroupWidth(Math.min(requested, bound))
+        : derived > bound
+          ? bound
+          : undefined;
+    // 每行条数防御钳 ≤ 装满(同旧 columns ≤ span 口径)
+    const fit = groupCellsForWidth(width ?? derived);
+    const columns = validColumns ? Math.min(raw.columns!, fit) : undefined;
+    // 组定长高(group-height,v12):同版备份绕迁移链,此处收口——
     // 单一收口 normalizeGroupHeight(有限钳回、非有限/非数剥离,
     // 不残留 undefined 值键,同 normalizeTodoCard)
-    const { height: rawHeight, ...rest } = g;
+    const { span: _span, width: _width, height: rawHeight, ...rest } = raw;
     const height = normalizeGroupHeight(rawHeight);
     return {
       ...rest,
-      span,
+      ...(width !== undefined ? { width } : null),
       columns,
       ...(height !== undefined ? { height } : null),
-      ...clampToCanvas(g, bound, groupWidthOf(spanClamped)),
+      ...clampToCanvas(g, bound, width ?? derived),
     };
   });
   if (!groups.some((g) => g.id === INBOX_GROUP_ID)) {

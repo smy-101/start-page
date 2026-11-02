@@ -25,13 +25,15 @@ import {
   appendPositions,
   canvasBoundWidth,
   clampCanvasWidth,
+  clampGroupWidth,
   clampTodoWidth,
   clampTodoHeight,
   clampToCanvas,
   clampGroupHeight,
-  groupSpanOf,
+  groupCellsForWidth,
+  groupCellsOf,
   groupWidthOf,
-  maxSpanForCanvas,
+  groupWidthPxOf,
   todoWidthOf,
 } from "./canvas";
 
@@ -110,18 +112,20 @@ export interface BookmarkStore {
    */
   setCanvasWidth(width: number): Promise<Result<number>>;
   /**
-   * 每行条数写回(表单路径,schema v7 语义升级,group-span-decouple):
-   * 钳回 [1, min(6, 画布放得下的最大档)] 后落盘;**组宽只升不降**
-   * (span' = max(档位, cells)——拖出来的长度保持住,表单只是组内排版);
-   * 档位脱离推导时物化写入;变宽重钳 x;同义(含缺省装满)不落盘。
+   * 每行条数写回(表单路径,schema v13 语义,group-width-free):
+   * 钳回 [1, min(6, 画布装得下的条数)] 后落盘;**组宽只升不降**
+   * (宽' = max(生效宽, 装满 cells 宽)——拖出来的长度保持住,表单只是
+   * 组内排版);宽脱离推导时物化写入;变宽重钳 x;同义(含缺省装满)
+   * 不落盘。
    */
   setGroupColumns(id: GroupId, columns: number): Promise<Result<Group>>;
   /**
-   * 组宽档位写回(schema v7,拖柄/键盘路径):钳
-   * [1, min(6, 画布放得下的最大档)] 后落盘;每行条数存在且超档时自动降
-   * 到档位(缺省保持装满);变宽后按新宽重钳 x;同义不落盘。
+   * 组宽写回(schema v13,拖柄/键盘路径):钳 [222, 2400] 且不越画布宽
+   * (自动档按上限;16px 网格对齐在组件松手吸附)后落盘;每行条数存在
+   * 且超装满时自动降到装满(缺省保持装满);变宽后按新宽重钳 x;
+   * 同义不落盘。
    */
-  setGroupSpan(id: GroupId, span: number): Promise<Result<Group>>;
+  setGroupWidth(id: GroupId, width: number): Promise<Result<Group>>;
   /** 组定长高写回(group-height,schema v12;底柄松手/键盘步进/钉住切换;
    * 钳 [176, 720],不随画布收窄;undefined = 解除定长回自适应,剥离字段;
    * 收集箱同样适用——高度是排版旋钮非内容编辑,同折叠/调宽同权) */
@@ -228,7 +232,8 @@ function ensureInbox(state: BookmarkState): BookmarkState {
  * 画布宽逐字比较(schema v5:缺省自动档 ≠ 钉住的固定宽)。
  * todos 逐字段参与(schema v8,todo-card;v9 补 color、v10 补 width):
  * 待办勾选/增删/调宽/换色都要触发回声重建。分组 height 逐字段参与
- * (schema v12,group-height):组定长/解除要触发回声重建。
+ * (schema v12,group-height):组定长/解除要触发回声重建;分组 width
+ * 逐字段参与(schema v13,group-width-free):组调宽要触发回声重建。
  */
 export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
   if (a === b) return true;
@@ -252,8 +257,8 @@ export function statesEqual(a: BookmarkState, b: BookmarkState): boolean {
       x.x !== y.x ||
       x.y !== y.y ||
       x.columns !== y.columns ||
-      x.span !== y.span ||
-      x.height !== y.height
+      x.height !== y.height ||
+      x.width !== y.width
     ) {
       return false;
     }
@@ -355,21 +360,21 @@ export async function createBookmarkStore(
   }
 
   /**
-   * 组宽字段写回共用(group-span-decouple):物化档位/每行条数,按新宽
-   * 重钳 x 回画布内(y 只压非负),落盘并返回新组。同义判定由两条入口
-   * 各自完成(setGroupColumns 只升不降 / setGroupSpan 自动降条数)。
+   * 组宽字段写回共用(group-width-free):物化宽/每行条数,按新宽重钳 x
+   * 回画布内(y 只压非负),落盘并返回新组。同义判定由两条入口各自完成
+   * (setGroupColumns 只升不降 / setGroupWidth 自动降条数)。
    */
   async function writeGroupSizing(
     group: Group,
-    span: number,
+    width: number,
     columns: number | undefined
   ): Promise<Result<Group>> {
     const pos = clampToCanvas(
       { x: group.x, y: group.y },
       canvasBoundWidth(state),
-      groupWidthOf(span)
+      width
     );
-    const resized: Group = { ...group, span, columns, x: pos.x, y: pos.y };
+    const resized: Group = { ...group, width, columns, x: pos.x, y: pos.y };
     state = {
       ...state,
       groups: state.groups.map((g) => (g.id === group.id ? resized : g)),
@@ -582,7 +587,7 @@ export async function createBookmarkStore(
       }
       const width = canvasBoundWidth(state);
       const widthOf = new Map(
-        state.groups.map((g) => [g.id, groupWidthOf(groupSpanOf(g))] as const)
+        state.groups.map((g) => [g.id, groupWidthPxOf(g)] as const)
       );
       const byId = new Map(
         positions.map((p) => {
@@ -613,28 +618,26 @@ export async function createBookmarkStore(
       const clamped = clampCanvasWidth(width);
       // 逐字比较:自动档(缺省)钉任意值都算变化(schema v5)
       const widthChanged = clamped !== state.canvasWidth;
-      // 缩宽时超档组降档(maxSpanForCanvas)、每行条数连带降到档位,
-      // 坐标按各自宽重钳到新右界(宽化不变坐标与档位);逐组判断,
+      // 缩宽时超宽组收窄到画布宽(同待办卡口径)、每行条数连带降到装满,
+      // 坐标按各自宽重钳到新右界(宽化不变坐标与条数);逐组判断,
       // 未动者原对象保留
       let moved = false;
       const groups = state.groups.map((g) => {
-        const maxSpan = maxSpanForCanvas(clamped);
-        const span = Math.min(groupSpanOf(g), maxSpan);
+        const effective = groupWidthPxOf(g);
+        const next = Math.min(effective, clamped);
+        const fit = groupCellsForWidth(next);
         const columns =
-          g.columns === undefined ? undefined : Math.min(g.columns, span);
-        const pos = clampToCanvas(
-          { x: g.x, y: g.y },
-          clamped,
-          groupWidthOf(span)
-        );
-        // 档位与每行条数生效值均未动且坐标未动:原对象保留(不写入显式 undefined)
-        const widthSame =
-          span === groupSpanOf(g) &&
-          (columns ?? span) === (g.columns ?? groupSpanOf(g));
-        if (widthSame && pos.x === g.x && pos.y === g.y) return g;
+          g.columns === undefined ? undefined : Math.min(g.columns, fit);
+        const pos = clampToCanvas({ x: g.x, y: g.y }, clamped, next);
+        // 宽与每行条数生效值均未动且坐标未动:原对象保留(不写入显式
+        // undefined;生效宽未变时未物化组保持推导,不因缩画布落库)
+        const widthSame = next === effective;
+        const columnsSame = (columns ?? fit) === groupCellsOf(g);
+        if (widthSame && columnsSame && pos.x === g.x && pos.y === g.y)
+          return g;
         moved = true;
-        if (widthSame) return { ...g, x: pos.x, y: pos.y };
-        return { ...g, span, columns, x: pos.x, y: pos.y };
+        if (widthSame && columnsSame) return { ...g, x: pos.x, y: pos.y };
+        return { ...g, width: next, columns, x: pos.x, y: pos.y };
       });
       // 待办卡同口径(todo-card-size-color):缩画布至放不下时宽收窄到
       // 画布宽、x 按新宽重钳;未动者原对象保留(缺省宽 389.33 不物化)
@@ -662,49 +665,50 @@ export async function createBookmarkStore(
     ): Promise<Result<Group>> {
       const group = state.groups.find((g) => g.id === id);
       if (!group) return { ok: false, error: "group-not-found" };
-      // 钳上界随画布宽(自动档按上限);非有限值归 1,取整一律 floor
-      const maxSpan = maxSpanForCanvas(canvasBoundWidth(state));
+      // 钳上界随画布宽(自动档按上限):表单最多选到画布装得下的条数;
+      // 非有限值归 1,取整一律 floor
       const requested = Number.isFinite(columns) ? Math.floor(columns) : 1;
       const cells = Math.max(
         1,
-        Math.min(requested, MAX_GROUP_COLUMNS, maxSpan)
+        Math.min(
+          requested,
+          MAX_GROUP_COLUMNS,
+          groupCellsForWidth(canvasBoundWidth(state))
+        )
       );
-      // 表单永不缩宽(group-span-decouple):档位只升不降,拖出来的长度保持住
-      const spanEff = groupSpanOf(group);
-      const span = Math.max(spanEff, cells);
-      // 与当前生效值同义(含缺省装满)不落盘;写则统一物化档位
-      // (span = cells 时存否等价,物化保住后续降条数不缩宽)
-      const cellsEff = group.columns ?? spanEff;
-      if (cells === cellsEff && span === spanEff) {
+      // 表单永不缩宽(group-width-free):宽只升不降,拖出来的长度保持住
+      // (抬宽基准 = 装满 cells 的宽,同旧档位数学)
+      const width = Math.max(groupWidthPxOf(group), groupWidthOf(cells));
+      // 与当前生效值同义(含缺省装满)不落盘;写则统一物化宽
+      // (宽 = 生效宽时存否等价,物化保住后续降条数不缩宽)
+      if (cells === groupCellsOf(group) && width === groupWidthPxOf(group)) {
         return { ok: true, value: group };
       }
-      return writeGroupSizing(group, span, cells);
+      return writeGroupSizing(group, width, cells);
     },
 
-    async setGroupSpan(id: GroupId, span: number): Promise<Result<Group>> {
+    async setGroupWidth(id: GroupId, width: number): Promise<Result<Group>> {
       const group = state.groups.find((g) => g.id === id);
       if (!group) return { ok: false, error: "group-not-found" };
-      // 钳上界随画布宽(自动档按上限);非有限值归 1,取整一律 floor
-      const maxSpan = maxSpanForCanvas(canvasBoundWidth(state));
-      const requested = Number.isFinite(span) ? Math.floor(span) : 1;
-      const nextSpan = Math.max(
-        1,
-        Math.min(requested, MAX_GROUP_COLUMNS, maxSpan)
+      // 界限双钳:[222, 2400] 且不越画布宽(自动档按上限);
+      // 非有限值归下界附近,取整一律 floor;16px 网格对齐在组件松手吸附
+      // (同待办卡分工:store 只管界限)
+      const next = clampGroupWidth(
+        Math.min(clampGroupWidth(width), canvasBoundWidth(state))
       );
-      // 每行条数自动降(拖窄装不下时,用户定案):存在且超档 → 降到档位;
-      // 缺省保持装满
+      // 每行条数自动降(拖窄装不下时,用户定案):存在且超装满 → 降到
+      // 装满;缺省保持装满
+      const fit = groupCellsForWidth(next);
       const nextColumns =
-        group.columns === undefined
-          ? undefined
-          : Math.min(group.columns, nextSpan);
-      // 与当前生效值同义(含缺省装满:undefined 侧归一到各自档位)不落盘
+        group.columns === undefined ? undefined : Math.min(group.columns, fit);
+      // 与当前生效值同义(含缺省装满:undefined 侧归一到各自生效值)不落盘
       if (
-        nextSpan === groupSpanOf(group) &&
-        (nextColumns ?? nextSpan) === (group.columns ?? groupSpanOf(group))
+        next === groupWidthPxOf(group) &&
+        (nextColumns ?? fit) === groupCellsOf(group)
       ) {
         return { ok: true, value: group };
       }
-      return writeGroupSizing(group, nextSpan, nextColumns);
+      return writeGroupSizing(group, next, nextColumns);
     },
 
     async setGroupHeight(

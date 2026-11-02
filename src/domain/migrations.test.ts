@@ -545,7 +545,7 @@ describe("schema v7 组宽档位(group-span-decouple)", () => {
     expect(migrateState(state)).toBe(state);
   });
 
-  it("防御:span 非法(越界/非整数)剥离为缺省(= 从 columns 推导)", () => {
+  it("防御:残遗 span 一律剥离(v13 同版手改只剥不换,口径同待办卡);非法档位不换算交推导", () => {
     const state = {
       ...v6State(),
       schemaVersion: SCHEMA_VERSION,
@@ -553,21 +553,25 @@ describe("schema v7 组宽档位(group-span-decouple)", () => {
         { ...v6State().groups[0], span: 0 },
         { ...v6State().groups[1], span: 2.5, columns: 4 },
       ],
-    };
+    } as unknown as BookmarkState;
     const migrated = migrateState(state);
-    expect(migrated.groups[0].span).toBeUndefined();
-    // span 剥离后缺省从 columns 推导(生效档位 4,与抬档等价;剩一路径)
-    expect(migrated.groups[1]).toMatchObject({ span: undefined, columns: 4 });
+    // span 剥离且不物化 width:0 号无 columns → 推导 222;1 号从 columns 4
+    // 推导 792(渲染逐字不变)
+    expect(migrated.groups[0]).not.toHaveProperty("span");
+    expect(migrated.groups[0]).not.toHaveProperty("width");
+    expect(migrated.groups[1]).toMatchObject({ columns: 4 });
+    expect(migrated.groups[1]).not.toHaveProperty("span");
+    expect(migrated.groups[1]).not.toHaveProperty("width");
   });
 
-  it("防御:columns > span 抬 span 到 columns(宽到装得下,不丢排版)", () => {
+  it("防御:合法 columns 装不进钳后宽时抬宽到恰装(宽到装得下,不丢排版)", () => {
     const state = {
       ...v6State(),
       schemaVersion: SCHEMA_VERSION,
-      groups: [{ ...v6State().groups[1], span: 2, columns: 4 }],
-    };
+      groups: [{ ...v6State().groups[1], width: 412, columns: 4 }],
+    } as unknown as BookmarkState;
     expect(migrateState(state).groups[0]).toMatchObject({
-      span: 4,
+      width: 792,
       columns: 4,
     });
   });
@@ -942,7 +946,7 @@ describe("迁移 v11→v12:组定长高(group-height)", () => {
   }
 
   it("v11 → v12:零数据改写——groups/todos/bookmarks 引用逐字保留", () => {
-    const before = v11State([{ span: 2, height: 320 }, {}]);
+    const before = v11State([{ height: 320 }, {}]);
     const migrated = migrateState(before);
     expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.groups).toBe(before.groups);
@@ -976,5 +980,86 @@ describe("迁移 v11→v12:组定长高(group-height)", () => {
     expect(
       migrated.groups.map((g) => (g as { height?: number }).height)
     ).toEqual([undefined, 720, 176, 320, undefined, undefined]);
+  });
+});
+
+describe("迁移 v12→v13:组自由宽(group-width-free)", () => {
+  /** v12 基态:收集箱 + 依 overrides 造组(可携 span/columns/width/height)。 */
+  function v12State(overrides: { [key: string]: unknown }[]): BookmarkState {
+    return {
+      schemaVersion: 12,
+      groups: [
+        {
+          id: INBOX_GROUP_ID,
+          name: "收集箱",
+          color: "#3b82f6",
+          order: 0,
+          x: 0,
+          y: 0,
+        },
+        ...overrides.map((o, i) => ({
+          id: `g${i + 1}`,
+          name: `组${i + 1}`,
+          color: "#e99695",
+          order: i + 1,
+          x: 0,
+          y: 0,
+          ...o,
+        })),
+      ],
+      bookmarks: [],
+      todos: [],
+    } as unknown as BookmarkState;
+  }
+
+  it("v12 → v13:已存 span 按旧档位数学换算为 px 存 width、剥离 span", () => {
+    const migrated = migrateState(v12State([{ span: 3 }, { span: 6 }]));
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+    // W(3)=602、W(6)=1172:渲染逐字不变
+    expect(migrated.groups[1]).toMatchObject({ width: 602 });
+    // span 置 undefined(键随 JSON 落盘丢弃,同待办卡 v9→v10 口径)
+    expect((migrated.groups[1] as { span?: number }).span).toBeUndefined();
+    expect(migrated.groups[2]).toMatchObject({ width: 1172 });
+  });
+
+  it("无 span 的组零改写:引用逐字保留(缺省宽从每行条数推导)", () => {
+    const before = v12State([{ columns: 4 }, { height: 320 }, {}]);
+    const migrated = migrateState(before);
+    expect(migrated.groups).toBe(before.groups);
+    expect(migrated.groups[1]).toBe(before.groups[1]);
+    expect(migrated.groups[2]).toBe(before.groups[2]);
+    expect(migrated.groups[3]).toBe(before.groups[3]);
+  });
+
+  it("非法 span(非整数/越界)不换算:剥离回推导(终末修复)", () => {
+    const migrated = migrateState(
+      v12State([{ span: 0 }, { span: 2.5 }, { span: 7 }])
+    );
+    for (const g of migrated.groups.slice(1)) {
+      expect(g).not.toHaveProperty("span");
+      expect(g).not.toHaveProperty("width");
+    }
+  });
+
+  it("修复:非法 width 有限越界/非整数钳回、非有限/非数剥离回推导", () => {
+    const migrated = migrateState(
+      v12State([
+        { width: 100 },
+        { width: 5000 },
+        { width: 484.6 },
+        { width: Number.NaN },
+        { width: "wide" },
+      ])
+    );
+    // 收集箱无 width;钳回 [222, 2400] floor 取整;垃圾值不物化定宽
+    expect(migrated.groups.map((g) => (g as { width?: number }).width)).toEqual(
+      [undefined, 222, 2400, 484, undefined, undefined]
+    );
+  });
+
+  it("修复:清单式换算后条数仍 ≤ 装满(残遗 columns 防御钳)", () => {
+    // span 6 换算 1172,残遗 columns 2 合法且 ≤ 装满 6:清单式保持
+    const migrated = migrateState(v12State([{ span: 6, columns: 2 }]));
+    expect(migrated.groups[1]).toMatchObject({ width: 1172, columns: 2 });
   });
 });

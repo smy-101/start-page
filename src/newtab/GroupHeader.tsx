@@ -52,7 +52,7 @@ export function GroupHeader({
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [name, setName] = useState(group.name);
   const [color, setColor] = useState(group.color);
-  // 每行条数(group-span-decouple):生效值含装满缺省(columns 缺省 = 随档位)
+  // 每行条数(group-width-free):生效值含装满缺省(columns 缺省 = 随组宽)
   const [columns, setColumns] = useState(groupCellsOf(group));
   const [error, setError] = useState<string | null>(null);
   const isInbox = group.id === INBOX_GROUP_ID;

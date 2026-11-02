@@ -27,7 +27,7 @@ export const CELL_GAP = 6;
  * padding 4×2 + 滚动槽 12(网格 scrollbar-gutter: stable 常驻预留;
  * 滚动条自定宽 8px(scrollbar-fix),留余量——不预留则列内容滚出时塌列)。 */
 export const GROUP_EDGE = 38;
-/** 每行条数/组宽档位共用上限(档 6 宽 1172 ≤ 默认画布 1200,再多横条格过窄)。 */
+/** 每行条数上限(宽 6 格 1172 ≤ 默认画布 1200,再多横条格过窄)。 */
 export const MAX_GROUP_COLUMNS = 6;
 /** 默认三列 = 3×卡宽 + 2×间距 = 1200 恰好铺满(宽画布列数见 columnsFor)。 */
 export const CANVAS_COLUMNS = 3;
@@ -82,13 +82,13 @@ export function columnsFor(canvasW: number): number {
 }
 
 /**
- * 组宽推导(group-width-tint,schema v6;档 1 调校 2026-11-16):每行条数 c →
- * 渲染宽(px),不存 px。统一公式:固定开销 + c 格 + (c−1) 格距,内宽恰装
+ * 每行条数 → 装满宽(group-width-tint,schema v6;档 1 调校 2026-11-16):
+ * 每行条数 c → 渲染宽(px),统一公式:固定开销 + c 格 + (c−1) 格距,内宽恰装
  * c 格(auto-fill minmax 的精确边界),梯度等差 CELL_W + CELL_GAP = 190:
  * 222/412/602/792/982/1172。档 1 原为存量单列宽 CARD_W ≈ 389(v6 观感保留),
  * 与档 2 仅差 23 吸附近乎无意义,且用户反馈偏宽——特例退役,单列组 =
- * 单格恰装。非法(非有限/非正整数)归 1。schema v7 起入参是组宽档位
- * span(见 groupSpanOf),数学不动。
+ * 单格恰装。非法(非有限/非正整数)归 1。schema v13 起组宽为自由宽 px,
+ * 此函数退居两职:缺省宽推导(装满)与表单只升不降的抬宽基准。
  */
 export function groupWidthOf(columns?: number): number {
   const c =
@@ -101,21 +101,51 @@ export function groupWidthOf(columns?: number): number {
   return GROUP_EDGE + c * CELL_W + (c - 1) * CELL_GAP;
 }
 
-/** 宽度 → 最近档位(拖柄松手吸附档位边界,group-span-decouple):1..上限,越界钳回。 */
-export function nearestGroupSpan(widthPx: number): number {
-  let best = 1;
-  let bestDistance = Infinity;
-  for (let c = 1; c <= MAX_GROUP_COLUMNS; c++) {
-    const distance = Math.abs(groupWidthOf(c) - widthPx);
-    if (distance < bestDistance) {
-      best = c;
-      bestDistance = distance;
-    }
-  }
-  return best;
+/** ---- 组自由宽(group-width-free;自由宽调校 2026-12)----
+ * 档位制退役(用户定案,待办卡 v10 自由宽同款语言;ADR-0005 选项 C
+ * 复活):不设档位,白板模式拖组右缘连续调宽、松手 16px 网格吸附、
+ * 键盘 ←/→ 步进一格;缺省 = 从每行条数推导装满(存量零改写),
+ * 下限 222 = 单格恰装(groupWidthOf(1),再窄装不下一格收藏),
+ * 上限 = 画布宽(组再宽无处可放;缩画布至放不下时收窄,同待办卡)。 */
+
+/** 组宽下限(px):单格恰装(groupWidthOf(1)=222,再窄装不下一格)。 */
+export const GROUP_W_MIN = GROUP_EDGE + CELL_W;
+/** 组宽绝对上限(px):即画布宽上限(组宽无处超过画布;钳界哨兵)。 */
+export const GROUP_W_MAX = MAX_CANVAS_W;
+
+/** 组宽钳回:floor 取整后钳 [222, 2400];非有限归下界(宽的「缺省」
+ * 是推导而非定值,垃圾输入当最近的合法界;同 clampGroupHeight 口径)。 */
+export function clampGroupWidth(width: number): number {
+  if (!Number.isFinite(width)) return GROUP_W_MIN;
+  return Math.floor(Math.min(Math.max(width, GROUP_W_MIN), GROUP_W_MAX));
 }
 
-/** 档位合法:正整数 1..上限;非法归 undefined(缺省间回退链用)。 */
+/**
+ * 组宽规范化(group-width-free):有限钳回、非有限/非数剥离为 undefined
+ * 回推导装满(垃圾值不物化定宽)。迁移终末修复与导入恢复共用的单一
+ * 收口(同 normalizeGroupHeight 的角色;不残留 undefined 值键由调用方
+ * 条件物化)。
+ */
+export function normalizeGroupWidth(width: unknown): number | undefined {
+  return typeof width === "number" && Number.isFinite(width)
+    ? clampGroupWidth(width)
+    : undefined;
+}
+
+/** 宽 → 装得下的每行条数(装满推导):恰为 groupWidthOf 的逆——
+ * floor((w − 固定开销 + 格距)/(格宽 + 格距)),钳 1..上限;
+ * 自由宽下「缺省 = 装满」由此随宽自适应。 */
+export function groupCellsForWidth(width: number): number {
+  return Math.min(
+    MAX_GROUP_COLUMNS,
+    Math.max(
+      1,
+      Math.floor((width - GROUP_EDGE + CELL_GAP) / (CELL_W + CELL_GAP))
+    )
+  );
+}
+
+/** 档位/每行条数共用合法域:缺省(与推导/装满同义)或有限整数 1..上限。 */
 function validStep(value: number | undefined): number | undefined {
   return value !== undefined &&
     Number.isInteger(value) &&
@@ -126,29 +156,41 @@ function validStep(value: number | undefined): number | undefined {
 }
 
 /**
- * 组宽档位生效值(group-span-decouple,schema v7):span 优先,缺省从每行条数
- * 推导(装满——v6 存量因此零改写迁移);非法逐级回退,终归 1。
- * 输入取 Partial<Group> 形状,组件/领域均传整组。
+ * 每行条数生效值(group-width-free,schema v13):columns 缺省 =
+ * 装满(随宽;宽也缺省时 = 1);给了则防御钳 ≤ 装满(写路径恒保证,
+ * 手改 JSON 的兑底)。(宽 982、条数 1) = 宽组清单式——本功能的
+ * 落点形态。输入取 Partial<Group> 形状,组件/领域均传整组。
  */
-export function groupSpanOf(group: {
-  span?: number;
+export function groupCellsOf(group: {
+  width?: number;
   columns?: number;
 }): number {
-  return validStep(group.span) ?? validStep(group.columns) ?? 1;
+  const cells = validStep(group.columns);
+  // 显式条数:宽已定才防御钳 ≤ 装满(写路径恒保证,手改 JSON 的兑底);
+  // 宽缺省时条数即推导源(宽由它装满推导,恒自洽)
+  if (cells !== undefined) {
+    return group.width !== undefined
+      ? Math.min(cells, groupCellsForWidth(clampGroupWidth(group.width)))
+      : cells;
+  }
+  // 缺省 = 装满:随宽;宽也缺省时 = 1
+  return group.width !== undefined
+    ? groupCellsForWidth(clampGroupWidth(group.width))
+    : 1;
 }
 
 /**
- * 每行条数生效值(group-span-decouple,schema v7):columns 缺省 = 装满
- * (随档位);给了则防御钳 ≤ 档位(写路径恒保证,手改 JSON 的兑底)。
- * (span 4, columns 1) = 宽组清单式——本功能的落点形态。
+ * 组生效宽(group-width-free,schema v13):width 优先(存在则钳回);
+ * 缺省从每行条数推导(装满,v12 存量零改写)。入参取 { width, columns }
+ * 形状,组件/领域均传整组。
  */
-export function groupCellsOf(group: {
-  span?: number;
+export function groupWidthPxOf(group: {
+  width?: number;
   columns?: number;
 }): number {
-  const span = groupSpanOf(group);
-  const cells = validStep(group.columns);
-  return cells === undefined ? span : Math.min(cells, span);
+  return group.width !== undefined
+    ? clampGroupWidth(group.width)
+    : groupWidthOf(groupCellsOf(group));
 }
 
 /** ---- 待办卡宽(todo-card-size-color,spec 决定 1;自由宽调校 2026-11-14)----
@@ -229,14 +271,6 @@ export function normalizeGroupHeight(height: unknown): number | undefined {
     : undefined;
 }
 
-/** 画布内放得下的最大组宽档位(至少 1):拖柄调宽/缩画布的钳上界。 */
-export function maxSpanForCanvas(canvasW: number): number {
-  for (let c = MAX_GROUP_COLUMNS; c > 1; c--) {
-    if (groupWidthOf(c) <= canvasW) return c;
-  }
-  return 1;
-}
-
 /**
  * 零高装箱(未测量/测不出高度):列间轮流派位,行距 STACK_STEP。
  * 迁移(v2→v3 存量铺开)与白板「自动整理」的测不出退化共用同一份
@@ -298,7 +332,7 @@ export function packCanvas(
     const spanW = slots * (CARD_W + GAP) - GAP;
     const pos = {
       // 居中偏移但不出画布(宽卡跨槽溢出时靠左;组宽 ≤ 画布是常态,
-      // store 已按 maxSpanForCanvas 钳过,此处仅防御)
+      // store 已按画布宽收窄钳过,此处仅防御)
       x: Math.max(0, Math.floor(target * (CARD_W + GAP) + (spanW - w) / 2)),
       y: Math.floor(targetTop),
     };

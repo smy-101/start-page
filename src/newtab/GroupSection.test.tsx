@@ -70,10 +70,10 @@ function callbacks() {
       .mockImplementation(async (id: GroupId, color: string) =>
         ok(group({ id, color }))
       ),
-    onResizeSpan: vi
+    onResizeWidth: vi
       .fn()
-      .mockImplementation(async (id: GroupId, span: number) =>
-        ok(group({ id, span }))
+      .mockImplementation(async (id: GroupId, width: number) =>
+        ok(group({ id, width }))
       ),
     onSetColumns: vi
       .fn()
@@ -113,7 +113,7 @@ function renderGroup(
       collapsed={collapsed}
       whiteboardMode={whiteboardMode}
       resizable={whiteboardMode && !collapsed}
-      resizeMaxSpan={6}
+      resizeMaxW={1200}
       dropIndex={null}
       handlers={handlers}
       {...cbs}

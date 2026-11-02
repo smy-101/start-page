@@ -1084,7 +1084,7 @@ describe("V4 画布宽兼容(canvas-bounds-align)", () => {
   });
 });
 
-describe("V7 组宽档位兼容(group-span-decouple)", () => {
+describe("组宽备份兼容(group-width-free;v7–v12 span 遗物换算)", () => {
   /** v7 备份组:超档组(span 6, columns 4)+ 清单式组(span 4, columns 1)。 */
   function v7Groups() {
     return [
@@ -1126,7 +1126,7 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
       bookmarks: [],
     });
 
-  it("span 校验:可缺省;给了必须是数字,字符串拒收", async () => {
+  it("span/width 校验:可缺省;给了必须是数字,字符串拒收", async () => {
     const pristine = createMemoryStorage(null);
     const noSpan = v7Groups().map((g) => ({ ...g, span: undefined }));
     expect(
@@ -1140,9 +1140,17 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
     expect(
       (await importStateFromJson(bad, backup(strSpan), "replace")).ok
     ).toBe(false);
+
+    const badWidth = createMemoryStorage(null);
+    const strWidth = v7Groups().map((g, i) =>
+      i === 1 ? { ...g, width: "602" } : g
+    );
+    expect(
+      (await importStateFromJson(badWidth, backup(strWidth), "replace")).ok
+    ).toBe(false);
   });
 
-  it("replace 恢复:超档组降档连带降每行条数,x 按新宽钳;清单式 columns 不动", async () => {
+  it("replace 恢复:span 按旧档位数学换算为 px,超画布收窄、条数连带降;x 按新宽钳", async () => {
     const adapter = createMemoryStorage(null);
 
     expect((await importStateFromJson(adapter, backup(), "replace")).ok).toBe(
@@ -1150,13 +1158,14 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
     );
 
     const state = (await adapter.load())!;
-    // 720 下最大档 3(W(3)=602 ≤ 720 < W(4)=792);x=100 ≤ 118 合法不动
-    expect(state.groups[1]).toMatchObject({ span: 3, columns: 3, x: 100 });
-    // 清单式组同样降档:columns 1 ≤ 3 不动
-    expect(state.groups[2]).toMatchObject({ span: 3, columns: 1 });
+    // W(6)=1172 > 720:收窄到画布宽 720(同待办卡口径,不再降档到 602);
+    // 装满 = 3 条,columns 4 连带降到 3;x=100 越新右界 0 钳回 0
+    expect(state.groups[1]).toMatchObject({ width: 720, columns: 3, x: 0 });
+    // 清单式组同样收窄:columns 1 ≤ 装满 3 不动
+    expect(state.groups[2]).toMatchObject({ width: 720, columns: 1 });
   });
 
-  it("小数 columns 备份(v7 同版绕过迁移):恢复时按缺省装满处理,不落小数", async () => {
+  it("小数 columns 备份(同版绕过迁移):恢复时剥离回装满,不落小数", async () => {
     const adapter = createMemoryStorage(null);
     const fractional = v7Groups().map((g, i) =>
       i === 1 ? { ...g, columns: 2.5 } : g
@@ -1168,26 +1177,45 @@ describe("V7 组宽档位兼容(group-span-decouple)", () => {
     ).toBe(true);
 
     const state = (await adapter.load())!;
-    // 非整数 = 非法:恢复为缺省(装满随档位),不把 2.5 写进存储
+    // 非整数 = 非法:剥离回装满(随换算宽),不把 2.5 写进存储
     expect(state.groups[1].columns).toBeUndefined();
-    expect(state.groups[1].span).toBe(6);
+    expect(state.groups[1].width).toBe(1172);
   });
 
-  it("宽画布原样往返:档位与每行条数逐字保留;缺省组不物化 span", async () => {
+  it("越界整数 columns 备份(同版绕过迁移):恢复时剥离回装满,不落越界值", async () => {
+    const adapter = createMemoryStorage(null);
+    const overflow = v7Groups().map((g, i) =>
+      i === 1 ? { ...g, columns: 7 } : i === 2 ? { ...g, columns: -3 } : g
+    );
+
+    expect(
+      (await importStateFromJson(adapter, backup(overflow, 1200), "replace")).ok
+    ).toBe(true);
+
+    const state = (await adapter.load())!;
+    // 越界整数(7/-3)= 非法:与迁移链同口径剥离回装满,不走旧
+    // restoreFrom 的 Math.min 物化(垃圾输入口径合一,渲染等价)
+    expect(state.groups[1].columns).toBeUndefined();
+    expect(state.groups[1].width).toBe(1172);
+    expect(state.groups[2].columns).toBeUndefined();
+    expect(state.groups[2].width).toBe(792);
+  });
+
+  it("宽画布原样往返:span 换算为 px、条数逐字保留;无 span 组不物化 width", async () => {
     const adapter = createMemoryStorage(null);
 
     await importStateFromJson(adapter, backup(v7Groups(), 1200), "replace");
 
     const state = (await adapter.load())!;
-    expect(state.groups[1]).toMatchObject({ span: 6, columns: 4 });
-    expect(state.groups[2]).toMatchObject({ span: 4, columns: 1 });
+    expect(state.groups[1]).toMatchObject({ width: 1172, columns: 4 });
+    expect(state.groups[2]).toMatchObject({ width: 792, columns: 1 });
 
-    // v6 形状(无 span)导入:不物化 span,渲染口径从 columns 推导
+    // v6 形状(无 span)导入:不物化 width,渲染口径从每行条数推导
     const v6 = createMemoryStorage(null);
     const noSpan = v7Groups().map((g) => ({ ...g, span: undefined }));
     await importStateFromJson(v6, backup(noSpan, 1200), "replace");
     const v6State = (await v6.load())!;
-    expect(v6State.groups[1].span).toBeUndefined();
+    expect(v6State.groups[1].width).toBeUndefined();
     expect(v6State.groups[1].columns).toBe(4);
   });
 });

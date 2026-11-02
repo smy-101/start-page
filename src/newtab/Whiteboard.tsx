@@ -31,9 +31,7 @@ import {
   canvasBoundWidth,
   clampCanvasWidth,
   effectiveCanvasWidth,
-  groupSpanOf,
-  groupWidthOf,
-  maxSpanForCanvas,
+  groupWidthPxOf,
   packCanvas,
   snapAlignment,
   todoWidthOf,
@@ -111,9 +109,9 @@ export type WhiteboardProps = {
   ): Promise<Result<Group[]>>;
   /** 画布宽写回(右缘拖柄松手/键盘调整;钳回与重钳越界分组在 store 收口) */
   onResizeCanvas(width: number): Promise<Result<number>>;
-  /** 组宽档位写回(group-span-decouple):组右缘拖柄/键盘 → store 钳回落盘 */
-  onResizeGroup(id: GroupId, span: number): Promise<Result<Group>>;
-  /** 每行条数写回(group-span-decouple):组头表单 → store 只升不降落盘 */
+  /** 组宽写回(group-width-free 自由宽):组右缘拖柄/键盘 → store 钳回落盘 */
+  onResizeGroup(id: GroupId, width: number): Promise<Result<Group>>;
+  /** 每行条数写回(group-width-free):组头表单 → store 只升不降落盘 */
   onSetGroupColumns(id: GroupId, columns: number): Promise<Result<Group>>;
   /** 组定长高写回(group-height):底柄松手/键盘步进/钉住切换 → store 钳回落盘;
    * undefined = 解除定长回自适应 */
@@ -306,15 +304,13 @@ export function Whiteboard({
       : (placements.get(card.id) ?? null);
   }
 
-  // 各卡渲染宽:分组按档位推导(group-span-decouple),待办卡为自由宽
-  // (todo-card-size-color;缺省 CARD_W);拖拽钳界/对齐/装箱共用
+  // 各卡渲染宽:均为自由宽(分组 group-width-free 缺省从每行条数推导,
+  // 待办卡 todo-card-size-color 缺省 CARD_W);拖拽钳界/对齐/装箱共用
   const widthOf = useCallback(
     (id: string): number =>
       todoIds.has(id)
         ? todoWidthOf(todosByOrder.find((t) => t.id === id) ?? {})
-        : groupWidthOf(
-            groupSpanOf(groupsByOrder.find((g) => g.id === id) ?? {})
-          ),
+        : groupWidthPxOf(groupsByOrder.find((g) => g.id === id) ?? {}),
     [groupsByOrder, todosByOrder, todoIds]
   );
   const widthOfRef = useRef(widthOf);
@@ -645,7 +641,7 @@ export function Whiteboard({
       all.map((id) => heightOf(id)),
       canvasWRef.current,
       // 宽度感知装箱(group-width-tint):各卡按各自渲染宽占槽
-      // (分组按档位、待办自由宽,todo-card-size-color)
+      // (均为自由宽:分组 group-width-free、待办 todo-card-size-color)
       all.map((id) => widthOfRef.current(id))
     );
     void onSetGroupPositions(
@@ -760,7 +756,7 @@ export function Whiteboard({
                 collapsed={collapsed}
                 whiteboardMode={whiteboardMode}
                 resizable={!locked && !collapsed}
-                resizeMaxSpan={maxSpanForCanvas(canvasW)}
+                resizeMaxW={canvasW}
                 dragActive={drag?.id === group.id}
                 dropIndex={
                   dropHint?.groupId === group.id ? dropHint.index : null
@@ -768,7 +764,7 @@ export function Whiteboard({
                 onToggleCollapse={onToggleCollapse}
                 onRename={onRenameGroup}
                 onRecolor={onRecolorGroup}
-                onResizeSpan={onResizeGroup}
+                onResizeWidth={onResizeGroup}
                 onSetColumns={onSetGroupColumns}
                 onResizeHeight={onResizeGroupHeight}
                 onDeleteGroup={onDeleteGroup}
@@ -867,7 +863,7 @@ export function Whiteboard({
  * 分组卡登记与量高(白板版):itemRef 正向登记(按 id 缓存的稳定回调,
  * memo 前提)、拖拽委托反查 id;量高三条腿——每次提交后
  * useLayoutEffect 同步量(首帧不闪,且提交改高当帧回流画布高:
- * 折叠/展开、组宽档位、收藏增删不闪旧高露出画布边界;
+ * 折叠/展开、组调宽、收藏增删不闪旧高露出画布边界;
  * RO 的 setState 在绘制后才提交,赶不上这一帧)、ResizeObserver 跟踪
  * 非提交引起的变化(字体加载等)、即时量高(自动整理)直读 DOM。
  * 高度进 state(渲染用)而非只存 ref:
@@ -907,7 +903,7 @@ function useCardRegistry(ids: readonly string[]) {
   );
 
   // 同步测量:首帧(绘画前)即得到真实高度;且每次提交后都量——折叠/展开、
-  // 组宽档位、收藏增删等凡改组高的提交,画布高在同一帧内回流(RO 的
+  // 组调宽、收藏增删等凡改组高的提交,画布高在同一帧内回流(RO 的
   // setState 在绘制后才提交,底缘组折叠会闪一帧旧高露出画布边界);
   // 未变则返回旧引用,不触发多余渲染。jsdom 里恒 0,同样无害
   useLayoutEffect(() => {
