@@ -2,6 +2,10 @@
 
 评审轴消费;实现期无需载入(机械条目已由检查接管,见下)。
 
+## 格式
+
+格式由 `.prettierrc` + lint-staged prettier 接管,评审轴不裁格式差异;diff 把离群文件带入 Prettier 风格不算噪声(edge-compat/03 评审两轴同报假阳性,实证)。
+
 ## 取整
 
 几何计算(坐标、钳回边界、装箱、迁移)取整一律 `Math.floor`。

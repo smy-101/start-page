@@ -16,6 +16,11 @@ CRXJS dev 会话只把 **JS** 写入 `dist/`、**CSS 走 HMR 内存注入**—�
 - 症状特征:**新行为 + 旧样式混跑**(例:定长逻辑生效但滚动/布局样式缺失,内容被 `overflow:hidden` 裁掉)。第一时间 `ls -la dist/assets` 核对文件日期。
 - 规则:改完代码 → `npm run build` → 人在 `chrome://extensions` 点刷新 → 再在扩展上验证。dev 会话留下的 `dist/` 不可当装机产物。
 
+## 浏览器侧持久状态:观察前先排污染
+
+- Edge 标签图标读本地 **Favicons 库**,不实时跟页面 `<link>` 声明;试验轮次写入的图标会当残影继续上屏,`?v=` 破缓存无效。涉及 favicon/标签图标的真机观察,先清库(步骤与根因全链路见 `.scratch/edge-compat/issues/02` 终局结论;Ctrl+Shift+R 按源码会标记过期重取,值得一试)。
+- 症状疑为浏览器侧行为(单色遮罩、缓存库、固定占位图)时,先查官方故障排除文档与社区同症状报告再写码——edge-compat/01、02 的根因均迟到于方案落地。
+
 ## 视觉走查流程(静态构建 → Windows HTTP → MCP 断言)
 
 1. `npx vite build --config vite.preview.config.ts`——`preview/` harness 含 chrome-shim + 内存存储 + 中文种子数据(场景卡在 `preview/main.tsx` 里按需增改),不依赖扩展 API。完成标准:产物出现在 `sp-preview-build/`。
