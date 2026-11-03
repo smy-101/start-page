@@ -38,7 +38,7 @@ function stripComments(source: string): string {
 
 describe("回归门禁:术语", () => {
   it("src 非测试源码不出现「起始页」(页面名统一用「初始页」)", () => {
-    const files = sourceFiles(srcRoot, [".ts", ".tsx"]).filter(
+    const files = sourceFiles(srcRoot, [".ts", ".tsx", ".css"]).filter(
       (f) => !f.includes("guards.test")
     );
     const offenders = files.filter((f) =>

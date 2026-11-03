@@ -50,6 +50,7 @@ CRXJS dev 会话只把 **JS** 写入 `dist/`、**CSS 走 HMR 内存注入**—�
 - React `useEffect` 挂 window 监听在 paint 之后:**同一同步块里连发 pointerdown/move/up 会丢事件**——派发之间 `await new Promise(r => setTimeout(r, 50))` 留间隔。
 - 键盘/指针 handler 绑在柄元素(如 `tabIndex={0}` 的拖柄)而非卡容器:派发到容器是静默 no-op,状似功能坏了。**派发前先 grep 源码确认绑定目标**,别按容器猜。
 - `getBoundingClientRect` 是视口相对坐标:**先滚动、后量测**,且对比的两侧矩形同帧量。
+- rAF 循环类行为(自动滚动、动画)断言前先 `select_page` bringToFront:页面被遮挡时 rAF 节流到 ~3fps,断言会误读为「不动」(全链路见 `.scratch/board-shell-scroll/issues/02`)。
 - `take_screenshot` 偶发超时;数值断言优先,截图是补充。
 
 ## 域内测试口径(引用,不展开)
