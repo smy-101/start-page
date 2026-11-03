@@ -50,7 +50,8 @@ const INTENT_PX = 5;
 const NUDGE_MS = 4000;
 /** 画布底衬:内容底边之外再留的呼吸位。 */
 const CANVAS_PAD = 24;
-/** 拖拽中贴近滚动壳内缘的自动滚动区宽(px,canvas-bounds-align)。 */
+/** 拖拽中贴近滚动壳内缘的自动滚动区宽(px,canvas-bounds-align;
+ * board-shell-scroll/02 扩四向)。 */
 const AUTOSCROLL_ZONE = 36;
 /** 自动滚动单帧最大步长(px)。 */
 const AUTOSCROLL_STEP = 12;
@@ -69,8 +70,9 @@ const AUTOSCROLL_STEP = 12;
  *   对齐吸附(canvas-bounds-align):拖中与其余卡/画布边线的 左/中/右、
  *   上/中/下 边线比对,阈值 8px 内吸到精确对齐并显示辅助线
  *   (`.wb-guide-x/y`),已对齐轴松手跳过网格吸附(对象吸附优先)。
- * - 画布宽于视口时,拖分组/调宽中指针贴近滚动壳左右内缘自动滚动
- *   (rAF 循环),否则右缘在宽画布上永远够不着。
+ * - 拖分组/调宽中指针贴近滚动壳四向内缘自动滚动
+ *   (rAF 循环,board-shell-scroll/02),否则宽画布右缘、长画布下方
+ *   永远够不着(按住底缘即持续长画布,Figma 式边缘巡航);
  * - 画布捕获阶段拦非收藏卡的原生 dragstart(组头文字选区等,免劫持
  *   pointermove);组内收藏排序仍走 HTML5 DnD(DropHint 体系),收藏卡
  * (.card)的 dragstart 放行。
@@ -424,9 +426,10 @@ export function Whiteboard({
     setCanvasOverride(null);
   }
 
-  // ---- 自动滚动(canvas-bounds-align):会话活跃期间 rAF 循环,
-  // 指针贴近滚动壳左右内缘即按超出量比例滚动;滚动改变了画布视口,
-  // 跟手坐标/预览宽用最新指针重算(指针不动画布在动,卡也要跟)。 ----
+  // ---- 自动滚动(canvas-bounds-align;board-shell-scroll/02 扩四向、
+  // 调宽会话接入):会话活跃期间 rAF 循环,指针贴近滚动壳四向内缘
+  // 即按超出量比例滚动;滚动改变了画布视口,跟手坐标/预览宽用最新
+  // 指针重算(指针不动画布在动,卡与拖柄都要跟)。 ----
   const rafRef = useRef(0);
   function stopAutoScroll(): void {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -439,22 +442,38 @@ export function Whiteboard({
       const pointer = pointerRef.current;
       if (scroller && pointer && scroller.clientWidth > 0) {
         const rect = scroller.getBoundingClientRect();
-        const before = scroller.scrollLeft;
+        const before = { x: scroller.scrollLeft, y: scroller.scrollTop };
         const overRight = pointer.x - (rect.right - AUTOSCROLL_ZONE);
         const overLeft = rect.left + AUTOSCROLL_ZONE - pointer.x;
+        const overBottom = pointer.y - (rect.bottom - AUTOSCROLL_ZONE);
+        const overTop = rect.top + AUTOSCROLL_ZONE - pointer.y;
+        const pace = (over: number) =>
+          Math.min(AUTOSCROLL_STEP, 2 + over * 0.25);
         if (overRight > 0) {
           scroller.scrollLeft = Math.min(
-            before + Math.min(AUTOSCROLL_STEP, 2 + overRight * 0.25),
+            before.x + pace(overRight),
             scroller.scrollWidth
           );
         } else if (overLeft > 0) {
-          scroller.scrollLeft = Math.max(
-            before - Math.min(AUTOSCROLL_STEP, 2 + overLeft * 0.25),
-            0
-          );
+          scroller.scrollLeft = Math.max(before.x - pace(overLeft), 0);
         }
-        if (scroller.scrollLeft !== before && grabRef.current) {
+        if (overBottom > 0) {
+          scroller.scrollTop = Math.min(
+            before.y + pace(overBottom),
+            scroller.scrollHeight
+          );
+        } else if (overTop > 0) {
+          scroller.scrollTop = Math.max(before.y - pace(overTop), 0);
+        }
+        // 滚动改变画布视口:按会话分叉用最新指针重算(卡限手坐标、
+        // 拖柄限预览宽)——两公式都是内容系坐标,滚动时画布缘随
+        // scrollTop 移动、值等量增长,卡/拖柄视口位钉在指针下不漂
+        const scrolled =
+          scroller.scrollLeft !== before.x || scroller.scrollTop !== before.y;
+        if (scrolled && grabRef.current) {
           applyDrag(pointer.x, pointer.y);
+        } else if (scrolled && resizingRef.current) {
+          applyResize(pointer.x);
         }
       }
       rafRef.current = requestAnimationFrame(step);
@@ -498,8 +517,10 @@ export function Whiteboard({
   };
 
   // 右缘拖柄:整高热区,pointerdown 起调宽会话(键盘走 onKeyDown);
-  // 不起自动滚动——视口内拖柄跟手即可,超视口宽度用键盘步进
-  // (自动滚动会因 rect 左移把预览宽滚飞,实测教训)
+  // 同样吃自动滚动(board-shell-scroll/02,作废 canvas-bounds-align
+  // 「调宽不起自动滚动」旧取舍):预览宽 = clientX − 画布左缘视口位,
+  // 本就是内容系坐标——滚动时画布左缘左移、预览宽等量增长,拖柄
+  // (画布右缘)钉在指针下不漂,超界由 clampCanvasWidth 钳 [MIN, MAX]
   const onResizePointerDown = (event: React.PointerEvent) => {
     if (event.button !== 0 || locked) return;
     event.preventDefault();
@@ -508,6 +529,7 @@ export function Whiteboard({
     pointerRef.current = { x: event.clientX, y: event.clientY };
     resizePreviewRef.current = canvasWRef.current;
     setResizePreview(canvasWRef.current);
+    startAutoScroll();
   };
 
   useEffect(() => {
