@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "start-page-inbox": {
+      "command": "node",
+      "args": [
+        "/home/smy-101/workspace/self/start-page/scripts/inbox-mcp/server.mjs"
+      ]
+    }
+  }
+}

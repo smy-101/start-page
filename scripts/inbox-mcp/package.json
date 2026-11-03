@@ -1,0 +1,11 @@
+{
+  "name": "start-page-inbox-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "初曦扩展收集箱只读 MCP server:扫描 Chromium 浏览器 Local Extension Settings(Chrome/Edge 等),按 mtime 取最新初曦状态",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "classic-level": "^2.0.0"
+  }
+}
