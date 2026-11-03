@@ -40,6 +40,10 @@ npm run build      # 构建可加载的扩展产物到 dist/
 
 界面中文;深浅色跟随系统(CSS 变量 + `prefers-color-scheme`)。数据仅存本地 `chrome.storage.local`。
 
+## Edge 兼容说明
+
+Edge 把 `edge://newtab` 的标签图标固定成内置「文档」占位图:扩展在页面里声明 favicon、改动 manifest 图标都不会生效(实测 Edge 156;Chrome 不受影响)。为让标签显示「初曦」品牌图标,扩展在 Edge 下会把新建标签页重定向到扩展页(`chrome-extension://<id>/src/newtab/index.html`),标签图标改由扩展图标渲染。代价:地址栏会显示该扩展 URL。Chrome 下不触发此逻辑。
+
 ## 功能使用
 
 ### 收藏:三个入口
