@@ -90,6 +90,19 @@ body {
   padding: 32px 24px 48px;
 }
 
+/* 看板视图应用壳(board-shell-scroll):白板在场时页面钉视口高、
+   纵向 flex,页头/搜索常驻不随看板滚走(初始页语义);底衬清零,
+   滚动壳底缘即视口底缘——滚动条贴页面底/右缘,不再悬在白板下方
+   (内容高时要先滚到页底才够得着)。设置/加载/搜索空态无 .whiteboard
+   子元素,不命中,保持文档流 */
+.page:has(> .whiteboard) {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
 /* 无标题页首:动作区靠右,页面主角是搜索 */
 .page-header {
   display: flex;
@@ -1290,6 +1303,12 @@ button[type="submit"]:hover {
 
 .whiteboard {
   position: relative;
+  /* 应用壳(board-shell-scroll):吃满 .page 余高、自身纵向 flex,
+   把余高传给滚动壳;min-height: 0 允许收缩到内容高以下 */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* nudge 引导浮层(board-whiteboard/03):拖动意图触发,画布上方居中;4s 自动消隐 */
@@ -1791,9 +1810,13 @@ button[type="submit"]:hover {
   font-size: 13px;
 }
 
-/* 窗口更窄时画布整体横向滚动,卡坐标恒定不重排 */
+/* 画布滚动壳:窗口更窄横向滚动、内容更高纵向滚动,卡坐标恒定不重排;
+   应用壳(board-shell-scroll)里吃满余高 → 滚动条贴页面底缘/右缘。
+   双轴显式 auto(原单轴 overflow-x 的 y 轴隐式计算即 auto,行为等价) */
 .whiteboard-scroll {
-  overflow-x: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding-bottom: 6px;
 }
 
