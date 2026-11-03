@@ -3,7 +3,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "初曦",
-  version: "0.1.0",
+  version: "0.2.0",
   description: "初曦:收藏初始页,分组管理、搜索直达、数据随时带走",
   icons: {
     "16": "icons/icon-16.png",
